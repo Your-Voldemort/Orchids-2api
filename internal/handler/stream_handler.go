@@ -443,15 +443,33 @@ func (h *streamHandler) handleToolCall(call toolCall) {
 		if !h.isStream {
 			h.emitToolCallNonStream(call)
 		} else {
-			// Emit tool call to stream for visibility
-			idx := -1
+			// Emit text notification instead of tool_use to avoid client side execution
+			notification := fmt.Sprintf("\n[Running tool: %s]\n", call.name)
+
 			h.mu.Lock()
-			if value, exists := h.toolBlocks[call.id]; exists {
-				idx = value
-				delete(h.toolBlocks, call.id)
-			}
+			h.blockIndex++
+			idx := h.blockIndex
 			h.mu.Unlock()
-			h.emitToolCallStream(call, idx, h.writeSSE)
+
+			startData, _ := json.Marshal(map[string]interface{}{
+				"type":          "content_block_start",
+				"index":         idx,
+				"content_block": map[string]interface{}{"type": "text", "text": ""},
+			})
+			h.writeSSE("content_block_start", string(startData))
+
+			deltaData, _ := json.Marshal(map[string]interface{}{
+				"type":  "content_block_delta",
+				"index": idx,
+				"delta": map[string]interface{}{"type": "text_delta", "text": notification},
+			})
+			h.writeSSE("content_block_delta", string(deltaData))
+
+			stopData, _ := json.Marshal(map[string]interface{}{
+				"type":  "content_block_stop",
+				"index": idx,
+			})
+			h.writeSSE("content_block_stop", string(stopData))
 		}
 		result := executeToolCall(call, h.config)
 		h.internalToolResults = append(h.internalToolResults, result)
@@ -716,15 +734,41 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		}
 
 		if h.toolCallMode == "auto" {
-			// In auto mode, we just emit the visualization since the actual action is happening upstream
-			// We treat this as a completed tool call notification
+			// In auto mode, we execute the tool internally.
+			// Do NOT emit a tool_use event, because that instructs the client to execute the tool,
+			// causing "Sibling tool call errored" or double execution.
+			// Instead, emit a text block to notify the user of what's happening.
 			if h.isStream {
-				idx := -1
+				notification := fmt.Sprintf("\n[Running tool: %s]\n", call.name)
+
+				// Ensure we have a text block open or start one
 				h.mu.Lock()
+				// If the last block was text, we could append, but simpler to just start a new block
+				// or just write to the stream if we are in between blocks?
+				// To be safe and compatible with UI, let's start a text block.
 				h.blockIndex++
-				idx = h.blockIndex
+				idx := h.blockIndex
 				h.mu.Unlock()
-				h.emitToolCallStream(call, idx, h.writeSSE)
+
+				startData, _ := json.Marshal(map[string]interface{}{
+					"type":          "content_block_start",
+					"index":         idx,
+					"content_block": map[string]interface{}{"type": "text", "text": ""},
+				})
+				h.writeSSE("content_block_start", string(startData))
+
+				deltaData, _ := json.Marshal(map[string]interface{}{
+					"type":  "content_block_delta",
+					"index": idx,
+					"delta": map[string]interface{}{"type": "text_delta", "text": notification},
+				})
+				h.writeSSE("content_block_delta", string(deltaData))
+
+				stopData, _ := json.Marshal(map[string]interface{}{
+					"type":  "content_block_stop",
+					"index": idx,
+				})
+				h.writeSSE("content_block_stop", string(stopData))
 			}
 		}
 

@@ -99,12 +99,30 @@ func applyCacheStrategy(req *ClaudeRequest, strategy string) {
 		msg := &req.Messages[idx]
 		if !msg.Content.IsString() {
 			blocks := msg.Content.GetBlocks()
-			// If Mixed, checking for large blocks
-			// Or just cache the last block if we have budget
+			// If Mixed strategy, check all blocks
+			// If Split strategy, just check the last one
 			if len(blocks) > 0 {
-				// For Claude Code, typically the context is big.
-				// Cache the last block.
-				if strategy == "mixed" || strategy == "split" {
+				if strategy == "mixed" {
+					var largestBlock *prompt.ContentBlock
+					maxLen := 0
+					for i := range blocks {
+						// Estimate size roughly
+						size := len(blocks[i].Text)
+						if blocks[i].Type == "image" && blocks[i].Source != nil {
+							size = len(blocks[i].Source.Data)
+						}
+						// Find largest
+						if size >= maxLen {
+							maxLen = size
+							largestBlock = &blocks[i]
+						}
+					}
+					if largestBlock != nil {
+						addCache(largestBlock)
+						req.Messages[idx].Content.Blocks = blocks
+					}
+				} else {
+					// Split strategy: cache last block
 					if addCache(&blocks[len(blocks)-1]) {
 						req.Messages[idx].Content.Blocks = blocks
 					}

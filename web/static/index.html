@@ -859,6 +859,18 @@
     .tab-warp.active {
       background: #6366f1 !important;
     }
+
+    .token-text {
+      display: inline-block;
+      max-width: 150px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      vertical-align: middle;
+      font-family: monospace;
+      font-size: 0.85rem;
+      opacity: 0.8;
+    }
   </style>
 </head>
 
@@ -890,19 +902,11 @@
         </a>
       </li>
       <li class="sidebar-item">
-        <a href="#" class="sidebar-link">
+        <a href="#" class="sidebar-link" onclick="switchTab('tutorial')">
           <span>📖</span> 使用教程
         </a>
       </li>
-      <li class="sidebar-item">
-        <a href="#" class="sidebar-link">
-          <span>💬</span> 联系开发者
-        </a>
-      </li>
     </ul>
-    <div style="padding: 0 12px; margin-bottom: 20px;">
-      <a href="#" class="buy-button">🛒 渠道账号购买</a>
-    </div>
     <div class="sidebar-footer">
       <div class="sidebar-footer-stats">
         <div class="footer-stat-item">
@@ -943,12 +947,11 @@
   </aside>
 
   <main class="main-content">
-    <section class="header-section" id="accountsHeader">
-      <h1 id="pageTitle">账号管理</h1>
-      <p id="pageSubtitle">管理您的 Orchids API 凭证</p>
-    </section>
-
     <div id="accountsWrapper">
+      <section class="header-section" id="accountsHeader">
+        <h1 id="pageTitle">账号管理</h1>
+        <p id="pageSubtitle">管理您的 Orchids API 凭证</p>
+      </section>
       <section class="stats-grid" id="statsGrid">
         <div class="stat-card">
           <div class="stat-info">
@@ -1040,14 +1043,15 @@
             </div>
           </div>
         </div>
+
       </div>
     </div>
 
     <div id="keysWrapper" style="display: none; background: #f8fafc; padding: 24px; min-height: 100%;">
-      <div style="margin-bottom: 32px;">
-        <h2 style="font-size: 1.5rem; font-weight: 700; color: #1e293b; margin-bottom: 8px;">配置管理</h2>
-        <p style="color: #64748b; font-size: 0.95rem;">管理系统基础配置、负载均衡、授权等设置</p>
-      </div>
+      <section class="header-section" id="keysHeader">
+        <h1>配置管理</h1>
+        <p>管理系统基础配置、负载均衡、授权等设置</p>
+      </section>
 
       <div class="content-card"
         style="padding: 24px; border-radius: 12px; border: 1px solid #e2e8f0; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
@@ -1200,73 +1204,73 @@
               </div>
             </div>
           </div>
-
-          <div style="display: flex; justify-content: flex-start;">
-            <button class="btn btn-primary" onclick="saveConfiguration()"
-              style="padding: 10px 48px; font-weight: 500;">保存配置</button>
-          </div>
         </div>
 
-        <div id="authConfig" class="config-section" style="display: none;">
-          <div class="toolbar" style="margin-bottom: 24px">
-            <h2 style="margin: 0; font-size: 1.1rem; font-weight: 600; color: #1e293b;">API Key 管理</h2>
-            <button class="btn btn-primary btn-sm" onclick="openCreateKeyModal()">+ 创建 API Key</button>
-          </div>
-          <div id="keysList"></div>
+        <div style="display: flex; justify-content: flex-start;">
+          <button class="btn btn-primary" onclick="saveConfiguration()"
+            style="padding: 10px 48px; font-weight: 500;">保存配置</button>
         </div>
+      </div>
 
-        <div id="proxyConfig" class="config-section" style="display: none;">
-          <div style="max-width: 800px;">
-            <div style="margin-bottom: 24px;">
-              <h2 style="font-size: 1.1rem; font-weight: 600; color: #1e293b; margin-bottom: 24px;">代理服务器配置</h2>
+      <div id="authConfig" class="config-section" style="display: none;">
+        <div class="toolbar" style="margin-bottom: 24px">
+          <h2 style="margin: 0; font-size: 1.1rem; font-weight: 600; color: #1e293b;">API Key 管理</h2>
+          <button class="btn btn-primary btn-sm" onclick="openCreateKeyModal()">+ 创建 API Key</button>
+        </div>
+        <div id="keysList"></div>
+      </div>
 
-              <div class="form-group" style="margin-bottom: 24px;">
-                <label class="form-label">HTTP 代理地址</label>
-                <input type="text" class="form-input" id="cfg_proxy_http" placeholder="http://127.0.0.1:7890"
-                  style="background: #fbfbfc;" />
+      <div id="proxyConfig" class="config-section" style="display: none;">
+        <div style="max-width: 800px;">
+          <div style="margin-bottom: 24px;">
+            <h2 style="font-size: 1.1rem; font-weight: 600; color: #1e293b; margin-bottom: 24px;">代理服务器配置</h2>
+
+            <div class="form-group" style="margin-bottom: 24px;">
+              <label class="form-label">HTTP 代理地址</label>
+              <input type="text" class="form-input" id="cfg_proxy_http" placeholder="http://127.0.0.1:7890"
+                style="background: #fbfbfc;" />
+            </div>
+
+            <div class="form-group" style="margin-bottom: 24px;">
+              <label class="form-label">HTTPS 代理地址</label>
+              <input type="text" class="form-input" id="cfg_proxy_https" placeholder="http://127.0.0.1:7890"
+                style="background: #fbfbfc;" />
+            </div>
+
+            <div class="form-row"
+              style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 24px;">
+              <div class="form-group">
+                <label class="form-label">用户名 (可选)</label>
+                <input type="text" class="form-input" id="cfg_proxy_user" style="background: #fbfbfc;"
+                  autocomplete="off" />
               </div>
-
-              <div class="form-group" style="margin-bottom: 24px;">
-                <label class="form-label">HTTPS 代理地址</label>
-                <input type="text" class="form-input" id="cfg_proxy_https" placeholder="http://127.0.0.1:7890"
-                  style="background: #fbfbfc;" />
-              </div>
-
-              <div class="form-row"
-                style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 24px;">
-                <div class="form-group">
-                  <label class="form-label">用户名 (可选)</label>
-                  <input type="text" class="form-input" id="cfg_proxy_user" style="background: #fbfbfc;"
-                    autocomplete="off" />
-                </div>
-                <div class="form-group">
-                  <label class="form-label">密码 (可选)</label>
-                  <div style="position: relative;">
-                    <input type="password" class="form-input" id="cfg_proxy_pass"
-                      style="padding-right: 48px; background: #fbfbfc;" autocomplete="new-password" />
-                    <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%);">
-                      <button class="btn btn-icon" onclick="togglePassword('cfg_proxy_pass')">👁️</button>
-                    </div>
+              <div class="form-group">
+                <label class="form-label">密码 (可选)</label>
+                <div style="position: relative;">
+                  <input type="password" class="form-input" id="cfg_proxy_pass"
+                    style="padding-right: 48px; background: #fbfbfc;" autocomplete="new-password" />
+                  <div style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%);">
+                    <button class="btn btn-icon" onclick="togglePassword('cfg_proxy_pass')">👁️</button>
                   </div>
                 </div>
               </div>
-
-              <div class="form-group" style="margin-bottom: 32px;">
-                <label class="form-label">不走代理的主机 (每行一个)</label>
-                <textarea class="form-input" id="cfg_proxy_bypass" rows="4"
-                  placeholder="localhost&#10;127.0.0.1&#10;*.example.com"
-                  style="background: #fbfbfc; resize: vertical;"></textarea>
-                <small
-                  style="color: #64748b; margin-top: 8px; display: block; font-size: 0.85rem;">这些地址将直接连接，绕过代理设置</small>
-              </div>
-
-              <button class="btn btn-primary" onclick="saveConfiguration()" style="padding: 10px 48px;">保存配置</button>
             </div>
+
+            <div class="form-group" style="margin-bottom: 32px;">
+              <label class="form-label">不走代理的主机 (每行一个)</label>
+              <textarea class="form-input" id="cfg_proxy_bypass" rows="4"
+                placeholder="localhost&#10;127.0.0.1&#10;*.example.com"
+                style="background: #fbfbfc; resize: vertical;"></textarea>
+              <small
+                style="color: #64748b; margin-top: 8px; display: block; font-size: 0.85rem;">这些地址将直接连接，绕过代理设置</small>
+            </div>
+
+            <button class="btn btn-primary" onclick="saveConfiguration()" style="padding: 10px 48px;">保存配置</button>
           </div>
         </div>
       </div>
     </div>
-
+    </div>
 
     <!-- Models Wrapper -->
     <div id="modelsWrapper" style="display: none;">
@@ -1279,410 +1283,539 @@
         <div class="filter-tabs" id="modelPlatformFilters">
           <button class="tab-item active" onclick="filterModelsByChannel('')">All</button>
           <button class="tab-item tab-orchids" onclick="filterModelsByChannel('Orchids')">Orchids</button>
+          <button class="tab-item" onclick="filterModelsByChannel('QA-TEST')">质量测试</button>
         </div>
 
         <div
           style="display: flex; gap: 12px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-left: auto;">
           共 <strong id="totalModelCount">0</strong> 个模型
         </div>
-        <button class="btn btn-outline" onclick="refreshModels()">🔄 从上游刷新</button>
         <button class="btn btn-primary" style="background: #3b82f6; border: none; padding: 8px 20px;"
           onclick="openModelModal()">+ 添加模型</button>
       </div>
-    </div>
 
-    <div class="content-card">
-      <div id="modelsList">
-        <div class="empty-state"
-          style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #94a3b8;">
-          <span style="font-size: 3rem; margin-bottom: 16px;">💎</span>
-          <p>暂无模型数据</p>
+      <div id="modelsListWrapper">
+        <div class="content-card">
+          <div id="modelsList">
+            <div class="empty-state"
+              style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #94a3b8;">
+              <span style="font-size: 3rem; margin-bottom: 16px;">💎</span>
+              <p>暂无模型数据</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="modelsQaWrapper" style="display: none; margin-top: 24px;">
+        <div class="content-card" style="padding: 24px;">
+          <div style="display: flex; gap: 16px; margin-bottom: 24px;">
+            <div style="flex: 1;">
+              <label class="form-label">测试用例</label>
+              <select id="qaTestCase" class="form-input" onchange="loadQaPrompt()" style="background: #fbfbfc;">
+                <option value="greeting">Basic Greeting (基础问候)</option>
+                <option value="math">Mathematical Reasoning (数学推理/思考)</option>
+                <option value="tool_ls">Tool Use: ls (工具调用: ls)</option>
+                <option value="tool_calc">Tool Use: calc (工具: 计算)</option>
+                <option value="mega_context">Ultra-Long Context (超长上下文 50k+)</option>
+                <option value="custom">Custom Input (自定义输入)</option>
+              </select>
+            </div>
+            <div style="flex: 1;">
+              <label class="form-label">模型</label>
+              <input type="text" id="qaModel" class="form-input" value="claude-3-5-sonnet-20241022"
+                style="background: #fbfbfc;" />
+            </div>
+            <div style="display: flex; align-items: flex-end;">
+              <button class="btn btn-primary" onclick="runQaTest()" id="qaRunBtn">▶ 运行测试</button>
+            </div>
+          </div>
+
+          <div style="margin-bottom: 24px;">
+            <label class="form-label">Prompt Input</label>
+            <textarea id="qaInput" class="form-input" rows="4"
+              style="font-family: monospace; background: #fbfbfc;">Hello, say hi locally.</textarea>
+          </div>
+
+          <div>
+            <label class="form-label">Output Log</label>
+            <div id="qaOutput" style="
+                  background: #0f172a; 
+                  border: 1px solid rgba(148, 163, 184, 0.2); 
+                  border-radius: 8px; 
+                  padding: 16px; 
+                  height: 500px; 
+                  overflow-y: auto; 
+                  font-family: 'Menlo', 'Monaco', 'Courier New', monospace; 
+                  font-size: 0.9rem; 
+                  color: #e2e8f0;
+                  white-space: pre-wrap;
+                "></div>
+          </div>
         </div>
       </div>
     </div>
-    </div>
-    </div>
 
-    <!-- QA Tester Wrapper -->
-    <div id="qaWrapper" style="display: none;">
-      <section class="header-section" id="qaHeader">
-        <h1>API 质量测试</h1>
-        <p>运行预定义测试用例以验证 API 输出质量</p>
+    <!-- Tutorial Wrapper -->
+    <div id="tutorialWrapper" style="display: none;">
+      <section class="header-section" id="tutorialHeader">
+        <h1>使用教程</h1>
+        <p>了解如何使用 API 接口</p>
       </section>
 
       <div class="content-card" style="padding: 24px;">
-        <div style="display: flex; gap: 16px; margin-bottom: 24px;">
-          <div style="flex: 1;">
-            <label class="form-label">测试用例</label>
-            <select id="qaTestCase" class="form-input" onchange="loadQaPrompt()">
-              <option value="greeting">Basic Greeting (基础问候)</option>
-              <option value="math">Mathematical Reasoning (数学推理/思考)</option>
-              <option value="tool_ls">Tool Use: ls (工具调用: ls)</option>
-              <option value="tool_calc">Tool Use: calc (工具: 计算)</option>
-              <option value="mega_context">Ultra-Long Context (超长上下文 50k+)</option>
-              <option value="custom">Custom Input (自定义输入)</option>
+        <div
+          style="margin-bottom: 32px; background: rgba(56, 189, 248, 0.05); border: 1px solid rgba(56, 189, 248, 0.15); border-radius: 12px; padding: 20px;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;">
+            <div
+              style="width: 32px; height: 32px; background: #38bdf8; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white;">
+              🔗</div>
+            <h3 style="font-size: 1.1rem; font-weight: 700;">API 地址格式</h3>
+          </div>
+          <div
+            style="background: rgba(15, 23, 42, 0.4); padding: 12px 16px; border-radius: 8px; font-family: monospace; font-size: 1.1rem; color: #38bdf8; border: 1px solid rgba(148, 163, 184, 0.1);">
+            https://warp.chinablog.xyz/{渠道}/v1
+          </div>
+        </div>
+
+        <div
+          style="margin-bottom: 32px; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 12px; padding: 16px; display: flex; align-items: flex-start; gap: 12px;">
+          <span style="font-size: 1.2rem;">⚠️</span>
+          <div>
+            <span style="font-weight: 700; color: #f59e0b;">Claude Code 用户注意:</span> 配置 API 地址时请使用 <code
+              style="background: rgba(245, 158, 11, 0.15); padding: 2px 6px; border-radius: 4px; color: #f59e0b;">https://warp.chinablog.xyz/{渠道}</code>，<span
+              style="color: #fb7185; font-weight: 700;">不要</span>添加 <code
+              style="background: rgba(251, 113, 133, 0.1); padding: 2px 6px; border-radius: 4px; color: #fb7185;">/v1</code>
+            后缀
+          </div>
+        </div>
+
+        <div class="table-wrap"
+          style="background: rgba(15, 23, 42, 0.5); border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.1);">
+          <table>
+            <thead>
+              <tr style="background: rgba(15, 23, 42, 0.8);">
+                <th>渠道</th>
+                <th>API 地址</th>
+                <th>默认模型</th>
+                <th>支持协议</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="tag badge-kiro">Kiro</span></td>
+                <td><code style="color: #38bdf8; cursor: pointer;"
+                    onclick="copyToClipboard('https://warp.chinablog.xyz/kiro/v1')">https://warp.chinablog.xyz/kiro/v1</code>
+                </td>
+                <td><code style="color: #34d399;">claude-sonnet-4-5</code> <span class="tag badge-kiro"
+                    style="font-size: 0.7rem;">Kiro</span></td>
+                <td>
+                  <span class="tag"
+                    style="background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3);">Claude</span>
+                  <span class="tag"
+                    style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">OpenAI</span>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="tag badge-orchids">Orchids</span></td>
+                <td><code style="color: #38bdf8; cursor: pointer;"
+                    onclick="copyToClipboard('https://warp.chinablog.xyz/orchids/v1')">https://warp.chinablog.xyz/orchids/v1</code>
+                </td>
+                <td><code style="color: #34d399;">claude-sonnet-4-5</code> <span class="tag badge-orchids"
+                    style="font-size: 0.7rem;">Orchids</span></td>
+                <td>
+                  <span class="tag"
+                    style="background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3);">Claude</span>
+                  <span class="tag"
+                    style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">OpenAI</span>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="tag badge-antigravity"
+                    style="background: rgba(167, 139, 250, 0.15); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.3);">Antigravity</span>
+                </td>
+                <td><code style="color: #38bdf8; cursor: pointer;"
+                    onclick="copyToClipboard('https://warp.chinablog.xyz/antigravity/v1')">https://warp.chinablog.xyz/antigravity/v1</code>
+                </td>
+                <td><code style="color: #34d399;">gemini-2.5-flash-preview</code> <span class="tag badge-antigravity"
+                    style="background: rgba(167, 139, 250, 0.15); color: #a78bfa; border: 1px solid rgba(167, 139, 250, 0.3); font-size: 0.7rem;">Antigravity</span>
+                </td>
+                <td>
+                  <span class="tag"
+                    style="background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3);">Claude</span>
+                  <span class="tag"
+                    style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">OpenAI</span>
+                </td>
+              </tr>
+              <tr>
+                <td><span class="tag badge-warp"
+                    style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">Warp</span>
+                </td>
+                <td><code style="color: #38bdf8; cursor: pointer;"
+                    onclick="copyToClipboard('https://warp.chinablog.xyz/warp/v1')">https://warp.chinablog.xyz/warp/v1</code>
+                </td>
+                <td><code style="color: #34d399;">claude-4-5-sonnet</code> <span class="tag badge-warp"
+                    style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 0.7rem;">Warp</span>
+                </td>
+                <td>
+                  <span class="tag"
+                    style="background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52, 211, 153, 0.3);">Claude</span>
+                  <span class="tag"
+                    style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);">OpenAI</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Model Modal -->
+  <div class="modal" id="modelModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modelModalTitle">添加模型</h3>
+        <button class="modal-close" onclick="closeModelModal()">&times;</button>
+      </div>
+      <form id="modelForm" onsubmit="saveModel(event)">
+        <input type="hidden" id="modelId" />
+        <div class="form-group">
+          <label class="form-label">渠道</label>
+          <select class="form-input" id="modelChannel" style="background: #fbfbfc;">
+            <option value="Orchids">Orchids</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">模型 ID (Model ID)</label>
+          <input type="text" class="form-input" id="modelModelId" required placeholder="e.g. claude-3-opus-20240229" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">显示名称 (Name)</label>
+          <input type="text" class="form-input" id="modelName" required placeholder="e.g. Claude 3 Opus" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">排序权重</label>
+            <input type="number" class="form-input" id="modelSortOrder" value="0" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">状态</label>
+            <select class="form-input" id="modelStatus" style="background: #fbfbfc;">
+              <option value="available">可用 (Available)</option>
+              <option value="maintenance">维护 (Maintenance)</option>
+              <option value="offline">下线 (Offline)</option>
             </select>
           </div>
-          <div style="flex: 1;">
-            <label class="form-label">模型</label>
-            <input type="text" id="qaModel" class="form-input" value="claude-3-5-sonnet-20241022" />
-          </div>
-          <div style="display: flex; align-items: flex-end;">
-            <button class="btn btn-primary" onclick="runQaTest()" id="qaRunBtn">▶ 运行测试</button>
-          </div>
         </div>
-
-        <div style="margin-bottom: 24px;">
-          <label class="form-label">Prompt Input</label>
-          <textarea id="qaInput" class="form-input" rows="4"
-            style="font-family: monospace;">Hello, say hi locally.</textarea>
-        </div>
-
-        <div>
-          <label class="form-label">Output Log</label>
-          <div id="qaOutput" style="
-            background: #0f172a; 
-            border: 1px solid rgba(148, 163, 184, 0.2); 
-            border-radius: 8px; 
-            padding: 16px; 
-            height: 400px; 
-            overflow-y: auto; 
-            font-family: 'Menlo', 'Monaco', 'Courier New', monospace; 
-            font-size: 0.9rem; 
-            color: #e2e8f0;
-            white-space: pre-wrap;
-          "></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Model Modal -->
-    <div class="modal" id="modelModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 class="modal-title" id="modelModalTitle">添加模型</h3>
-          <button class="modal-close" onclick="closeModelModal()">&times;</button>
-        </div>
-        <form id="modelForm" onsubmit="saveModel(event)">
-          <input type="hidden" id="modelId" />
-          <div class="form-group">
-            <label class="form-label">渠道</label>
-            <select class="form-input" id="modelChannel" style="background: #fbfbfc;">
-              <option value="Orchids">Orchids</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label class="form-label">模型 ID (Model ID)</label>
-            <input type="text" class="form-input" id="modelModelId" required
-              placeholder="e.g. claude-3-opus-20240229" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">显示名称 (Name)</label>
-            <input type="text" class="form-input" id="modelName" required placeholder="e.g. Claude 3 Opus" />
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">排序权重</label>
-              <input type="number" class="form-input" id="modelSortOrder" value="0" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">状态</label>
-              <select class="form-input" id="modelStatus" style="background: #fbfbfc;">
-                <option value="available">可用 (Available)</option>
-                <option value="maintenance">维护 (Maintenance)</option>
-                <option value="offline">下线 (Offline)</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">
-              <label class="toggle">
-                <input type="checkbox" id="modelIsDefault" />
-                <span class="toggle-slider"></span>
-              </label>
-              &nbsp;&nbsp;设为默认模型
+        <div class="form-group">
+          <label class="form-label">
+            <label class="toggle">
+              <input type="checkbox" id="modelIsDefault" />
+              <span class="toggle-slider"></span>
             </label>
-          </div>
-          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 16px">
-            保存
-          </button>
-        </form>
+            &nbsp;&nbsp;设为默认模型
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 16px">
+          保存
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 创建 Key 弹窗 -->
+  <div class="modal" id="createKeyModal">
+    <div class="modal-content" style="max-width: 450px;">
+      <div class="modal-header">
+        <h3 class="modal-title">创建 API Key</h3>
+        <button class="modal-close" onclick="closeCreateKeyModal()">
+          &times;
+        </button>
+      </div>
+      <form onsubmit="createApiKey(event)">
+        <div class="form-group">
+          <label class="form-label">名称 / 备注（支持换行批量创建）</label>
+          <textarea class="form-input" id="keyName" required placeholder="每行一个名称，例如：&#10;生产环境&#10;测试用&#10;开发者-张三"
+            rows="4" style="resize: vertical;"></textarea>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 16px;">
+          创建
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Key 展示弹窗 -->
+  <div class="modal" id="showKeyModal">
+    <div class="modal-content" style="max-width: 550px;">
+      <div class="modal-header">
+        <h3 class="modal-title">API Key 已创建</h3>
+      </div>
+      <p style="color: #a1a1aa; margin-bottom: 16px;">
+        请立即复制并保存您的 API Key：
+      </p>
+      <div id="fullKeyDisplay" style="max-height: 300px; overflow-y: auto;">
+      </div>
+      <div class="warning-box">
+        <strong>请妥善保存</strong><br />
+        关闭此窗口后将无法再次查看完整 Key
+      </div>
+      <div style="display: flex; gap: 8px; margin-top: 20px;">
+        <button class="btn btn-primary" style="flex: 1;" onclick="copyAllKeys()">
+          复制全部
+        </button>
+        <button class="btn" style="flex: 1; background: rgba(255,255,255,0.1); color: white;"
+          onclick="closeShowKeyModal()">
+          我已保存，关闭
+        </button>
       </div>
     </div>
+  </div>
 
-    <!-- 创建 Key 弹窗 -->
-    <div class="modal" id="createKeyModal">
-      <div class="modal-content" style="max-width: 450px;">
-        <div class="modal-header">
-          <h3 class="modal-title">创建 API Key</h3>
-          <button class="modal-close" onclick="closeCreateKeyModal()">
-            &times;
-          </button>
-        </div>
-        <form onsubmit="createApiKey(event)">
-          <div class="form-group">
-            <label class="form-label">名称 / 备注（支持换行批量创建）</label>
-            <textarea class="form-input" id="keyName" required placeholder="每行一个名称，例如：&#10;生产环境&#10;测试用&#10;开发者-张三"
-              rows="4" style="resize: vertical;"></textarea>
-          </div>
-          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 16px;">
-            创建
-          </button>
-        </form>
+  <!-- 删除 Key 确认弹窗 -->
+  <div class="modal" id="deleteKeyModal">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3 class="modal-title">删除 API Key</h3>
+        <button class="modal-close" onclick="closeDeleteKeyModal()">
+          &times;
+        </button>
+      </div>
+      <p style="margin-bottom: 20px;">
+        确定要删除 Key「<strong id="deleteKeyName"></strong>」吗？<br />
+        <span style="color: #ef4444;">此操作不可撤销，使用此 Key 的应用将无法访问。</span>
+      </p>
+      <input type="hidden" id="deleteKeyId" />
+      <div style="display: flex; gap: 8px;">
+        <button class="btn" style="flex: 1; background: rgba(255,255,255,0.1); color: white;"
+          onclick="closeDeleteKeyModal()">
+          取消
+        </button>
+        <button class="btn btn-danger" style="flex: 1;" onclick="confirmDeleteKey()">
+          删除
+        </button>
       </div>
     </div>
+  </div>
 
-    <!-- Key 展示弹窗 -->
-    <div class="modal" id="showKeyModal">
-      <div class="modal-content" style="max-width: 550px;">
-        <div class="modal-header">
-          <h3 class="modal-title">API Key 已创建</h3>
-        </div>
-        <p style="color: #a1a1aa; margin-bottom: 16px;">
-          请立即复制并保存您的 API Key：
-        </p>
-        <div id="fullKeyDisplay" style="max-height: 300px; overflow-y: auto;">
-        </div>
-        <div class="warning-box">
-          <strong>请妥善保存</strong><br />
-          关闭此窗口后将无法再次查看完整 Key
-        </div>
-        <div style="display: flex; gap: 8px; margin-top: 20px;">
-          <button class="btn btn-primary" style="flex: 1;" onclick="copyAllKeys()">
-            复制全部
-          </button>
-          <button class="btn" style="flex: 1; background: rgba(255,255,255,0.1); color: white;"
-            onclick="closeShowKeyModal()">
-            我已保存，关闭
-          </button>
-        </div>
+  <!-- Toast 容器 -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <div class="modal" id="accountModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 class="modal-title" id="modalTitle">添加账号</h3>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
       </div>
-    </div>
-
-    <!-- 删除 Key 确认弹窗 -->
-    <div class="modal" id="deleteKeyModal">
-      <div class="modal-content" style="max-width: 400px;">
-        <div class="modal-header">
-          <h3 class="modal-title">删除 API Key</h3>
-          <button class="modal-close" onclick="closeDeleteKeyModal()">
-            &times;
-          </button>
+      <form id="accountForm" onsubmit="saveAccount(event)">
+        <input type="hidden" id="accountId" />
+        <div class="form-group">
+          <label class="form-label">名称（可选）</label>
+          <input type="text" class="form-input" id="name" placeholder="账号名称" />
         </div>
-        <p style="margin-bottom: 20px;">
-          确定要删除 Key「<strong id="deleteKeyName"></strong>」吗？<br />
-          <span style="color: #ef4444;">此操作不可撤销，使用此 Key 的应用将无法访问。</span>
-        </p>
-        <input type="hidden" id="deleteKeyId" />
-        <div style="display: flex; gap: 8px;">
-          <button class="btn" style="flex: 1; background: rgba(255,255,255,0.1); color: white;"
-            onclick="closeDeleteKeyModal()">
-            取消
-          </button>
-          <button class="btn btn-danger" style="flex: 1;" onclick="confirmDeleteKey()">
-            删除
-          </button>
+        <div class="form-group">
+          <label class="form-label">账号类型</label>
+          <input type="text" class="form-input" id="accountType" placeholder="orchids" />
         </div>
-      </div>
-    </div>
-
-    <!-- Toast 容器 -->
-    <div class="toast-container" id="toastContainer"></div>
-
-    <div class="modal" id="accountModal">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3 class="modal-title" id="modalTitle">添加账号</h3>
-          <button class="modal-close" onclick="closeModal()">&times;</button>
+        <div class="form-group">
+          <label class="form-label">Token</label>
+          <input type="text" class="form-input" id="clientCookie" required placeholder="粘贴 token（支持完整Cookie/纯JWT）" />
+          <small style="color: #666; font-size: 12px">支持完整Cookie（含 __session）或纯JWT；运行时自动获取</small>
         </div>
-        <form id="accountForm" onsubmit="saveAccount(event)">
-          <input type="hidden" id="accountId" />
+        <div class="form-row">
           <div class="form-group">
-            <label class="form-label">名称（可选）</label>
-            <input type="text" class="form-input" id="name" placeholder="账号名称" />
+            <label class="form-label">权重</label>
+            <input type="number" class="form-input" id="weight" value="1" min="1" />
           </div>
           <div class="form-group">
-            <label class="form-label">账号类型</label>
-            <input type="text" class="form-input" id="accountType" placeholder="orchids" />
+            <label class="form-label">Agent Mode</label>
+            <input type="text" class="form-input" id="agentMode" value="claude-opus-4.5" />
           </div>
-          <div class="form-group">
-            <label class="form-label">Token</label>
-            <input type="text" class="form-input" id="clientCookie" required placeholder="粘贴 token（支持完整Cookie/纯JWT）" />
-            <small style="color: #666; font-size: 12px">支持完整Cookie（含 __session）或纯JWT；运行时自动获取</small>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">权重</label>
-              <input type="number" class="form-input" id="weight" value="1" min="1" />
-            </div>
-            <div class="form-group">
-              <label class="form-label">Agent Mode</label>
-              <input type="text" class="form-input" id="agentMode" value="claude-opus-4.5" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">
-              <label class="toggle">
-                <input type="checkbox" id="enabled" checked />
-                <span class="toggle-slider"></span>
-              </label>
-              &nbsp;&nbsp;启用账号
+        </div>
+        <div class="form-group">
+          <label class="form-label">
+            <label class="toggle">
+              <input type="checkbox" id="enabled" checked />
+              <span class="toggle-slider"></span>
             </label>
-          </div>
-          <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 16px">
-            保存
-          </button>
-        </form>
-      </div>
+            &nbsp;&nbsp;启用账号
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 16px">
+          保存
+        </button>
+      </form>
     </div>
+  </div>
 
-    <script>
-      let accounts = [];
-      let currentPlatform = '';
-      let accountHealth = {};
-      let autoCheckTimer = null;
-      let autoCheckRunning = false;
-      let pageSize = 20;
+  <script>
+    let accounts = [];
+    let currentPlatform = '';
+    let accountHealth = {};
+    let autoCheckTimer = null;
+    let autoCheckRunning = false;
+    let pageSize = 20;
 
-      async function loadAccounts() {
-        try {
-          const res = await fetch("/api/accounts");
-          if (res.status === 401) {
-            window.location.href = "./login.html";
-            return;
-          }
-          accounts = await res.json();
-          renderPlatformTabs();
-          renderAccounts();
-          updateStats();
-        } catch (err) {
-          console.error("Failed to load accounts:", err);
-          showToast("加载账号失败", "error");
+    async function loadAccounts() {
+      try {
+        const res = await fetch("/api/accounts");
+        if (res.status === 401) {
+          window.location.href = "./login.html";
+          return;
         }
+        accounts = await res.json();
+        renderPlatformTabs();
+        renderAccounts();
+        updateStats();
+      } catch (err) {
+        console.error("Failed to load accounts:", err);
+        showToast("加载账号失败", "error");
+      }
+    }
+
+    function normalizeAccountType(acc) {
+      return (acc.account_type || 'orchids').toLowerCase();
+    }
+
+    function renderPlatformTabs() {
+      const container = document.getElementById("platformFilters");
+      if (!container) return;
+      const types = new Set(accounts.map(normalizeAccountType));
+      const sorted = Array.from(types).sort();
+
+      // Ensure 'All' option is available at the start
+      const tabs = ['All', ...sorted];
+
+      // Default to 'All' if current is empty or invalid
+      if (currentPlatform === '' || !tabs.includes(currentPlatform)) {
+        // If tabs has specific types but we want 'All' as default
+        // The logic below was forcing tabs[0] which was a specific type.
+        // We want specific behavior: default is '' (which equates to 'All' in filter logic)
+        if (currentPlatform !== 'All' && currentPlatform !== '') {
+          currentPlatform = 'All'; // Reset to All if invalid
+        }
+        // If we want the UI to reflect 'All' selected
+        if (currentPlatform === '') currentPlatform = 'All';
       }
 
-      function normalizeAccountType(acc) {
-        return (acc.account_type || 'orchids').toLowerCase();
+      // Actually, let's keep it simple: Just render tabs.
+      // currentPlatform is stored as string. 'All' maps to empty string in filter logic usually,
+      // but here we can just use 'All' as the string key for UI consistency.
+
+      // Check filterByPlatform logic:
+      // function filterByPlatform(platform) {
+      //    currentPlatform = platform === 'All' ? '' : platform;
+
+      // So internal state is empty string for All. UI needs to show 'All' as active if state is empty.
+
+      container.innerHTML = tabs.map(type => {
+        const label = type;
+        // Active state check: if currentPlatform is '' and label is 'All', it's active.
+        // Or if currentPlatform matches label.
+        const isActive = (currentPlatform === '' && label === 'All') || currentPlatform === label;
+        return `<button class="tab-item ${isActive ? 'active' : ''}" onclick="filterByPlatform('${label}')">${label}</button>`;
+      }).join("");
+    }
+
+    function updateAccountHealth(id, ok, msg = '') {
+      accountHealth[id] = {
+        ok,
+        msg,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+
+    function statusBadge(acc) {
+      const health = accountHealth[acc.id];
+      if (health && !health.ok) {
+        return { text: '异常', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: health.msg || '检测失败' };
       }
-
-      function renderPlatformTabs() {
-        const container = document.getElementById("platformFilters");
-        if (!container) return;
-        const types = new Set(accounts.map(normalizeAccountType));
-        const sorted = Array.from(types).sort();
-        // Remove 'all' option
-        const tabs = sorted;
-
-        // Default to first tab if current is empty or invalid
-        if ((currentPlatform === '' || currentPlatform === 'All') && tabs.length > 0) {
-          currentPlatform = tabs[0];
-          renderAccounts(); // Re-render to reflect the change
-        }
-
-        container.innerHTML = tabs.map(type => {
-          const label = type;
-          const active = currentPlatform === label;
-          return `<button class="tab-item ${active ? 'active' : ''}" onclick="filterByPlatform('${label}')">${label}</button>`;
-        }).join("");
+      if (!acc.enabled) {
+        return { text: '禁用', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: '账号已禁用' };
       }
-
-      function updateAccountHealth(id, ok, msg = '') {
-        accountHealth[id] = {
-          ok,
-          msg,
-          checkedAt: new Date().toISOString(),
-        };
+      if (!acc.session_id && !acc.session_cookie) {
+        return { text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少会话信息' };
       }
+      return { text: '正常', color: '#34d399', bg: 'rgba(52, 211, 153, 0.16)', tip: '状态正常' };
+    }
 
-      function statusBadge(acc) {
-        const health = accountHealth[acc.id];
-        if (health && !health.ok) {
-          return { text: '异常', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: health.msg || '检测失败' };
+    async function checkAccount(id, silent = false) {
+      try {
+        const res = await fetch(`/api/accounts/${id}/refresh`);
+        if (!res.ok) {
+          throw new Error(await res.text());
         }
-        if (!acc.enabled) {
-          return { text: '禁用', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: '账号已禁用' };
-        }
-        if (!acc.session_id && !acc.session_cookie) {
-          return { text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少会话信息' };
-        }
-        return { text: '正常', color: '#34d399', bg: 'rgba(52, 211, 153, 0.16)', tip: '状态正常' };
+        const updated = await res.json();
+        accounts = accounts.map(a => (a.id === id ? updated : a));
+        updateAccountHealth(id, true);
+        if (!silent) showToast(`账号 ${updated.name || updated.email || id} 正常`, "success");
+      } catch (err) {
+        updateAccountHealth(id, false, err.message || String(err));
+        if (!silent) showToast(`账号 ${id} 检测失败`, "error");
+      } finally {
+        renderAccounts();
+        updateStats();
       }
+    }
 
-      async function checkAccount(id, silent = false) {
-        try {
-          const res = await fetch(`/api/accounts/${id}/refresh`);
-          if (!res.ok) {
-            throw new Error(await res.text());
-          }
-          const updated = await res.json();
-          accounts = accounts.map(a => (a.id === id ? updated : a));
-          updateAccountHealth(id, true);
-          if (!silent) showToast(`账号 ${updated.name || updated.email || id} 正常`, "success");
-        } catch (err) {
-          updateAccountHealth(id, false, err.message || String(err));
-          if (!silent) showToast(`账号 ${id} 检测失败`, "error");
-        } finally {
-          renderAccounts();
-          updateStats();
-        }
+    async function checkAllAccounts() {
+      if (autoCheckRunning) return;
+      if (!accounts.length) return;
+      autoCheckRunning = true;
+      showToast("开始检测账号状态", "info");
+      for (const acc of accounts) {
+        await checkAccount(acc.id, true);
       }
+      showToast("账号检测完成", "success");
+      autoCheckRunning = false;
+    }
 
-      async function checkAllAccounts() {
-        if (autoCheckRunning) return;
-        if (!accounts.length) return;
-        autoCheckRunning = true;
-        showToast("开始检测账号状态", "info");
-        for (const acc of accounts) {
-          await checkAccount(acc.id, true);
-        }
-        showToast("账号检测完成", "success");
-        autoCheckRunning = false;
+    function toggleAutoCheck(enabled) {
+      if (enabled) {
+        if (autoCheckTimer) clearInterval(autoCheckTimer);
+        autoCheckTimer = setInterval(checkAllAccounts, 10 * 60 * 1000);
+        checkAllAccounts();
+        showToast("已开启自动检测", "success");
+      } else {
+        if (autoCheckTimer) clearInterval(autoCheckTimer);
+        autoCheckTimer = null;
+        showToast("已关闭自动检测", "info");
       }
+      localStorage.setItem("autoCheckEnabled", enabled ? "true" : "false");
+    }
 
-      function toggleAutoCheck(enabled) {
-        if (enabled) {
-          if (autoCheckTimer) clearInterval(autoCheckTimer);
-          autoCheckTimer = setInterval(checkAllAccounts, 10 * 60 * 1000);
-          checkAllAccounts();
-          showToast("已开启自动检测", "success");
-        } else {
-          if (autoCheckTimer) clearInterval(autoCheckTimer);
-          autoCheckTimer = null;
-          showToast("已关闭自动检测", "info");
-        }
-        localStorage.setItem("autoCheckEnabled", enabled ? "true" : "false");
+    async function deleteAllAccounts() {
+      if (!accounts.length) return;
+      if (!confirm(`确定要删除全部 ${accounts.length} 个账号吗？此操作不可恢复。`)) return;
+      for (const acc of accounts) {
+        await fetch(`/api/accounts/${acc.id}`, { method: "DELETE" });
       }
+      await loadAccounts();
+      showToast("已删除全部账号", "success");
+    }
 
-      async function deleteAllAccounts() {
-        if (!accounts.length) return;
-        if (!confirm(`确定要删除全部 ${accounts.length} 个账号吗？此操作不可恢复。`)) return;
-        for (const acc of accounts) {
-          await fetch(`/api/accounts/${acc.id}`, { method: "DELETE" });
-        }
-        await loadAccounts();
-        showToast("已删除全部账号", "success");
-      }
+    function renderAccounts() {
+      const container = document.getElementById("accountsList");
+      const filtered = accounts.filter(acc => {
+        if (!currentPlatform) return true;
+        const key = currentPlatform.toLowerCase();
+        return normalizeAccountType(acc).includes(key)
+          || acc.agent_mode?.toLowerCase().includes(key)
+          || acc.name?.toLowerCase().includes(key);
+      });
 
-      function renderAccounts() {
-        const container = document.getElementById("accountsList");
-        const filtered = accounts.filter(acc => {
-          if (!currentPlatform) return true;
-          const key = currentPlatform.toLowerCase();
-          return normalizeAccountType(acc).includes(key)
-            || acc.agent_mode?.toLowerCase().includes(key)
-            || acc.name?.toLowerCase().includes(key);
-        });
-
-        if (filtered.length === 0) {
-          container.innerHTML = `
+      if (filtered.length === 0) {
+        container.innerHTML = `
             <div class="empty-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #94a3b8;">
               <span style="font-size: 3rem; margin-bottom: 16px;">📂</span>
               <p>暂无 ${currentPlatform} 账号数据</p>
             </div>`;
-          document.getElementById("paginationInfo").textContent = `共 0 条记录，第 1/1 页`;
-          return;
-        }
+        document.getElementById("paginationInfo").textContent = `共 0 条记录，第 1/1 页`;
+        return;
+      }
 
-        container.innerHTML = `
+      container.innerHTML = `
                 <div class="table-wrap">
                 <table>
                     <thead>
@@ -1703,10 +1836,10 @@
                     </thead>
                     <tbody>
                         ${filtered
-            .map(
-              (acc) => {
-                const badge = statusBadge(acc);
-                return `
+          .map(
+            (acc) => {
+              const badge = statusBadge(acc);
+              return `
                             <tr>
                                 <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" onchange="updateSelectedCount()"></td>
                                 <td style="color: #64748b; font-size: 0.9rem;">${acc.id}</td>
@@ -1741,307 +1874,312 @@
                                 </td>
                             </tr>
                         `;
-              },
-            )
-            .join("")}
+            },
+          )
+          .join("")}
                     </tbody>
                 </table>
                 </div>
             `;
 
-        document.getElementById("paginationInfo").textContent = `共 ${filtered.length} 条记录，第 1/1 页`;
-        updateSelectedCount();
+      document.getElementById("paginationInfo").textContent = `共 ${filtered.length} 条记录，第 1/1 页`;
+      updateSelectedCount();
+    }
+
+    function updateStats() {
+      const total = accounts.length;
+      const enabled = accounts.filter((a) => a.enabled).length;
+      const abnormal = accounts.filter((a) => !a.enabled || (accountHealth[a.id] && !accountHealth[a.id].ok)).length;
+      const disabled = abnormal;
+
+      // Update cards
+      document.getElementById("totalAccounts").textContent = total;
+      document.getElementById("enabledAccounts").textContent = enabled;
+      document.getElementById("disabledAccounts").textContent = disabled;
+
+      // Update sidebar
+      document.getElementById("footerTotal").textContent = total;
+      document.getElementById("footerNormal").textContent = enabled;
+      document.getElementById("footerAbnormal").textContent = disabled;
+
+      // Update usage progress
+      const totalUsage = accounts.reduce((sum, acc) => sum + (acc.usage_current || 0), 0);
+      const totalLimit = accounts.reduce((sum, acc) => sum + (acc.usage_total || 550), 0);
+
+      const usageText = document.querySelector('.sidebar-footer div[style*="font-size: 0.8rem"]').firstChild;
+      if (usageText) {
+        usageText.textContent = `今日用量 `;
+      }
+      const usageSpan = document.querySelector('.sidebar-footer span[style*="float: right"]');
+      if (usageSpan) {
+        usageSpan.textContent = `${totalUsage.toFixed(1)}/${totalLimit}`;
       }
 
-      function updateStats() {
-        const total = accounts.length;
-        const enabled = accounts.filter((a) => a.enabled).length;
-        const abnormal = accounts.filter((a) => !a.enabled || (accountHealth[a.id] && !accountHealth[a.id].ok)).length;
-        const disabled = abnormal;
+      const percent = totalLimit > 0 ? (totalUsage / totalLimit) * 100 : 0;
+      document.getElementById("usageProgress").style.width = Math.min(100, percent) + "%";
+    }
 
-        // Update cards
-        document.getElementById("totalAccounts").textContent = total;
-        document.getElementById("enabledAccounts").textContent = enabled;
-        document.getElementById("disabledAccounts").textContent = disabled;
-
-        // Update sidebar
-        document.getElementById("footerTotal").textContent = total;
-        document.getElementById("footerNormal").textContent = enabled;
-        document.getElementById("footerAbnormal").textContent = disabled;
-
-        // Update usage progress (mock)
-        const usage = 4;
-        const limit = 10000;
-        const percent = (usage / limit) * 100;
-        document.getElementById("usageProgress").style.width = percent + "%";
+    function updateSelectedCount() {
+      const checked = document.querySelectorAll(".row-checkbox:checked").length;
+      document.getElementById("selectedCount").textContent = checked;
+      const batchBtn = document.getElementById("batchDeleteBtn");
+      if (batchBtn) {
+        batchBtn.disabled = checked === 0;
+        batchBtn.style.color = checked === 0 ? "#94a3b8" : "#fb7185";
+        batchBtn.style.borderColor = checked === 0 ? "rgba(148,163,184,0.2)" : "rgba(251,113,133,0.45)";
       }
+    }
 
-      function updateSelectedCount() {
-        const checked = document.querySelectorAll(".row-checkbox:checked").length;
-        document.getElementById("selectedCount").textContent = checked;
-        const batchBtn = document.getElementById("batchDeleteBtn");
-        if (batchBtn) {
-          batchBtn.disabled = checked === 0;
-          batchBtn.style.color = checked === 0 ? "#94a3b8" : "#fb7185";
-          batchBtn.style.borderColor = checked === 0 ? "rgba(148,163,184,0.2)" : "rgba(251,113,133,0.45)";
-        }
-      }
+    function toggleSelectAll(checked) {
+      document.querySelectorAll(".row-checkbox").forEach(cb => cb.checked = checked);
+      updateSelectedCount();
+    }
 
-      function toggleSelectAll(checked) {
-        document.querySelectorAll(".row-checkbox").forEach(cb => cb.checked = checked);
-        updateSelectedCount();
-      }
+    function filterByPlatform(platform) {
+      currentPlatform = platform === 'All' ? '' : platform;
+      document.querySelectorAll("#platformFilters .tab-item").forEach(btn => {
+        btn.classList.toggle("active", (currentPlatform === '' && btn.textContent === 'All') || btn.textContent === currentPlatform);
+      });
+      document.getElementById("pageSubtitle").textContent = currentPlatform ? `管理您的 ${currentPlatform} API 凭证` : "管理您的所有 API 凭证";
+      renderAccounts();
+    }
 
-      function filterByPlatform(platform) {
-        currentPlatform = platform === 'All' ? '' : platform;
-        document.querySelectorAll("#platformFilters .tab-item").forEach(btn => {
-          btn.classList.toggle("active", (currentPlatform === '' && btn.textContent === 'All') || btn.textContent === currentPlatform);
-        });
-        document.getElementById("pageSubtitle").textContent = currentPlatform ? `管理您的 ${currentPlatform} API 凭证` : "管理您的所有 API 凭证";
-        renderAccounts();
-      }
-
-      function switchTab(tabName) {
-        // Sidebar active state
+    function switchTab(tabName, skipSidebar = false) {
+      // Sidebar active state
+      if (!skipSidebar) {
         document.querySelectorAll(".sidebar-link").forEach(link => {
           link.classList.remove("active");
-          if (link.getAttribute("onclick")?.includes(tabName)) {
+          if (link.getAttribute("onclick")?.includes(`'${tabName}'`)) {
             link.classList.add("active");
           }
         });
-
-        const accountsWrapper = document.getElementById("accountsWrapper");
-        const keysWrapper = document.getElementById("keysWrapper");
-        const modelsWrapper = document.getElementById("modelsWrapper");
-        const title = document.getElementById("pageTitle");
-
-        if (tabName === 'accounts') {
-          accountsWrapper.style.display = 'block';
-          keysWrapper.style.display = 'none';
-          modelsWrapper.style.display = 'none';
-          document.getElementById("accountsHeader").style.display = 'block';
-          document.getElementById("modelsHeader").style.display = 'none';
-          title.textContent = "账号管理";
-          loadAccounts();
-        } else if (tabName === 'keys') {
-          accountsWrapper.style.display = 'none';
-          keysWrapper.style.display = 'block';
-          modelsWrapper.style.display = 'none';
-          document.getElementById("accountsHeader").style.display = 'none';
-          document.getElementById("modelsHeader").style.display = 'none';
-          title.textContent = "配置管理";
-          loadConfiguration();
-        } else if (tabName === 'models') {
-          accountsWrapper.style.display = 'none';
-          keysWrapper.style.display = 'none';
-          modelsWrapper.style.display = 'block';
-          document.getElementById("accountsHeader").style.display = 'none';
-          document.getElementById("modelsHeader").style.display = 'block';
-          title.textContent = "模型管理";
-          loadModels();
-        } else if (tabName === 'qa') {
-          accountsWrapper.style.display = 'none';
-          keysWrapper.style.display = 'none';
-          modelsWrapper.style.display = 'none';
-          document.getElementById("qaWrapper").style.display = 'block';
-          document.getElementById("accountsHeader").style.display = 'none';
-          document.getElementById("modelsHeader").style.display = 'none';
-          document.getElementById("qaHeader").style.display = 'block';
-          title.textContent = "API 质量测试";
-        }
-
-        localStorage.setItem("activeTab", tabName);
       }
 
-      async function logout() {
-        if (confirm("确定要退出登录吗？")) {
-          try {
-            await fetch("/api/logout", { method: "POST" });
-            window.location.href = "./login.html";
-          } catch (err) {
-            window.location.href = "./login.html";
-          }
-        }
+      const wrappers = {
+        'accounts': document.getElementById("accountsWrapper"),
+        'keys': document.getElementById("keysWrapper"),
+        'models': document.getElementById("modelsWrapper"),
+        'tutorial': document.getElementById("tutorialWrapper")
+      };
+
+      // Handle old 'qa' tab redirect
+      if (tabName === 'qa') {
+        switchTab('models', true);
+        filterModelsByChannel('QA-TEST');
+        return;
       }
 
-      async function clearAbnormalAccounts() {
-        const abnormal = accounts.filter(a => !a.enabled);
-        if (abnormal.length === 0) {
-          showToast("没有异常账号", "info");
+      // Hide all wrappers
+      Object.values(wrappers).forEach(w => { if (w) w.style.display = 'none'; });
+
+      // Show target wrapper
+      if (wrappers[tabName]) {
+        wrappers[tabName].style.display = 'block';
+      }
+
+      // Update Page Title (fallback if header is inside)
+      const titleNode = document.getElementById("pageTitle");
+      if (tabName === 'accounts') {
+        if (titleNode) titleNode.textContent = "账号管理";
+        loadAccounts();
+      } else if (tabName === 'keys') {
+        loadConfiguration();
+      } else if (tabName === 'models') {
+        loadModels();
+      }
+
+      localStorage.setItem("activeTab", tabName);
+    }
+
+    async function logout() {
+      if (confirm("确定要退出登录吗？")) {
+        try {
+          await fetch("/api/logout", { method: "POST" });
+          window.location.href = "./login.html";
+        } catch (err) {
+          window.location.href = "./login.html";
+        }
+      }
+    }
+
+    async function clearAbnormalAccounts() {
+      const abnormal = accounts.filter(a => !a.enabled);
+      if (abnormal.length === 0) {
+        showToast("没有异常账号", "info");
+        return;
+      }
+      if (confirm(`确定要清空 ${abnormal.length} 个异常账号吗？`)) {
+        for (const acc of abnormal) {
+          await fetch(`/api/accounts/${acc.id}`, { method: "DELETE" });
+        }
+        loadAccounts();
+        showToast("已清空异常账号");
+      }
+    }
+
+    async function batchDeleteAccounts() {
+      const selected = Array.from(document.querySelectorAll(".row-checkbox:checked")).map(cb => cb.dataset.id);
+      if (selected.length === 0) return;
+      if (confirm(`确定要删除选中的 ${selected.length} 个账号吗？`)) {
+        for (const id of selected) {
+          await fetch(`/api/accounts/${id}`, { method: "DELETE" });
+        }
+        loadAccounts();
+        showToast(`已成功删除 ${selected.length} 个账号`);
+      }
+    }
+
+    function updatePageSize(size) {
+      pageSize = parseInt(size);
+      renderAccounts();
+    }
+
+    function openModal(account = null) {
+      const modal = document.getElementById("accountModal");
+      const title = document.getElementById("modalTitle");
+      const form = document.getElementById("accountForm");
+
+      if (account) {
+        title.textContent = "编辑账号";
+        document.getElementById("accountId").value = account.id;
+        document.getElementById("name").value = account.name;
+        document.getElementById("accountType").value = account.account_type || "orchids";
+        document.getElementById("clientCookie").value = account.client_cookie;
+        document.getElementById("agentMode").value = account.agent_mode;
+        document.getElementById("weight").value = account.weight;
+        document.getElementById("enabled").checked = account.enabled;
+      } else {
+        title.textContent = "添加账号";
+        form.reset();
+        document.getElementById("accountId").value = "";
+        document.getElementById("agentMode").value = "claude-opus-4.5";
+        document.getElementById("weight").value = "1";
+        document.getElementById("accountType").value = "orchids";
+        document.getElementById("enabled").checked = true;
+      }
+      modal.classList.add("active");
+      modal.style.display = "flex";
+    }
+
+    function closeModal() {
+      const modal = document.getElementById("accountModal");
+      modal.classList.remove("active");
+      modal.style.display = "none";
+    }
+
+    async function saveAccount(e) {
+      e.preventDefault();
+      const id = document.getElementById("accountId").value;
+      const data = {
+        name: document.getElementById("name").value,
+        account_type: document.getElementById("accountType").value,
+        client_cookie: document.getElementById("clientCookie").value,
+        agent_mode: document.getElementById("agentMode").value,
+        weight: parseInt(document.getElementById("weight").value) || 1,
+        enabled: document.getElementById("enabled").checked,
+      };
+
+      try {
+        const url = id ? `/api/accounts/${id}` : "/api/accounts";
+        const method = id ? "PUT" : "POST";
+        const res = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        closeModal();
+        loadAccounts();
+        showToast("保存成功");
+      } catch (err) {
+        showToast("保存失败: " + err.message, "error");
+      }
+    }
+
+    function editAccount(id) {
+      const account = accounts.find((a) => a.id === id);
+      if (account) openModal(account);
+    }
+
+    async function refreshToken(id) {
+      try {
+        showToast("正在查询账号信息...", "info");
+        const res = await fetch(`/api/accounts/${id}/refresh`);
+        if (!res.ok) throw new Error(await res.text());
+        const acc = await res.json();
+        showToast(`账号 ${acc.email} 刷新完成`);
+        loadAccounts(); // 刷新列表
+      } catch (err) {
+        showToast("刷新失败: " + err.message, "error");
+      }
+    }
+
+    async function deleteAccount(id) {
+      if (!confirm("确定要删除这个账号吗？")) return;
+      try {
+        const res = await fetch(`/api/accounts/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(await res.text());
+        showToast("删除成功");
+        loadAccounts();
+      } catch (err) {
+        showToast("删除失败: " + err.message, "error");
+      }
+    }
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function exportAccounts() {
+      window.location.href = "/api/export";
+    }
+
+    async function importAccounts(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const res = await fetch("/api/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: text,
+        });
+        const result = await res.json();
+        showToast(`导入完成: 成功 ${result.imported}, 跳过 ${result.skipped}`);
+        loadAccounts();
+      } catch (err) {
+        showToast("导入失败: " + err.message, "error");
+      }
+      event.target.value = "";
+    }
+
+    let apiKeys = [];
+    let createdKeys = [];
+
+    async function loadApiKeys() {
+      try {
+        const res = await fetch("/api/keys");
+        if (res.status === 401) {
+          window.location.href = "./login.html";
           return;
         }
-        if (confirm(`确定要清空 ${abnormal.length} 个异常账号吗？`)) {
-          for (const acc of abnormal) {
-            await fetch(`/api/accounts/${acc.id}`, { method: "DELETE" });
-          }
-          loadAccounts();
-          showToast("已清空异常账号");
-        }
+        apiKeys = (await res.json()) || [];
+        renderApiKeys();
+      } catch (err) {
+        showToast("加载 API Keys 失败", "error");
       }
+    }
 
-      async function batchDeleteAccounts() {
-        const selected = Array.from(document.querySelectorAll(".row-checkbox:checked")).map(cb => cb.dataset.id);
-        if (selected.length === 0) return;
-        if (confirm(`确定要删除选中的 ${selected.length} 个账号吗？`)) {
-          for (const id of selected) {
-            await fetch(`/api/accounts/${id}`, { method: "DELETE" });
-          }
-          loadAccounts();
-          showToast(`已成功删除 ${selected.length} 个账号`);
-        }
+    function renderApiKeys() {
+      const container = document.getElementById("keysList");
+      if (apiKeys.length === 0) {
+        container.innerHTML = '<div class="empty-state"><p>暂无 API Key，点击上方按钮创建</p></div>';
+        return;
       }
-
-      function updatePageSize(size) {
-        pageSize = parseInt(size);
-        renderAccounts();
-      }
-
-      function openModal(account = null) {
-        const modal = document.getElementById("accountModal");
-        const title = document.getElementById("modalTitle");
-        const form = document.getElementById("accountForm");
-
-        if (account) {
-          title.textContent = "编辑账号";
-          document.getElementById("accountId").value = account.id;
-          document.getElementById("name").value = account.name;
-          document.getElementById("accountType").value = account.account_type || "orchids";
-          document.getElementById("clientCookie").value = account.client_cookie;
-          document.getElementById("agentMode").value = account.agent_mode;
-          document.getElementById("weight").value = account.weight;
-          document.getElementById("enabled").checked = account.enabled;
-        } else {
-          title.textContent = "添加账号";
-          form.reset();
-          document.getElementById("accountId").value = "";
-          document.getElementById("agentMode").value = "claude-opus-4.5";
-          document.getElementById("weight").value = "1";
-          document.getElementById("accountType").value = "orchids";
-          document.getElementById("enabled").checked = true;
-        }
-        modal.classList.add("active");
-        modal.style.display = "flex";
-      }
-
-      function closeModal() {
-        const modal = document.getElementById("accountModal");
-        modal.classList.remove("active");
-        modal.style.display = "none";
-      }
-
-      async function saveAccount(e) {
-        e.preventDefault();
-        const id = document.getElementById("accountId").value;
-        const data = {
-          name: document.getElementById("name").value,
-          account_type: document.getElementById("accountType").value,
-          client_cookie: document.getElementById("clientCookie").value,
-          agent_mode: document.getElementById("agentMode").value,
-          weight: parseInt(document.getElementById("weight").value) || 1,
-          enabled: document.getElementById("enabled").checked,
-        };
-
-        try {
-          const url = id ? `/api/accounts/${id}` : "/api/accounts";
-          const method = id ? "PUT" : "POST";
-          const res = await fetch(url, {
-            method,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data),
-          });
-          if (!res.ok) throw new Error(await res.text());
-          closeModal();
-          loadAccounts();
-          showToast("保存成功");
-        } catch (err) {
-          showToast("保存失败: " + err.message, "error");
-        }
-      }
-
-      function editAccount(id) {
-        const account = accounts.find((a) => a.id === id);
-        if (account) openModal(account);
-      }
-
-      async function refreshToken(id) {
-        try {
-          showToast("正在查询账号信息...", "info");
-          const res = await fetch(`/api/accounts/${id}/refresh`);
-          if (!res.ok) throw new Error(await res.text());
-          const acc = await res.json();
-          showToast(`账号 ${acc.email} 刷新完成`);
-          loadAccounts(); // 刷新列表
-        } catch (err) {
-          showToast("刷新失败: " + err.message, "error");
-        }
-      }
-
-      async function deleteAccount(id) {
-        if (!confirm("确定要删除这个账号吗？")) return;
-        try {
-          const res = await fetch(`/api/accounts/${id}`, { method: "DELETE" });
-          if (!res.ok) throw new Error(await res.text());
-          showToast("删除成功");
-          loadAccounts();
-        } catch (err) {
-          showToast("删除失败: " + err.message, "error");
-        }
-      }
-
-      function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement("div");
-        div.textContent = text;
-        return div.innerHTML;
-      }
-
-      function exportAccounts() {
-        window.location.href = "/api/export";
-      }
-
-      async function importAccounts(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        try {
-          const text = await file.text();
-          const res = await fetch("/api/import", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: text,
-          });
-          const result = await res.json();
-          showToast(`导入完成: 成功 ${result.imported}, 跳过 ${result.skipped}`);
-          loadAccounts();
-        } catch (err) {
-          showToast("导入失败: " + err.message, "error");
-        }
-        event.target.value = "";
-      }
-
-      let apiKeys = [];
-      let createdKeys = [];
-
-      async function loadApiKeys() {
-        try {
-          const res = await fetch("/api/keys");
-          if (res.status === 401) {
-            window.location.href = "./login.html";
-            return;
-          }
-          apiKeys = (await res.json()) || [];
-          renderApiKeys();
-        } catch (err) {
-          showToast("加载 API Keys 失败", "error");
-        }
-      }
-
-      function renderApiKeys() {
-        const container = document.getElementById("keysList");
-        if (apiKeys.length === 0) {
-          container.innerHTML = '<div class="empty-state"><p>暂无 API Key，点击上方按钮创建</p></div>';
-          return;
-        }
-        container.innerHTML = `
+      container.innerHTML = `
           <table>
             <thead>
               <tr>
@@ -2078,305 +2216,305 @@
               `).join("")}
             </tbody>
           </table>`;
-      }
+    }
 
-      function toggleKeyVisibility(idx) {
-        const span = document.getElementById(`key-display-${idx}`);
-        const k = apiKeys[idx];
-        if (span.textContent.includes('****')) {
-          span.textContent = k.key_full || (k.key_prefix + '****' + k.key_suffix);
-        } else {
-          span.textContent = `${k.key_prefix}****...${k.key_suffix}`;
-        }
+    function toggleKeyVisibility(idx) {
+      const span = document.getElementById(`key-display-${idx}`);
+      const k = apiKeys[idx];
+      if (span.textContent.includes('****')) {
+        span.textContent = k.key_full || (k.key_prefix + '****' + k.key_suffix);
+      } else {
+        span.textContent = `${k.key_prefix}****...${k.key_suffix}`;
       }
+    }
 
-      async function toggleKeyStatus(id, enabled) {
+    async function toggleKeyStatus(id, enabled) {
+      try {
+        await fetch(`/api/keys/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        });
+        showToast(enabled ? "已启用" : "已禁用");
+      } catch (err) {
+        showToast("操作失败", "error");
+      }
+    }
+
+    function openCreateKeyModal() {
+      document.getElementById("keyName").value = "";
+      document.getElementById("createKeyModal").classList.add("active");
+      document.getElementById("createKeyModal").style.display = "flex";
+    }
+
+    function closeCreateKeyModal() {
+      document.getElementById("createKeyModal").classList.remove("active");
+      document.getElementById("createKeyModal").style.display = "none";
+    }
+
+    async function createApiKey(e) {
+      e.preventDefault();
+      const names = document.getElementById("keyName").value.split("\n").filter(n => n.trim());
+      if (names.length === 0) return;
+
+      createdKeys = [];
+      for (const name of names) {
         try {
-          await fetch(`/api/keys/${id}`, {
-            method: "PATCH",
+          const res = await fetch("/api/keys", {
+            method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ enabled }),
+            body: JSON.stringify({ name }),
           });
-          showToast(enabled ? "已启用" : "已禁用");
+          const data = await res.json();
+          createdKeys.push({ name, key: data.key });
         } catch (err) {
-          showToast("操作失败", "error");
+          createdKeys.push({ name, error: err.message });
         }
       }
+      closeCreateKeyModal();
+      renderCreatedKeys();
+      document.getElementById("showKeyModal").classList.add("active");
+      document.getElementById("showKeyModal").style.display = "flex";
+      loadApiKeys();
+    }
 
-      function openCreateKeyModal() {
-        document.getElementById("keyName").value = "";
-        document.getElementById("createKeyModal").classList.add("active");
-        document.getElementById("createKeyModal").style.display = "flex";
-      }
-
-      function closeCreateKeyModal() {
-        document.getElementById("createKeyModal").classList.remove("active");
-        document.getElementById("createKeyModal").style.display = "none";
-      }
-
-      async function createApiKey(e) {
-        e.preventDefault();
-        const names = document.getElementById("keyName").value.split("\n").filter(n => n.trim());
-        if (names.length === 0) return;
-
-        createdKeys = [];
-        for (const name of names) {
-          try {
-            const res = await fetch("/api/keys", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name }),
-            });
-            const data = await res.json();
-            createdKeys.push({ name, key: data.key });
-          } catch (err) {
-            createdKeys.push({ name, error: err.message });
-          }
-        }
-        closeCreateKeyModal();
-        renderCreatedKeys();
-        document.getElementById("showKeyModal").classList.add("active");
-        document.getElementById("showKeyModal").style.display = "flex";
-        loadApiKeys();
-      }
-
-      function renderCreatedKeys() {
-        const container = document.getElementById("fullKeyDisplay");
-        container.innerHTML = createdKeys.map(k => `
+    function renderCreatedKeys() {
+      const container = document.getElementById("fullKeyDisplay");
+      container.innerHTML = createdKeys.map(k => `
           <div class="key-display" style="margin-bottom: 8px; padding: 12px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px;">
             <div style="font-size: 0.8rem; color: #64748b;">${escapeHtml(k.name)}</div>
             <div style="font-weight: bold; margin-top: 4px; word-break: break-all; color: #22c55e;">${escapeHtml(k.key || k.error)}</div>
           </div>
         `).join("");
-      }
+    }
 
-      function closeShowKeyModal() {
-        document.getElementById("showKeyModal").classList.remove("active");
-        document.getElementById("showKeyModal").style.display = "none";
-      }
+    function closeShowKeyModal() {
+      document.getElementById("showKeyModal").classList.remove("active");
+      document.getElementById("showKeyModal").style.display = "none";
+    }
 
-      function openDeleteKeyModal(id, name) {
-        document.getElementById("deleteKeyId").value = id;
-        document.getElementById("deleteKeyName").textContent = name;
-        const modal = document.getElementById("deleteKeyModal");
-        modal.classList.add("active");
-        modal.style.display = "flex";
-      }
+    function openDeleteKeyModal(id, name) {
+      document.getElementById("deleteKeyId").value = id;
+      document.getElementById("deleteKeyName").textContent = name;
+      const modal = document.getElementById("deleteKeyModal");
+      modal.classList.add("active");
+      modal.style.display = "flex";
+    }
 
-      function closeDeleteKeyModal() {
-        const modal = document.getElementById("deleteKeyModal");
-        modal.classList.remove("active");
-        modal.style.display = "none";
-      }
+    function closeDeleteKeyModal() {
+      const modal = document.getElementById("deleteKeyModal");
+      modal.classList.remove("active");
+      modal.style.display = "none";
+    }
 
-      async function confirmDeleteKey() {
-        const id = document.getElementById("deleteKeyId").value;
-        try {
-          await fetch(`/api/keys/${id}`, { method: "DELETE" });
-          closeDeleteKeyModal();
-          showToast("删除成功");
-          loadApiKeys();
-        } catch (err) {
-          showToast("删除失败", "error");
+    async function confirmDeleteKey() {
+      const id = document.getElementById("deleteKeyId").value;
+      try {
+        await fetch(`/api/keys/${id}`, { method: "DELETE" });
+        closeDeleteKeyModal();
+        showToast("删除成功");
+        loadApiKeys();
+      } catch (err) {
+        showToast("删除失败", "error");
+      }
+    }
+
+    function formatTime(iso) {
+      const d = new Date(iso);
+      const now = new Date();
+      const diff = (now - d) / 1000;
+      if (diff < 60) return "刚刚";
+      if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
+      if (diff < 86400) return Math.floor(diff / 3600) + " 小时前";
+      return d.toLocaleDateString();
+    }
+
+    function showToast(msg, type = 'success') {
+      const container = document.getElementById("toastContainer");
+      const toast = document.createElement("div");
+      toast.className = `toast`;
+      const color = type === 'success' ? '#34d399' : type === 'info' ? '#38bdf8' : '#fb7185';
+      const icon = type === 'success' ? '✅' : type === 'info' ? 'ℹ️' : '❌';
+      toast.style.borderLeft = `4px solid ${color}`;
+      toast.innerHTML = `<span>${icon}</span> ${msg}`;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    async function copyToClipboard(text) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const el = document.createElement('textarea');
+          el.value = text;
+          document.body.appendChild(el);
+          el.select();
+          document.execCommand('copy');
+          document.body.removeChild(el);
         }
+        showToast("已复制到剪切板");
+      } catch (err) {
+        showToast("复制失败", "error");
       }
+    }
 
-      function formatTime(iso) {
-        const d = new Date(iso);
-        const now = new Date();
-        const diff = (now - d) / 1000;
-        if (diff < 60) return "刚刚";
-        if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
-        if (diff < 86400) return Math.floor(diff / 3600) + " 小时前";
-        return d.toLocaleDateString();
+    function switchConfigTab(tab) {
+      document.querySelectorAll("#configTabs .tab-item").forEach(btn => {
+        btn.classList.toggle("active", btn.textContent.includes(tab === 'basic' ? '基础' : tab === 'auth' ? '授权' : '代理'));
+      });
+      document.getElementById("basicConfig").style.display = tab === 'basic' ? 'block' : 'none';
+      document.getElementById("authConfig").style.display = tab === 'auth' ? 'block' : 'none';
+      document.getElementById("proxyConfig").style.display = tab === 'proxy' ? 'block' : 'none';
+
+      if (tab === 'auth') loadApiKeys();
+    }
+
+    function updateSwitchLabel(el, text) {
+      const span = document.getElementById("label_" + el.id);
+      if (span) {
+        span.textContent = text + (el.checked ? " (已开启)" : " (已关闭)");
       }
+    }
 
-      function showToast(msg, type = 'success') {
-        const container = document.getElementById("toastContainer");
-        const toast = document.createElement("div");
-        toast.className = `toast`;
-        const color = type === 'success' ? '#34d399' : type === 'info' ? '#38bdf8' : '#fb7185';
-        const icon = type === 'success' ? '✅' : type === 'info' ? 'ℹ️' : '❌';
-        toast.style.borderLeft = `4px solid ${color}`;
-        toast.innerHTML = `<span>${icon}</span> ${msg}`;
-        container.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
-      }
-
-      async function copyToClipboard(text) {
-        try {
-          if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(text);
-          } else {
-            const el = document.createElement('textarea');
-            el.value = text;
-            document.body.appendChild(el);
-            el.select();
-            document.execCommand('copy');
-            document.body.removeChild(el);
-          }
-          showToast("已复制到剪切板");
-        } catch (err) {
-          showToast("复制失败", "error");
-        }
-      }
-
-      function switchConfigTab(tab) {
-        document.querySelectorAll("#configTabs .tab-item").forEach(btn => {
-          btn.classList.toggle("active", btn.textContent.includes(tab === 'basic' ? '基础' : tab === 'auth' ? '授权' : '代理'));
-        });
-        document.getElementById("basicConfig").style.display = tab === 'basic' ? 'block' : 'none';
-        document.getElementById("authConfig").style.display = tab === 'auth' ? 'block' : 'none';
-        document.getElementById("proxyConfig").style.display = tab === 'proxy' ? 'block' : 'none';
-
-        if (tab === 'auth') loadApiKeys();
-      }
-
-      function updateSwitchLabel(el, text) {
-        const span = document.getElementById("label_" + el.id);
-        if (span) {
-          span.textContent = text + (el.checked ? " (已开启)" : " (已关闭)");
-        }
-      }
-
-      async function loadConfiguration() {
-        try {
-          const res = await fetch("/api/config");
-          if (res.status === 401) {
-            window.location.href = "./login.html";
-            return;
-          }
-          const cfg = await res.json();
-
-          document.getElementById("cfg_admin_pass").value = cfg.admin_pass || "";
-          document.getElementById("cfg_admin_token").value = cfg.admin_token || "";
-          document.getElementById("cfg_max_retries").value = cfg.max_retries || 3;
-          document.getElementById("cfg_retry_delay").value = cfg.retry_delay || 1000;
-          document.getElementById("cfg_switch_count").value = cfg.account_switch_count || 5;
-          document.getElementById("cfg_request_timeout").value = cfg.request_timeout || 120;
-          document.getElementById("cfg_request_timeout").value = cfg.request_timeout || 120;
-          document.getElementById("cfg_refresh_interval").value = cfg.token_refresh_interval || 30;
-
-          // Proxy Config Loading
-          document.getElementById("cfg_proxy_http").value = cfg.proxy_http || "";
-          document.getElementById("cfg_proxy_https").value = cfg.proxy_https || "";
-          document.getElementById("cfg_proxy_user").value = cfg.proxy_user || "";
-          document.getElementById("cfg_proxy_pass").value = cfg.proxy_pass || "";
-          document.getElementById("cfg_proxy_bypass").value = (cfg.proxy_bypass || []).join("\n");
-
-          const autoToken = document.getElementById("cfg_auto_refresh_token");
-          autoToken.checked = cfg.auto_refresh_token || false;
-          updateSwitchLabel(autoToken, "自动刷新Token");
-
-          const autoUsage = document.getElementById("cfg_auto_refresh_usage");
-          autoUsage.checked = cfg.auto_refresh_usage || false;
-          updateSwitchLabel(autoUsage, "自动刷新用量");
-
-          document.getElementById("cfg_output_token_count").checked = cfg.output_token_count || false;
-          document.getElementById("cfg_cache_token_count").checked = cfg.cache_token_count || false;
-          document.getElementById("cfg_cache_ttl").value = cfg.cache_ttl || 5;
-          document.getElementById("cfg_cache_strategy").value = cfg.cache_strategy || "split";
-
-        } catch (err) {
-          showToast("加载配置失败", "error");
-        }
-      }
-
-      async function saveConfiguration() {
-        const data = {
-          admin_pass: document.getElementById("cfg_admin_pass").value,
-          admin_token: document.getElementById("cfg_admin_token").value,
-          max_retries: parseInt(document.getElementById("cfg_max_retries").value),
-          retry_delay: parseInt(document.getElementById("cfg_retry_delay").value),
-          account_switch_count: parseInt(document.getElementById("cfg_switch_count").value),
-          request_timeout: parseInt(document.getElementById("cfg_request_timeout").value),
-          token_refresh_interval: parseInt(document.getElementById("cfg_refresh_interval").value),
-          auto_refresh_token: document.getElementById("cfg_auto_refresh_token").checked,
-          auto_refresh_usage: document.getElementById("cfg_auto_refresh_usage").checked,
-          output_token_count: document.getElementById("cfg_output_token_count").checked,
-          cache_token_count: document.getElementById("cfg_cache_token_count").checked,
-          cache_ttl: parseInt(document.getElementById("cfg_cache_ttl").value),
-          cache_token_count: document.getElementById("cfg_cache_token_count").checked,
-          cache_ttl: parseInt(document.getElementById("cfg_cache_ttl").value),
-          cache_strategy: document.getElementById("cfg_cache_strategy").value,
-
-          // Proxy Config Saving
-          proxy_http: document.getElementById("cfg_proxy_http").value,
-          proxy_https: document.getElementById("cfg_proxy_https").value,
-          proxy_user: document.getElementById("cfg_proxy_user").value,
-          proxy_pass: document.getElementById("cfg_proxy_pass").value,
-          proxy_bypass: document.getElementById("cfg_proxy_bypass").value.split("\n").filter(line => line.trim() !== "")
-        };
-
-        try {
-          const res = await fetch("/api/config", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data)
-          });
-          if (!res.ok) throw new Error(await res.text());
-          showToast("配置已保存");
-        } catch (err) {
-          showToast("保存失败: " + err.message, "error");
-        }
-      }
-
-      function togglePassword(id) {
-        const input = document.getElementById(id);
-        input.type = input.type === 'password' ? 'text' : 'password';
-      }
-
-      function copyFieldValue(id) {
-        const val = document.getElementById(id).value;
-        if (!val) {
-          showToast("没有内容可复制", "info");
+    async function loadConfiguration() {
+      try {
+        const res = await fetch("/api/config");
+        if (res.status === 401) {
+          window.location.href = "./login.html";
           return;
         }
-        copyToClipboard(val);
+        const cfg = await res.json();
+
+        document.getElementById("cfg_admin_pass").value = cfg.admin_pass || "";
+        document.getElementById("cfg_admin_token").value = cfg.admin_token || "";
+        document.getElementById("cfg_max_retries").value = cfg.max_retries || 3;
+        document.getElementById("cfg_retry_delay").value = cfg.retry_delay || 1000;
+        document.getElementById("cfg_switch_count").value = cfg.account_switch_count || 5;
+        document.getElementById("cfg_request_timeout").value = cfg.request_timeout || 120;
+        document.getElementById("cfg_request_timeout").value = cfg.request_timeout || 120;
+        document.getElementById("cfg_refresh_interval").value = cfg.token_refresh_interval || 30;
+
+        // Proxy Config Loading
+        document.getElementById("cfg_proxy_http").value = cfg.proxy_http || "";
+        document.getElementById("cfg_proxy_https").value = cfg.proxy_https || "";
+        document.getElementById("cfg_proxy_user").value = cfg.proxy_user || "";
+        document.getElementById("cfg_proxy_pass").value = cfg.proxy_pass || "";
+        document.getElementById("cfg_proxy_bypass").value = (cfg.proxy_bypass || []).join("\n");
+
+        const autoToken = document.getElementById("cfg_auto_refresh_token");
+        autoToken.checked = cfg.auto_refresh_token || false;
+        updateSwitchLabel(autoToken, "自动刷新Token");
+
+        const autoUsage = document.getElementById("cfg_auto_refresh_usage");
+        autoUsage.checked = cfg.auto_refresh_usage || false;
+        updateSwitchLabel(autoUsage, "自动刷新用量");
+
+        document.getElementById("cfg_output_token_count").checked = cfg.output_token_count || false;
+        document.getElementById("cfg_cache_token_count").checked = cfg.cache_token_count || false;
+        document.getElementById("cfg_cache_ttl").value = cfg.cache_ttl || 5;
+        document.getElementById("cfg_cache_strategy").value = cfg.cache_strategy || "split";
+
+      } catch (err) {
+        showToast("加载配置失败", "error");
       }
+    }
 
-      // Model Management Logic
-      let models = [];
-      let currentModelChannel = '';
+    async function saveConfiguration() {
+      const data = {
+        admin_pass: document.getElementById("cfg_admin_pass").value,
+        admin_token: document.getElementById("cfg_admin_token").value,
+        max_retries: parseInt(document.getElementById("cfg_max_retries").value),
+        retry_delay: parseInt(document.getElementById("cfg_retry_delay").value),
+        account_switch_count: parseInt(document.getElementById("cfg_switch_count").value),
+        request_timeout: parseInt(document.getElementById("cfg_request_timeout").value),
+        token_refresh_interval: parseInt(document.getElementById("cfg_refresh_interval").value),
+        auto_refresh_token: document.getElementById("cfg_auto_refresh_token").checked,
+        auto_refresh_usage: document.getElementById("cfg_auto_refresh_usage").checked,
+        output_token_count: document.getElementById("cfg_output_token_count").checked,
+        cache_token_count: document.getElementById("cfg_cache_token_count").checked,
+        cache_ttl: parseInt(document.getElementById("cfg_cache_ttl").value),
+        cache_token_count: document.getElementById("cfg_cache_token_count").checked,
+        cache_ttl: parseInt(document.getElementById("cfg_cache_ttl").value),
+        cache_strategy: document.getElementById("cfg_cache_strategy").value,
 
-      async function loadModels() {
-        try {
-          const res = await fetch("/api/models");
-          if (res.status === 401) {
-            window.location.href = "./login.html";
-            return;
-          }
-          models = await res.json() || [];
-          renderModels();
-        } catch (err) {
-          showToast("加载模型失败", "error");
-        }
-      }
+        // Proxy Config Saving
+        proxy_http: document.getElementById("cfg_proxy_http").value,
+        proxy_https: document.getElementById("cfg_proxy_https").value,
+        proxy_user: document.getElementById("cfg_proxy_user").value,
+        proxy_pass: document.getElementById("cfg_proxy_pass").value,
+        proxy_bypass: document.getElementById("cfg_proxy_bypass").value.split("\n").filter(line => line.trim() !== "")
+      };
 
-      function renderModels() {
-        const container = document.getElementById("modelsList");
-        let filtered = models;
-        if (currentModelChannel) {
-          filtered = models.filter(m => m.channel.toLowerCase() === currentModelChannel.toLowerCase());
-        }
-
-        // Sort: SortOrder ascending
-        filtered.sort((a, b) => {
-          return a.sort_order - b.sort_order;
+      try {
+        const res = await fetch("/api/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data)
         });
+        if (!res.ok) throw new Error(await res.text());
+        showToast("配置已保存");
+      } catch (err) {
+        showToast("保存失败: " + err.message, "error");
+      }
+    }
 
-        document.getElementById("totalModelCount").textContent = filtered.length;
+    function togglePassword(id) {
+      const input = document.getElementById(id);
+      input.type = input.type === 'password' ? 'text' : 'password';
+    }
 
-        if (filtered.length === 0) {
-          container.innerHTML = `
+    function copyFieldValue(id) {
+      const val = document.getElementById(id).value;
+      if (!val) {
+        showToast("没有内容可复制", "info");
+        return;
+      }
+      copyToClipboard(val);
+    }
+
+    // Model Management Logic
+    let models = [];
+    let currentModelChannel = '';
+
+    async function loadModels() {
+      try {
+        const res = await fetch("/api/models");
+        if (res.status === 401) {
+          window.location.href = "./login.html";
+          return;
+        }
+        models = await res.json() || [];
+        renderModels();
+      } catch (err) {
+        showToast("加载模型失败", "error");
+      }
+    }
+
+    function renderModels() {
+      const container = document.getElementById("modelsList");
+      let filtered = models;
+      if (currentModelChannel) {
+        filtered = models.filter(m => m.channel.toLowerCase() === currentModelChannel.toLowerCase());
+      }
+
+      // Sort: SortOrder ascending
+      filtered.sort((a, b) => {
+        return a.sort_order - b.sort_order;
+      });
+
+      document.getElementById("totalModelCount").textContent = filtered.length;
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
             <div class="empty-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #94a3b8;">
               <span style="font-size: 3rem; margin-bottom: 16px;">💎</span>
               <p>暂无${currentModelChannel ? ' ' + currentModelChannel : ''} 模型数据</p>
             </div>`;
-          return;
-        }
+        return;
+      }
 
-        container.innerHTML = `
+      container.innerHTML = `
           <div class="table-wrap">
             <table>
               <thead>
@@ -2420,268 +2558,272 @@
             </table>
           </div>
         `;
-      }
+    }
 
-      async function setDefaultModel(id) {
-        const model = models.find(m => m.id === id);
-        if (!model) return;
+    async function setDefaultModel(id) {
+      const model = models.find(m => m.id === id);
+      if (!model) return;
 
-        try {
-          // Updated logic to clear other defaults for same channel
-          const updatedModel = { ...model, is_default: true };
-          const res = await fetch(`/api/models/${id}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(updatedModel),
-          });
-          if (!res.ok) throw new Error(await res.text());
-
-          showToast("设为默认成功");
-          loadModels();
-        } catch (err) {
-          showToast("设置失败: " + err.message, "error");
-        }
-      }
-
-      function filterModelsByChannel(channel) {
-        currentModelChannel = channel;
-        document.querySelectorAll("#modelPlatformFilters .tab-item").forEach(btn => {
-          btn.classList.toggle("active", (channel === '' && btn.textContent === 'All') || btn.textContent === channel);
+      try {
+        // Updated logic to clear other defaults for same channel
+        const updatedModel = { ...model, is_default: true };
+        const res = await fetch(`/api/models/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(updatedModel),
         });
+        if (!res.ok) throw new Error(await res.text());
+
+        showToast("设为默认成功");
+        loadModels();
+      } catch (err) {
+        showToast("设置失败: " + err.message, "error");
+      }
+    }
+
+    function filterModelsByChannel(channel) {
+      currentModelChannel = channel;
+      document.querySelectorAll("#modelPlatformFilters .tab-item").forEach(btn => {
+        btn.classList.toggle("active", (channel === '' && btn.textContent === 'All') || (channel === 'QA-TEST' && btn.textContent === '质量测试') || btn.textContent === channel);
+      });
+
+      const header = document.querySelector("#modelsHeader h1");
+      const sub = document.querySelector("#modelsHeader p");
+
+      if (channel === 'QA-TEST') {
+        document.getElementById("modelsListWrapper").style.display = 'none';
+        document.getElementById("modelsQaWrapper").style.display = 'block';
+        document.getElementById("totalModelCount").parentElement.style.visibility = 'hidden';
+        if (header) header.textContent = "质量测试";
+        if (sub) sub.textContent = "针对不同场景进行模型输出质量验证";
+      } else {
+        document.getElementById("modelsListWrapper").style.display = 'block';
+        document.getElementById("modelsQaWrapper").style.display = 'none';
+        document.getElementById("totalModelCount").parentElement.style.visibility = 'visible';
+        if (header) header.textContent = "模型管理";
+        if (sub) sub.textContent = "管理各渠道的可用模型列表";
         renderModels();
       }
+    }
 
-      function openModelModal(model = null) {
-        const modal = document.getElementById("modelModal");
-        const title = document.getElementById("modelModalTitle");
-        const form = document.getElementById("modelForm");
+    function openModelModal(model = null) {
+      const modal = document.getElementById("modelModal");
+      const title = document.getElementById("modelModalTitle");
+      const form = document.getElementById("modelForm");
 
-        if (model) {
-          title.textContent = "编辑模型";
-          document.getElementById("modelId").value = model.id;
-          document.getElementById("modelChannel").value = model.channel;
-          document.getElementById("modelModelId").value = model.model_id;
-          document.getElementById("modelName").value = model.name;
-          document.getElementById("modelSortOrder").value = model.sort_order;
-          document.getElementById("modelStatus").value = model.status;
-          document.getElementById("modelIsDefault").checked = model.is_default;
-        } else {
-          title.textContent = "添加模型";
-          form.reset();
-          document.getElementById("modelId").value = "";
-          document.getElementById("modelChannel").value = "Orchids";
-          document.getElementById("modelSortOrder").value = "0";
-          document.getElementById("modelStatus").value = "available";
-        }
-        modal.classList.add("active");
-        modal.style.display = "flex";
+      if (model) {
+        title.textContent = "编辑模型";
+        document.getElementById("modelId").value = model.id;
+        document.getElementById("modelChannel").value = model.channel;
+        document.getElementById("modelModelId").value = model.model_id;
+        document.getElementById("modelName").value = model.name;
+        document.getElementById("modelSortOrder").value = model.sort_order;
+        document.getElementById("modelStatus").value = model.status;
+        document.getElementById("modelIsDefault").checked = model.is_default;
+      } else {
+        title.textContent = "添加模型";
+        form.reset();
+        document.getElementById("modelId").value = "";
+        document.getElementById("modelChannel").value = "Orchids";
+        document.getElementById("modelSortOrder").value = "0";
+        document.getElementById("modelStatus").value = "available";
       }
+      modal.classList.add("active");
+      modal.style.display = "flex";
+    }
 
-      function closeModelModal() {
-        const modal = document.getElementById("modelModal");
-        modal.classList.remove("active");
-        modal.style.display = "none";
-      }
+    function closeModelModal() {
+      const modal = document.getElementById("modelModal");
+      modal.classList.remove("active");
+      modal.style.display = "none";
+    }
 
-      async function saveModel(e) {
-        e.preventDefault();
-        const id = document.getElementById("modelId").value;
-        const data = {
-          channel: document.getElementById("modelChannel").value,
-          model_id: document.getElementById("modelModelId").value,
-          name: document.getElementById("modelName").value,
-          sort_order: parseInt(document.getElementById("modelSortOrder").value) || 0,
-          status: document.getElementById("modelStatus").value,
-          is_default: document.getElementById("modelIsDefault").checked
-        };
-
-        if (id) {
-          data.id = id;
-        }
-
-        try {
-          const url = id ? `/api/models/${id}` : "/api/models";
-          const method = id ? "PUT" : "POST";
-          const res = await fetch(url, {
-            method,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data),
-          });
-          if (!res.ok) throw new Error(await res.text());
-          closeModelModal();
-          loadModels();
-          showToast("保存成功");
-        } catch (err) {
-          showToast("保存失败: " + err.message, "error");
-        }
-      }
-
-      function editModel(id) {
-        const model = models.find(m => m.id === id);
-        if (model) openModelModal(model);
-      }
-
-      async function deleteModel(id) {
-        if (!confirm("确定要删除这个模型吗？")) return;
-        try {
-          const res = await fetch(`/api/models/${id}`, { method: "DELETE" });
-          if (!res.ok) throw new Error(await res.text());
-          showToast("删除成功");
-          loadModels();
-        } catch (err) {
-          showToast("删除失败: " + err.message, "error");
-        }
-      }
-
-      async function refreshModels() {
-        if (!confirm("确定要从上游刷新模型列表吗？")) return;
-        try {
-          showToast("正在查询上游模型...", "info");
-          const res = await fetch("/api/models/refresh", { method: "POST" });
-          if (!res.ok) throw new Error(await res.text());
-          const result = await res.json();
-          showToast(`同步成功: 更新了 ${result.count} 个模型`);
-          loadModels();
-        } catch (err) {
-          showToast("同步失败: " + err.message, "error");
-        }
-      }
-
-      // QA Logic
-      const qaTestCases = {
-        greeting: "Hello, say hi locally.",
-        math: "Calculate 25 * 42 step by step.",
-        tool_ls: "List the files in the current directory.",
-        tool_calc: "Use the calculator to find 123 * 456.",
-        mega_context: "generate", // Special flag
-        custom: ""
+    async function saveModel(e) {
+      e.preventDefault();
+      const id = document.getElementById("modelId").value;
+      const data = {
+        channel: document.getElementById("modelChannel").value,
+        model_id: document.getElementById("modelModelId").value,
+        name: document.getElementById("modelName").value,
+        sort_order: parseInt(document.getElementById("modelSortOrder").value) || 0,
+        status: document.getElementById("modelStatus").value,
+        is_default: document.getElementById("modelIsDefault").checked
       };
 
-      function loadQaPrompt() {
-        const key = document.getElementById("qaTestCase").value;
-        if (key === 'custom') {
-          return;
-        }
-        if (key === 'mega_context') {
-          const base = "This is a line of text to simulate context. ";
-          let result = "Ignore the following repeated context and just tell me the specific count of the word 'context'.\n\n";
-          // Generate approx 50k tokens (1 token ~ 4 chars). 50k * 4 = 200k chars.
-          // base length ~ 40 chars. 200000 / 40 = 5000 lines.
-          for (let i = 0; i < 5000; i++) {
-            result += `${i + 1}. ${base}\n`;
-          }
-          result += "\n\nEnd of context. How many times does the word 'context' appear in the numbered list above?";
-          document.getElementById("qaInput").value = result;
-        } else {
-          document.getElementById("qaInput").value = qaTestCases[key];
-        }
+      if (id) {
+        data.id = id;
       }
 
-      async function runQaTest() {
-        const input = document.getElementById("qaInput").value;
-        const model = document.getElementById("qaModel").value;
-        const outputDiv = document.getElementById("qaOutput");
-        const btn = document.getElementById("qaRunBtn");
+      try {
+        const url = id ? `/api/models/${id}` : "/api/models";
+        const method = id ? "PUT" : "POST";
+        const res = await fetch(url, {
+          method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        closeModelModal();
+        loadModels();
+        showToast("保存成功");
+      } catch (err) {
+        showToast("保存失败: " + err.message, "error");
+      }
+    }
 
-        outputDiv.innerHTML = '<span style="color: #94a3b8;">Connecting...</span>';
-        btn.disabled = true;
+    function editModel(id) {
+      const model = models.find(m => m.id === id);
+      if (model) openModelModal(model);
+    }
 
-        try {
-          const res = await fetch("/v1/messages", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              model: model,
-              messages: [{ role: "user", content: input }],
-              stream: true
-            })
-          });
+    async function deleteModel(id) {
+      if (!confirm("确定要删除这个模型吗？")) return;
+      try {
+        const res = await fetch(`/api/models/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(await res.text());
+        showToast("删除成功");
+        loadModels();
+      } catch (err) {
+        showToast("删除失败: " + err.message, "error");
+      }
+    }
 
-          if (!res.ok) {
-            outputDiv.innerHTML = `<span style="color: #ef4444;">Error: ${res.status} ${res.statusText}</span>\n${await res.text()}`;
-            btn.disabled = false;
-            return;
-          }
 
-          outputDiv.innerHTML = ""; // Clear
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
+    // QA Logic
+    const qaTestCases = {
+      greeting: "Hello, say hi locally.",
+      math: "Calculate 25 * 42 step by step.",
+      tool_ls: "List the files in the current directory.",
+      tool_calc: "Use the calculator to find 123 * 456.",
+      mega_context: "generate", // Special flag
+      custom: ""
+    };
 
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
+    function loadQaPrompt() {
+      const key = document.getElementById("qaTestCase").value;
+      if (key === 'custom') {
+        return;
+      }
+      if (key === 'mega_context') {
+        const base = "This is a line of text to simulate context. ";
+        let result = "Ignore the following repeated context and just tell me the specific count of the word 'context'.\n\n";
+        // Generate approx 50k tokens (1 token ~ 4 chars). 50k * 4 = 200k chars.
+        // base length ~ 40 chars. 200000 / 40 = 5000 lines.
+        for (let i = 0; i < 5000; i++) {
+          result += `${i + 1}. ${base}\n`;
+        }
+        result += "\n\nEnd of context. How many times does the word 'context' appear in the numbered list above?";
+        document.getElementById("qaInput").value = result;
+      } else {
+        document.getElementById("qaInput").value = qaTestCases[key];
+      }
+    }
 
-            for (const line of lines) {
-              if (line.startsWith("data: ")) {
-                const dataStr = line.slice(6);
-                if (dataStr === "[DONE]") continue;
-                try {
-                  const event = JSON.parse(dataStr);
-                  handleQaEvent(event, outputDiv);
-                } catch (e) {
-                  // ignore json parse error for partial lines
-                }
+    async function runQaTest() {
+      const input = document.getElementById("qaInput").value;
+      const model = document.getElementById("qaModel").value;
+      const outputDiv = document.getElementById("qaOutput");
+      const btn = document.getElementById("qaRunBtn");
+
+      outputDiv.innerHTML = '<span style="color: #94a3b8;">Connecting...</span>';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch("/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: model,
+            messages: [{ role: "user", content: input }],
+            stream: true
+          })
+        });
+
+        if (!res.ok) {
+          outputDiv.innerHTML = `<span style="color: #ef4444;">Error: ${res.status} ${res.statusText}</span>\n${await res.text()}`;
+          btn.disabled = false;
+          return;
+        }
+
+        outputDiv.innerHTML = ""; // Clear
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const dataStr = line.slice(6);
+              if (dataStr === "[DONE]") continue;
+              try {
+                const event = JSON.parse(dataStr);
+                handleQaEvent(event, outputDiv);
+              } catch (e) {
+                // ignore json parse error for partial lines
               }
             }
           }
-          outputDiv.innerHTML += `\n<span style="color: #10b981;">[DONE]</span>`;
+        }
+        outputDiv.innerHTML += `\n<span style="color: #10b981;">[DONE]</span>`;
 
-        } catch (err) {
-          outputDiv.innerHTML += `\n<span style="color: #ef4444;">Request Failed: ${err.message}</span>`;
-        } finally {
-          btn.disabled = false;
+      } catch (err) {
+        outputDiv.innerHTML += `\n<span style="color: #ef4444;">Request Failed: ${err.message}</span>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function handleQaEvent(event, container) {
+      if (event.type === 'message_start') {
+        // init
+      } else if (event.type === 'content_block_start') {
+        const block = event.content_block;
+        if (block.type === 'thinking') {
+          container.innerHTML += `<span style="color: #6366f1;">[THINKING START]</span>\n`;
+        } else if (block.type === 'tool_use') {
+          container.innerHTML += `<span style="color: #f59e0b;">[TOOL USE: ${block.name}]</span>\n`;
+        }
+      } else if (event.type === 'content_block_delta') {
+        const delta = event.delta;
+        if (delta.type === 'text_delta') {
+          container.textContent += delta.text; // Use textContent to append text safely, but wait, innerHTML is used above.
+          // Better strictly append text node or use innerHTML with escaping if we want colors. 
+          // Ideally we should separate structure from content. 
+          // For simplicity, let's just append text.
+          // Actually, mixing innerHTML and textContent is tricky. Let's append spans.
+          const span = document.createElement('span');
+          span.textContent = delta.text;
+          container.appendChild(span);
+          container.scrollTop = container.scrollHeight;
+        } else if (delta.type === 'thinking_delta') {
+          const span = document.createElement('span');
+          span.style.color = '#818cf8';
+          span.textContent = delta.thinking;
+          container.appendChild(span);
+          container.scrollTop = container.scrollHeight;
+        }
+      } else if (event.type === 'content_block_stop') {
+        // block end
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const savedTab = localStorage.getItem("activeTab") || "accounts";
+      switchTab(savedTab);
+      const autoCheckEnabled = localStorage.getItem("autoCheckEnabled") === "true";
+      const autoToggle = document.getElementById("autoCheckToggle");
+      if (autoToggle) {
+        autoToggle.checked = autoCheckEnabled;
+        if (autoCheckEnabled) {
+          toggleAutoCheck(true);
         }
       }
-
-      function handleQaEvent(event, container) {
-        if (event.type === 'message_start') {
-          // init
-        } else if (event.type === 'content_block_start') {
-          const block = event.content_block;
-          if (block.type === 'thinking') {
-            container.innerHTML += `<span style="color: #6366f1;">[THINKING START]</span>\n`;
-          } else if (block.type === 'tool_use') {
-            container.innerHTML += `<span style="color: #f59e0b;">[TOOL USE: ${block.name}]</span>\n`;
-          }
-        } else if (event.type === 'content_block_delta') {
-          const delta = event.delta;
-          if (delta.type === 'text_delta') {
-            container.textContent += delta.text; // Use textContent to append text safely, but wait, innerHTML is used above.
-            // Better strictly append text node or use innerHTML with escaping if we want colors. 
-            // Ideally we should separate structure from content. 
-            // For simplicity, let's just append text.
-            // Actually, mixing innerHTML and textContent is tricky. Let's append spans.
-            const span = document.createElement('span');
-            span.textContent = delta.text;
-            container.appendChild(span);
-            container.scrollTop = container.scrollHeight;
-          } else if (delta.type === 'thinking_delta') {
-            const span = document.createElement('span');
-            span.style.color = '#818cf8';
-            span.textContent = delta.thinking;
-            container.appendChild(span);
-            container.scrollTop = container.scrollHeight;
-          }
-        } else if (event.type === 'content_block_stop') {
-          // block end
-        }
-      }
-
-      document.addEventListener("DOMContentLoaded", () => {
-        const savedTab = localStorage.getItem("activeTab") || "accounts";
-        switchTab(savedTab);
-        const autoCheckEnabled = localStorage.getItem("autoCheckEnabled") === "true";
-        const autoToggle = document.getElementById("autoCheckToggle");
-        if (autoToggle) {
-          autoToggle.checked = autoCheckEnabled;
-          if (autoCheckEnabled) {
-            toggleAutoCheck(true);
-          }
-        }
-      });
-    </script>
+    });
+  </script>
 </body>
 
 </html>

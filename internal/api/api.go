@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"math/big"
 	"net/http"
@@ -16,8 +15,6 @@ import (
 
 	"orchids-api/internal/auth"
 	"orchids-api/internal/clerk"
-	"orchids-api/internal/client"
-	"orchids-api/internal/config"
 	"orchids-api/internal/model"
 	"orchids-api/internal/store"
 )
@@ -652,99 +649,6 @@ func (a *API) HandleModelByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
-}
-
-func (a *API) HandleModelRefresh(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	ctx := r.Context()
-
-	// Need a client config to call upstream.
-	// Try to get one from an enabled account or use base config.
-	enabledAccounts, err := a.store.GetEnabledAccounts(ctx)
-	if err != nil {
-		slog.Error("Failed to list accounts for refresh", "error", err)
-	}
-
-	var upstreamClient *client.Client
-	var baseConfig *config.Config
-
-	if cfg, ok := a.config.(*config.Config); ok {
-		baseConfig = cfg
-	}
-
-	// Try to find a valid account for token
-	if len(enabledAccounts) > 0 {
-		// Use the first enabled account
-		upstreamClient = client.NewFromAccount(enabledAccounts[0], baseConfig)
-	} else if baseConfig != nil {
-		// Fallback to base config
-		upstreamClient = client.New(baseConfig)
-	} else {
-		http.Error(w, "No configuration or accounts available to fetch models", http.StatusInternalServerError)
-		return
-	}
-
-	models, err := upstreamClient.FetchUpstreamModels(ctx)
-	if err != nil {
-		slog.Error("Failed to fetch upstream models", "error", err)
-		http.Error(w, "Failed to fetch upstream models: "+err.Error(), http.StatusBadGateway)
-		return
-	}
-
-	// Update store
-	count := 0
-	existingModels, _ := a.store.ListModels(ctx)
-	existingMap := make(map[string]*model.Model)
-	if existingModels != nil {
-		for _, m := range existingModels {
-			existingMap[m.ModelID] = m
-		}
-	}
-
-	// Used ID map to check duplicates
-
-	for _, upM := range models {
-		// Logic: Sync all from upstream v1/models
-
-		channel := "Orchids" // Default channel
-
-		m := &model.Model{
-			ID:        "", // ID will be set
-			Channel:   channel,
-			ModelID:   upM.ID,
-			Name:      upM.ID, // Use ID as name if unknown
-			Status:    true,
-			IsDefault: false,
-			SortOrder: 10 + count,
-		}
-
-		if _, exists := existingMap[upM.ID]; exists {
-			continue
-		} else {
-			// Create new
-			m.Name = prettifyModelName(upM.ID)
-			// Generate an ID. Using time or random.
-			m.ID = fmt.Sprintf("auto_%d_%s", time.Now().UnixNano()/1000, upM.ID)
-
-			// Try to keep ID short if possible, but store handles string ID
-
-			if err := a.store.CreateModel(ctx, m); err != nil {
-				slog.Warn("Failed to create synced model", "id", upM.ID, "error", err)
-			} else {
-				count++
-			}
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status": "ok",
-		"count":  count,
-	})
 }
 
 func prettifyModelName(id string) string {

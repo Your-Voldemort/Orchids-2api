@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -220,7 +222,8 @@ func FormatMessagesAsMarkdown(messages []Message) string {
 
 	// 顺序组装结果
 	var sb strings.Builder
-	sb.Grow(len(historyMessages) * 256)
+	// Estimating capacity: typical 4KB or proportional to message count
+	sb.Grow(len(historyMessages) * 512)
 
 	turnIndex := 1
 	for i, content := range formattedContents {
@@ -228,7 +231,15 @@ func FormatMessagesAsMarkdown(messages []Message) string {
 			if turnIndex > 1 {
 				sb.WriteString("\n\n")
 			}
-			sb.WriteString(fmt.Sprintf("<turn index=\"%d\" role=\"%s\">\n%s\n</turn>", turnIndex, historyMessages[i].Role, content))
+			// Optimized: <turn index="%d" role="%s">\n%s\n</turn>
+			sb.WriteString("<turn index=\"")
+			sb.WriteString(strconv.Itoa(turnIndex))
+			sb.WriteString("\" role=\"")
+			sb.WriteString(historyMessages[i].Role)
+			sb.WriteString("\">\n")
+			sb.WriteString(content)
+			sb.WriteString("\n</turn>")
+
 			turnIndex++
 		}
 	}
@@ -555,66 +566,17 @@ func BuildPromptV2WithOptions(req ClaudeAPIRequest, opts PromptOptions) string {
 	var recent []Message
 	var older []Message
 
-	// Iterate backwards adding messages until budget equals 0
-	currentHistoryTokens := 0
-	splitIdx := 0
+	// 1. Calculate tokens for all history messages in parallel
+	tokenCounts := calculateMessageTokensParallel(historyMessages)
 
-	// Helper to format a single message to estimate its tokens roughly
-	// This avoids expensive FormatMessagesAsMarkdown on the whole slice repeatedly
-	// We accept some inaccuracy for speed, or we can use accurate counting.
-	// Given "Ultra-long" requirement, accuracy matters to avoid API errors.
-
-	// Reverse iterate
-	for i := len(historyMessages) - 1; i >= 0; i-- {
-		msg := historyMessages[i]
-		msgContent := ""
-		if msg.Role == "user" {
-			msgContent = formatUserMessage(msg.Content)
-		} else {
-			msgContent = formatAssistantMessage(msg.Content)
-		}
-		// formatted turn XML overhead: <turn index="N" role="...">\n...\n</turn> ~ approx 15 tokens
-		msgTokens := tiktoken.EstimateTextTokens(msgContent) + 15
-
-		if currentHistoryTokens+msgTokens <= historyBudget {
-			currentHistoryTokens += msgTokens
-			splitIdx = i
-		} else {
-			// Stop here. All previous messages (0 to i) correspond to "Older"
-			// But wait, we should try to keep strict pairs if mostly chat?
-			// Anthropic doesn't strictly require pairs but it's good practice.
-			// Let's just break for now.
-			break
-		}
-	}
-
-	older = historyMessages[:splitIdx]
-	recent = historyMessages[splitIdx:]
-
-	// If recent is empty but we have history, forcing at least one turn might break token limit.
-	// But usually user wants at least context.
-	// If "recent" is empty, it means even the last message didn't fit with the summary budget reserved.
-	// In that case, we might eat into summary budget.
-
-	if len(recent) == 0 && len(historyMessages) > 0 {
-		// Try to add at least one if it fits in MaxTokens ignoring summary reservation
-		lastMsg := historyMessages[len(historyMessages)-1]
-		msgContent := ""
-		if lastMsg.Role == "user" {
-			msgContent = formatUserMessage(lastMsg.Content)
-		} else {
-			msgContent = formatAssistantMessage(lastMsg.Content)
-		}
-		if tiktoken.EstimateTextTokens(msgContent)+baseTokens <= opts.MaxTokens {
-			recent = []Message{lastMsg}
-			older = historyMessages[:len(historyMessages)-1]
-		}
-	}
+	// 2. Select optimal history window using Suffix Sum + Binary Search
+	older, recent = selectHistoryWindow(historyMessages, tokenCounts, historyBudget, baseTokens, opts.MaxTokens)
 
 	// Generate summary for older messages
 	summary := ""
 	if len(older) > 0 {
-		summary = summarizeMessagesWithCache(opts.Context, opts, older, reservedForSummary)
+		// Use Recursive Summarization (Divide & Conquer)
+		summary = summarizeMessagesRecursive(older, reservedForSummary)
 	}
 
 	historyText := FormatMessagesAsMarkdown(recent)
@@ -944,6 +906,134 @@ func summarizeMessageWithLimit(msg Message, maxTokens int) string {
 	}
 
 	return truncateToTokens(strings.Join(parts, " | "), maxTokens)
+}
+
+// calculateMessageTokensParallel 并行计算消息 token
+func calculateMessageTokensParallel(messages []Message) []int {
+	historyLen := len(messages)
+	tokenCounts := make([]int, historyLen)
+	if historyLen == 0 {
+		return tokenCounts
+	}
+
+	const parallelThreshold = 8
+	if historyLen >= parallelThreshold {
+		type msgTokenResult struct {
+			index  int
+			tokens int
+		}
+		var wg sync.WaitGroup
+		resultChan := make(chan msgTokenResult, historyLen)
+
+		wg.Add(historyLen)
+		for i, msg := range messages {
+			go func(idx int, m Message) {
+				defer wg.Done()
+				msgContent := ""
+				if m.Role == "user" {
+					msgContent = formatUserMessage(m.Content)
+				} else {
+					msgContent = formatAssistantMessage(m.Content)
+				}
+				// formatted turn XML overhead: <turn index="N" role="...">\n...\n</turn> ~ approx 15 tokens
+				t := tiktoken.EstimateTextTokens(msgContent) + 15
+				resultChan <- msgTokenResult{index: idx, tokens: t}
+			}(i, msg)
+		}
+		go func() {
+			wg.Wait()
+			close(resultChan)
+		}()
+		for res := range resultChan {
+			tokenCounts[res.index] = res.tokens
+		}
+	} else {
+		// Serial for small history
+		for i, msg := range messages {
+			msgContent := ""
+			if msg.Role == "user" {
+				msgContent = formatUserMessage(msg.Content)
+			} else {
+				msgContent = formatAssistantMessage(msg.Content)
+			}
+			tokenCounts[i] = tiktoken.EstimateTextTokens(msgContent) + 15
+		}
+	}
+	return tokenCounts
+}
+
+// selectHistoryWindow 使用后缀和+二分查找选择最优历史窗口
+func selectHistoryWindow(messages []Message, tokenCounts []int, budget int, baseTokens int, maxTokens int) (older []Message, recent []Message) {
+	historyLen := len(messages)
+	if historyLen == 0 {
+		return nil, nil
+	}
+
+	// Optimization: Suffix Sum (DP) + Binary Search
+	suffixSum := make([]int, historyLen+1)
+	for i := historyLen - 1; i >= 0; i-- {
+		suffixSum[i] = suffixSum[i+1] + tokenCounts[i]
+	}
+
+	// Use Binary Search to find the optimal split index
+	splitIdx := sort.Search(historyLen, func(i int) bool {
+		return suffixSum[i] <= budget
+	})
+
+	older = messages[:splitIdx]
+	recent = messages[splitIdx:]
+
+	if len(recent) == 0 && len(messages) > 0 {
+		// Try to add at least one if it fits in MaxTokens ignoring summary reservation
+		lastMsg := messages[len(messages)-1]
+		lastTokens := tokenCounts[len(tokenCounts)-1]
+		if lastTokens+baseTokens <= maxTokens {
+			recent = []Message{lastMsg}
+			older = messages[:len(messages)-1]
+		}
+	}
+	return older, recent
+}
+
+// summarizeMessagesRecursive uses Divide & Conquer to summarize messages
+func summarizeMessagesRecursive(messages []Message, maxTokens int) string {
+	if len(messages) == 0 {
+		return ""
+	}
+
+	// Base case: if estimated tokens are within budget, perform simple formatting
+	// We use a quick estimation here.
+	totalEstimated := 0
+	for _, m := range messages {
+		if m.Content.IsString() {
+			totalEstimated += tiktoken.EstimateTextTokens(m.Content.GetText())
+		} else {
+			totalEstimated += 100 // Rough estimate for blocks
+		}
+	}
+
+	if totalEstimated <= maxTokens {
+		// Just format them all, but maybe still need to truncate individual large ones?
+		// For simplicity, we just use the simple line builder for small enough chunks
+		lines := buildSummaryLines(messages, maxTokens) // Reuse existing logic which formats well
+		return strings.Join(lines, "\n")
+	}
+
+	// Recursive step: Split into two halves
+	mid := len(messages) / 2
+	leftBudget := maxTokens / 2
+	rightBudget := maxTokens - leftBudget
+
+	leftSummary := summarizeMessagesRecursive(messages[:mid], leftBudget)
+	rightSummary := summarizeMessagesRecursive(messages[mid:], rightBudget)
+
+	if leftSummary == "" {
+		return rightSummary
+	}
+	if rightSummary == "" {
+		return leftSummary
+	}
+	return leftSummary + "\n" + rightSummary
 }
 
 // truncateToTokens 使用二分查找优化 token 截断，减少重复 token 估算

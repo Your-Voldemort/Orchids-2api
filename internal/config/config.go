@@ -235,7 +235,7 @@ func applyDefaults(cfg *Config) {
 		cfg.CacheTTL = 5
 	}
 	if cfg.CacheStrategy == "" {
-		cfg.CacheStrategy = "split"
+		cfg.CacheStrategy = "mixed"
 	}
 	if cfg.LoadBalancerCacheTTL == 0 {
 		cfg.LoadBalancerCacheTTL = 5

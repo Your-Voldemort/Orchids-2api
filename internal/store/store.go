@@ -124,29 +124,27 @@ func New(opts Options) (*Store, error) {
 }
 
 func (s *Store) seedModels() error {
-	ctx := context.Background() // Seed occurs at startup, background is OK
-	var count int
-	if s.models != nil {
-		models, err := s.models.ListModels(ctx)
-		if err == nil {
-			count = len(models)
-		}
-	}
-
-	if count > 0 {
-		return nil
-	}
+	ctx := context.Background()
 
 	models := []model.Model{
-		// Orchids
 		{ID: "6", Channel: "Orchids", ModelID: "claude-sonnet-4-5", Name: "Claude Sonnet 4.5", Status: true, IsDefault: true, SortOrder: 0},
 		{ID: "7", Channel: "Orchids", ModelID: "claude-opus-4-5", Name: "Claude Opus 4.5", Status: true, IsDefault: false, SortOrder: 1},
-		{ID: "8", Channel: "Orchids", ModelID: "claude-sonnet-4-5-thinking", Name: "Claude Sonnet 4.5 Thinking", Status: true, IsDefault: false, SortOrder: 2},
+		{ID: "42", Channel: "Orchids", ModelID: "claude-sonnet-4-5-thinking", Name: "Claude Sonnet 4.5 Thinking", Status: true, IsDefault: false, SortOrder: 1},
+		{ID: "8", Channel: "Orchids", ModelID: "claude-haiku-4-5", Name: "Claude Haiku 4.5", Status: true, IsDefault: false, SortOrder: 2},
+		{ID: "9", Channel: "Orchids", ModelID: "claude-sonnet-4-20250514", Name: "Claude Sonnet 4", Status: true, IsDefault: false, SortOrder: 3},
+		{ID: "43", Channel: "Orchids", ModelID: "claude-opus-4-5-thinking", Name: "Claude Opus 4.5 Thinking", Status: true, IsDefault: false, SortOrder: 3},
+		{ID: "10", Channel: "Orchids", ModelID: "claude-3-7-sonnet-20250219", Name: "Claude 3.7 Sonnet", Status: true, IsDefault: false, SortOrder: 4},
 	}
 
 	for _, m := range models {
-		if err := s.CreateModel(ctx, &m); err != nil {
-			slog.Warn("Failed to seed model", "model_id", m.ModelID, "error", err)
+		_, err := s.GetModelByModelID(ctx, m.ModelID)
+		if err != nil {
+			// Model doesn't exist, create it
+			if err := s.CreateModel(ctx, &m); err != nil {
+				slog.Warn("Failed to seed model", "model_id", m.ModelID, "error", err)
+			} else {
+				slog.Info("Seeded model", "model_id", m.ModelID)
+			}
 		}
 	}
 	return nil
