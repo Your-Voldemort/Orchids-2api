@@ -17,6 +17,7 @@ type Config struct {
 	DebugEnabled            bool     `json:"debug_enabled"`
 	SessionID               string   `json:"session_id"`
 	ClientCookie            string   `json:"client_cookie"`
+	SessionCookie           string   `json:"session_cookie"`
 	ClientUat               string   `json:"client_uat"`
 	ProjectID               string   `json:"project_id"`
 	UserID                  string   `json:"user_id"`
@@ -248,6 +249,9 @@ func applyDefaults(cfg *Config) {
 }
 
 func (c *Config) GetCookies() string {
+	if strings.TrimSpace(c.SessionCookie) != "" {
+		return "__client=" + c.ClientCookie + "; __session=" + c.SessionCookie
+	}
 	return "__client=" + c.ClientCookie + "; __client_uat=" + c.ClientUat
 }
 

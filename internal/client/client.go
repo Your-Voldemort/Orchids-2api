@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"orchids-api/internal/clerk"
 	"orchids-api/internal/config"
 	"orchids-api/internal/debug"
 	"orchids-api/internal/prompt"
@@ -42,6 +43,7 @@ type UpstreamRequest struct {
 	System      []prompt.SystemItem
 	Tools       []interface{}
 	NoTools     bool
+	NoThinking  bool
 }
 
 type TokenResponse struct {
@@ -49,18 +51,21 @@ type TokenResponse struct {
 }
 
 type AgentRequest struct {
-	Prompt        string        `json:"prompt"`
-	ChatHistory   []interface{} `json:"chatHistory"`
-	ProjectID     string        `json:"projectId"`
-	CurrentPage   interface{}   `json:"currentPage"`
-	AgentMode     string        `json:"agentMode"`
-	Mode          string        `json:"mode"`
-	GitRepoUrl    string        `json:"gitRepoUrl"`
-	Email         string        `json:"email"`
-	ChatSessionID int           `json:"chatSessionId"`
-	UserID        string        `json:"userId"`
-	APIVersion    int           `json:"apiVersion"`
-	Model         string        `json:"model,omitempty"`
+	Prompt        string              `json:"prompt"`
+	ChatHistory   []interface{}       `json:"chatHistory"`
+	ProjectID     string              `json:"projectId"`
+	CurrentPage   interface{}         `json:"currentPage"`
+	AgentMode     string              `json:"agentMode"`
+	Mode          string              `json:"mode"`
+	GitRepoUrl    string              `json:"gitRepoUrl"`
+	Email         string              `json:"email"`
+	ChatSessionID int                 `json:"chatSessionId"`
+	UserID        string              `json:"userId"`
+	APIVersion    int                 `json:"apiVersion"`
+	Model         string              `json:"model,omitempty"`
+	Messages      []prompt.Message    `json:"messages,omitempty"`
+	System        []prompt.SystemItem `json:"system,omitempty"`
+	Tools         []interface{}       `json:"tools,omitempty"`
 }
 
 type SSEMessage struct {
@@ -128,6 +133,7 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 	cfg := &config.Config{
 		SessionID:           acc.SessionID,
 		ClientCookie:        acc.ClientCookie,
+		SessionCookie:       acc.SessionCookie,
 		ClientUat:           acc.ClientUat,
 		ProjectID:           acc.ProjectID,
 		UserID:              acc.UserID,
@@ -141,6 +147,7 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		OrchidsAPIVersion:   "",
 		OrchidsImpl:         "",
 		OrchidsLocalWorkdir: "",
+		AutoRefreshToken:    false,
 	}
 	if base != nil {
 		cfg.UpstreamMode = base.UpstreamMode
@@ -153,6 +160,7 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		cfg.OrchidsLocalWorkdir = base.OrchidsLocalWorkdir
 		cfg.OrchidsAllowRunCommand = base.OrchidsAllowRunCommand
 		cfg.OrchidsRunAllowlist = base.OrchidsRunAllowlist
+		cfg.AutoRefreshToken = base.AutoRefreshToken
 	}
 	return &Client{
 		config:     cfg,
@@ -166,8 +174,37 @@ func (c *Client) GetToken() (string, error) {
 		return c.config.UpstreamToken, nil
 	}
 
+	if c.config != nil && c.config.AutoRefreshToken {
+		return c.forceRefreshToken()
+	}
+
 	if cached, ok := getCachedToken(c.config.SessionID); ok {
 		return cached, nil
+	}
+
+	return c.fetchToken()
+}
+
+func (c *Client) forceRefreshToken() (string, error) {
+	if c.config == nil {
+		return "", fmt.Errorf("missing config")
+	}
+
+	if strings.TrimSpace(c.config.ClientCookie) != "" {
+		info, err := clerk.FetchAccountInfo(c.config.ClientCookie)
+		if err == nil && info.JWT != "" {
+			c.applyAccountInfo(info)
+			setCachedToken(c.config.SessionID, info.JWT)
+			return info.JWT, nil
+		}
+	}
+
+	return c.fetchToken()
+}
+
+func (c *Client) fetchToken() (string, error) {
+	if c.config == nil {
+		return "", fmt.Errorf("missing config")
 	}
 
 	url := fmt.Sprintf("https://clerk.orchids.app/v1/client/sessions/%s/tokens?__clerk_api_version=2025-11-10&_clerk_js_version=5.117.0", c.config.SessionID)
@@ -200,11 +237,33 @@ func (c *Client) GetToken() (string, error) {
 	return tokenResp.JWT, nil
 }
 
+func (c *Client) applyAccountInfo(info *clerk.AccountInfo) {
+	if c.config == nil || info == nil {
+		return
+	}
+	if strings.TrimSpace(info.SessionID) != "" {
+		c.config.SessionID = info.SessionID
+	}
+	if strings.TrimSpace(info.ClientUat) != "" {
+		c.config.ClientUat = info.ClientUat
+	}
+	if strings.TrimSpace(info.ProjectID) != "" {
+		c.config.ProjectID = info.ProjectID
+	}
+	if strings.TrimSpace(info.UserID) != "" {
+		c.config.UserID = info.UserID
+	}
+	if strings.TrimSpace(info.Email) != "" {
+		c.config.Email = info.Email
+	}
+}
+
 func (c *Client) SendRequest(ctx context.Context, prompt string, chatHistory []interface{}, model string, onMessage func(SSEMessage), logger *debug.Logger) error {
 	req := UpstreamRequest{
 		Prompt:      prompt,
 		ChatHistory: chatHistory,
 		Model:       model,
+		Messages:    nil, // SendRequest is legacy, use SendRequestWithPayload for full objects
 	}
 	return c.SendRequestWithPayload(ctx, req, onMessage, logger)
 }
@@ -254,6 +313,9 @@ func (c *Client) sendRequestSSE(ctx context.Context, req UpstreamRequest, onMess
 		UserID:        c.config.UserID,
 		APIVersion:    2,
 		Model:         req.Model,
+		Messages:      req.Messages,
+		System:        req.System,
+		Tools:         req.Tools,
 	}
 
 	buf := byteBufferPool.Get().(*bytes.Buffer)
@@ -374,6 +436,68 @@ func (c *Client) sendRequestSSE(ctx context.Context, req UpstreamRequest, onMess
 	}
 
 	return nil
+}
+
+type UpstreamModel struct {
+	ID      string `json:"id"`
+	Created int    `json:"created"`
+	Object  string `json:"object"`
+	OwnedBy string `json:"owned_by"`
+}
+
+type UpstreamModelsResponse struct {
+	Object string          `json:"object"`
+	Data   []UpstreamModel `json:"data"`
+}
+
+func (c *Client) FetchUpstreamModels(ctx context.Context) ([]UpstreamModel, error) {
+	token, err := c.GetToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token: %w", err)
+	}
+
+	// Replace /agent/coding-agent with /v1/models if needed, or just append /v1/models if base is different
+	// The upstreamURL in client.go is "https://orchids-server.../agent/coding-agent"
+	baseURL := "https://orchids-server.calmstone-6964e08a.westeurope.azurecontainerapps.io"
+	if c.config != nil && c.config.OrchidsAPIBaseURL != "" {
+		baseURL = c.config.OrchidsAPIBaseURL
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	paths := []string{"/v1/models", "/api/models", "/api/v1/models", "/models"}
+	var lastErr error
+
+	for _, p := range paths {
+		reqURL := baseURL + p
+		req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode == http.StatusOK {
+			var parsed UpstreamModelsResponse
+			if err := json.NewDecoder(resp.Body).Decode(&parsed); err != nil {
+				// Try parsing as just []UpstreamModel
+				return nil, err
+			}
+			return parsed.Data, nil
+		}
+
+		// Read body for error details
+		body, _ := io.ReadAll(resp.Body)
+		lastErr = fmt.Errorf("upstream models request failed to %s: %s", p, string(body))
+	}
+
+	return nil, lastErr
 }
 
 func getUpstreamURL() string {

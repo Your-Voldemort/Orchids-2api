@@ -15,6 +15,7 @@ import (
 
 	"orchids-api/internal/api"
 	"orchids-api/internal/auth"
+	"orchids-api/internal/clerk"
 	"orchids-api/internal/config"
 	"orchids-api/internal/debug"
 	"orchids-api/internal/handler"
@@ -98,6 +99,7 @@ func main() {
 
 	limiter := middleware.NewConcurrencyLimiter(cfg.ConcurrencyLimit, time.Duration(cfg.ConcurrencyTimeout)*time.Second)
 	mux.HandleFunc("/v1/messages", limiter.Limit(h.HandleMessages))
+	mux.HandleFunc("/v1/messages/count_tokens", limiter.Limit(h.HandleCountTokens))
 
 	// Public routes
 	mux.HandleFunc("/api/login", apiHandler.HandleLogin)
@@ -109,6 +111,7 @@ func main() {
 	mux.HandleFunc("/api/keys", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleKeys))
 	mux.HandleFunc("/api/keys/", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleKeyByID))
 	mux.HandleFunc("/api/models", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleModels))
+	mux.HandleFunc("/api/models/refresh", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleModelRefresh))
 	mux.HandleFunc("/api/models/", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleModelByID))
 	mux.HandleFunc("/api/export", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleExport))
 	mux.HandleFunc("/api/import", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleImport))
@@ -159,6 +162,63 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       60 * time.Second,
+	}
+
+	if cfg.AutoRefreshToken {
+		interval := time.Duration(cfg.TokenRefreshInterval) * time.Minute
+		if interval <= 0 {
+			interval = 30 * time.Minute
+		}
+		slog.Info("Auto refresh token enabled", "interval", interval.String())
+
+		refreshAccounts := func() {
+			accounts, err := s.GetEnabledAccounts(context.Background())
+			if err != nil {
+				slog.Error("Auto refresh token: list accounts failed", "error", err)
+				return
+			}
+			for _, acc := range accounts {
+				if strings.TrimSpace(acc.ClientCookie) == "" {
+					continue
+				}
+				info, err := clerk.FetchAccountInfo(acc.ClientCookie)
+				if err != nil {
+					slog.Warn("Auto refresh token failed", "account", acc.Name, "error", err)
+					continue
+				}
+				if info.SessionID != "" {
+					acc.SessionID = info.SessionID
+				}
+				if info.ClientUat != "" {
+					acc.ClientUat = info.ClientUat
+				}
+				if info.ProjectID != "" {
+					acc.ProjectID = info.ProjectID
+				}
+				if info.UserID != "" {
+					acc.UserID = info.UserID
+				}
+				if info.Email != "" {
+					acc.Email = info.Email
+				}
+				if info.JWT != "" {
+					acc.Token = info.JWT
+				}
+				if err := s.UpdateAccount(context.Background(), acc); err != nil {
+					slog.Warn("Auto refresh token: update account failed", "account", acc.Name, "error", err)
+					continue
+				}
+			}
+		}
+
+		go func() {
+			refreshAccounts()
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for range ticker.C {
+				refreshAccounts()
+			}
+		}()
 	}
 
 	go func() {

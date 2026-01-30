@@ -217,6 +217,15 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 			input := map[string]interface{}{}
 			if data != nil {
 				if todos, ok := data["todos"]; ok {
+					if todoList, ok := todos.([]interface{}); ok {
+						for _, t := range todoList {
+							if todoItem, ok := t.(map[string]interface{}); ok {
+								if _, hasActiveForm := todoItem["activeForm"]; !hasActiveForm {
+									todoItem["activeForm"] = "default"
+								}
+							}
+						}
+					}
 					input["todos"] = todos
 				}
 			}
@@ -429,7 +438,9 @@ func (c *Client) buildWSRequestAIClient(req UpstreamRequest) (*orchidsWSRequest,
 	attachmentUrls := extractAttachmentURLsAIClient(req.Messages)
 
 	promptText := buildLocalAssistantPrompt(systemText, userText)
-	promptText = injectThinkingPrefix(promptText)
+	if !req.NoThinking && !isSuggestionModeText(userText) {
+		promptText = injectThinkingPrefix(promptText)
+	}
 
 	workingDir := strings.TrimSpace(c.config.OrchidsLocalWorkdir)
 	if req.NoTools {
@@ -469,6 +480,11 @@ func (c *Client) buildWSRequestAIClient(req UpstreamRequest) (*orchidsWSRequest,
 		Type: "user_request",
 		Data: payload,
 	}, nil
+}
+
+func isSuggestionModeText(text string) bool {
+	normalized := strings.ToLower(text)
+	return strings.Contains(normalized, "suggestion mode")
 }
 
 func defaultUserID(id string) string {

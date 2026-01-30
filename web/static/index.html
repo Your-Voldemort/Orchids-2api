@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>API 管理面板</title>
   <style>
+    @import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Sora:wght@400;600;700&display=swap");
+
     * {
       margin: 0;
       padding: 0;
@@ -13,32 +15,44 @@
     }
 
     :root {
-      --sidebar-bg: #1e1e3f;
-      --sidebar-active: #2d2d5f;
-      --main-bg: #f5f6fa;
-      --card-bg: #ffffff;
-      --text-primary: #2d3436;
-      --text-secondary: #636e72;
-      --accent-blue: #3498db;
-      --accent-purple: #9b59b6;
-      --accent-green: #2ecc71;
-      --accent-red: #e74c3c;
-      --accent-orange: #e67e22;
-      --border-color: rgba(0, 0, 0, 0.05);
+      --sidebar-bg: #0f172a;
+      --sidebar-active: rgba(148, 163, 184, 0.18);
+      --main-bg: #0b1020;
+      --card-bg: #0f172a;
+      --card-soft: #111b33;
+      --text-primary: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --accent-blue: #38bdf8;
+      --accent-green: #34d399;
+      --accent-red: #fb7185;
+      --accent-orange: #f59e0b;
+      --accent-purple: #a78bfa;
+      --border-color: rgba(148, 163, 184, 0.15);
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: var(--main-bg);
+      font-family: "Manrope", "Noto Sans SC", sans-serif;
+      background: radial-gradient(1200px 600px at 10% -10%, rgba(56, 189, 248, 0.15), transparent 60%),
+        radial-gradient(900px 500px at 90% 0%, rgba(167, 139, 250, 0.18), transparent 55%),
+        #0b1020;
       color: var(--text-primary);
       display: flex;
       min-height: 100vh;
     }
 
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(120deg, rgba(148, 163, 184, 0.03) 0 1px, transparent 1px 120px);
+      pointer-events: none;
+      z-index: 0;
+    }
+
     /* Sidebar Styles */
     .sidebar {
-      width: 240px;
-      background: var(--sidebar-bg);
+      width: 260px;
+      background: linear-gradient(180deg, rgba(15, 23, 42, 0.95), rgba(10, 15, 30, 0.98));
       color: white;
       display: flex;
       flex-direction: column;
@@ -46,6 +60,8 @@
       position: fixed;
       height: 100vh;
       z-index: 100;
+      border-right: 1px solid rgba(148, 163, 184, 0.12);
+      backdrop-filter: blur(10px);
     }
 
     .sidebar-header {
@@ -58,7 +74,7 @@
     .sidebar-header .logo {
       width: 32px;
       height: 32px;
-      background: var(--accent-purple);
+      background: linear-gradient(135deg, #38bdf8, #a78bfa);
       border-radius: 8px;
       display: flex;
       align-items: center;
@@ -87,7 +103,7 @@
       align-items: center;
       gap: 12px;
       padding: 12px 16px;
-      color: rgba(255, 255, 255, 0.7);
+      color: rgba(226, 232, 240, 0.7);
       text-decoration: none;
       border-radius: 8px;
       font-size: 0.95rem;
@@ -95,7 +111,7 @@
     }
 
     .sidebar-link:hover {
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(148, 163, 184, 0.12);
       color: white;
     }
 
@@ -110,7 +126,7 @@
     }
 
     .sidebar-footer-stats {
-      background: rgba(0, 0, 0, 0.2);
+      background: rgba(15, 23, 42, 0.6);
       border-radius: 12px;
       padding: 16px;
       margin-bottom: 16px;
@@ -140,7 +156,7 @@
     }
 
     .buy-button {
-      background: linear-gradient(90deg, #ff7e5f, #feb47b);
+      background: linear-gradient(90deg, #38bdf8, #a78bfa);
       color: white;
       padding: 12px;
       border-radius: 8px;
@@ -154,8 +170,11 @@
     /* Main Content Styles */
     .main-content {
       flex: 1;
-      margin-left: 240px;
-      padding: 24px 40px;
+      margin-left: 260px;
+      padding: 28px 44px 40px;
+      position: relative;
+      z-index: 1;
+      animation: fadeUp 0.45s ease;
     }
 
     .header-section {
@@ -163,7 +182,8 @@
     }
 
     .header-section h1 {
-      font-size: 1.75rem;
+      font-family: "Sora", "Noto Sans SC", sans-serif;
+      font-size: 2rem;
       font-weight: 700;
       margin-bottom: 4px;
     }
@@ -171,6 +191,18 @@
     .header-section p {
       color: var(--text-secondary);
       font-size: 0.95rem;
+    }
+
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     /* Grid Layouts */
@@ -181,14 +213,27 @@
       margin-bottom: 32px;
     }
 
+    @media (max-width: 1400px) {
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
     .stat-card {
-      background: var(--card-bg);
+      background: linear-gradient(160deg, rgba(15, 23, 42, 0.98), rgba(17, 27, 51, 0.98));
       border-radius: 16px;
       padding: 24px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
+      box-shadow: 0 16px 30px rgba(3, 7, 18, 0.3);
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .stat-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 20px 36px rgba(2, 6, 23, 0.45);
     }
 
     .stat-info .label {
@@ -215,62 +260,67 @@
     }
 
     .stat-icon.total {
-      background: #eef2ff;
-      color: #6366f1;
+      background: rgba(56, 189, 248, 0.18);
+      color: #38bdf8;
     }
 
     .stat-icon.normal {
-      background: #f0fdf4;
-      color: #22c55e;
+      background: rgba(52, 211, 153, 0.18);
+      color: #34d399;
     }
 
     .stat-icon.abnormal {
-      background: #fef2f2;
-      color: #ef4444;
+      background: rgba(251, 113, 133, 0.18);
+      color: #fb7185;
     }
 
     .stat-icon.selected {
-      background: #fdf4ff;
-      color: #a855f7;
+      background: rgba(167, 139, 250, 0.18);
+      color: #a78bfa;
     }
 
     /* Toolbar and Filter */
     .toolbar {
-      background: var(--card-bg);
+      background: rgba(15, 23, 42, 0.9);
       padding: 12px 16px;
       border-radius: 12px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 20px;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.01);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      box-shadow: 0 10px 20px rgba(2, 6, 23, 0.35);
+      gap: 16px;
     }
 
     .filter-tabs {
       display: flex;
-      background: #f1f2f6;
-      padding: 4px;
-      border-radius: 8px;
-      gap: 4px;
+      flex-wrap: wrap;
+      background: rgba(15, 23, 42, 0.65);
+      padding: 6px;
+      border-radius: 10px;
+      gap: 6px;
     }
 
     .tab-item {
-      padding: 6px 16px;
+      padding: 6px 14px;
       border-radius: 6px;
       font-size: 0.9rem;
       font-weight: 600;
       cursor: pointer;
       transition: all 0.2s;
       border: none;
+      color: #cbd5f5;
+      background: transparent;
     }
 
     .tab-item.active {
-      background: #3b82f6;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.9), rgba(167, 139, 250, 0.9));
       color: white;
     }
 
     .tab-item:not(.active):hover {
-      background: rgba(0, 0, 0, 0.05);
+      background: rgba(148, 163, 184, 0.2);
     }
 
     .action-buttons {
@@ -291,54 +341,84 @@
       transition: all 0.2s;
     }
 
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
     .btn-outline {
-      background: white;
-      border-color: #e2e8f0;
-      color: #475569;
+      background: rgba(15, 23, 42, 0.6);
+      border-color: rgba(148, 163, 184, 0.25);
+      color: #cbd5f5;
     }
 
     .btn-outline:hover {
-      background: #f8fafc;
+      background: rgba(148, 163, 184, 0.18);
     }
 
     .btn-danger-outline {
-      background: white;
-      border-color: #fecaca;
-      color: #ef4444;
+      background: rgba(15, 23, 42, 0.6);
+      border-color: rgba(251, 113, 133, 0.45);
+      color: #fb7185;
     }
 
     .btn-primary {
-      background: #3b82f6;
+      background: linear-gradient(90deg, #38bdf8, #a78bfa);
       color: white;
     }
 
     /* Content Area */
     .content-card {
-      background: var(--card-bg);
+      background: rgba(15, 23, 42, 0.9);
       border-radius: 20px;
       overflow: hidden;
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+      box-shadow: 0 20px 30px rgba(2, 6, 23, 0.45);
       min-height: 400px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow: auto;
+    }
+
+    .table-wrap::-webkit-scrollbar {
+      height: 10px;
+    }
+
+    .table-wrap::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.25);
+      border-radius: 999px;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
+      min-width: 1100px;
     }
 
     th {
-      padding: 16px 24px;
+      padding: 14px 20px;
       text-align: left;
       font-size: 0.85rem;
-      color: var(--text-secondary);
+      color: #94a3b8;
       font-weight: 600;
       border-bottom: 1px solid var(--border-color);
+      position: sticky;
+      top: 0;
+      background: rgba(15, 23, 42, 0.95);
+      backdrop-filter: blur(6px);
     }
 
     td {
-      padding: 16px 24px;
+      padding: 12px 20px;
       border-bottom: 1px solid var(--border-color);
       font-size: 0.9rem;
+      color: #cbd5f5;
+    }
+
+    thead {
+      background: rgba(15, 23, 42, 0.9);
     }
 
     tr:last-child td {
@@ -346,7 +426,16 @@
     }
 
     tr:hover {
-      background: #fafafa;
+      background: rgba(148, 163, 184, 0.06);
+    }
+
+    .empty-state {
+      background: radial-gradient(400px 200px at 20% 0%, rgba(56, 189, 248, 0.12), transparent 60%),
+        rgba(15, 23, 42, 0.8);
+      border: 1px dashed rgba(148, 163, 184, 0.3);
+      border-radius: 18px;
+      padding: 24px;
+      margin: 16px;
     }
 
     /* Modal and Overlay */
@@ -357,27 +446,30 @@
       left: 0;
       width: 100%;
       height: 100%;
-      background: rgba(0, 0, 0, 0.4);
-      backdrop-filter: blur(4px);
+      background: rgba(2, 6, 23, 0.65);
+      backdrop-filter: blur(6px);
       justify-content: center;
       align-items: center;
       z-index: 1000;
     }
 
     .modal-content {
-      background: white;
-      border-radius: 20px;
-      padding: 32px;
+      background: rgba(15, 23, 42, 0.98);
+      border-radius: 18px;
+      padding: 28px;
       width: 100%;
-      max-width: 500px;
-      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+      max-width: 520px;
+      box-shadow: 0 30px 60px rgba(2, 6, 23, 0.5);
+      border: 1px solid rgba(148, 163, 184, 0.18);
     }
 
     .form-input {
       width: 100%;
       padding: 10px 14px;
-      border: 1px solid #e2e8f0;
+      border: 1px solid rgba(148, 163, 184, 0.2);
       border-radius: 10px;
+      background: rgba(15, 23, 42, 0.7);
+      color: #e2e8f0;
       margin-top: 6px;
     }
 
@@ -390,10 +482,10 @@
     }
 
     .toast {
-      background: white;
+      background: rgba(15, 23, 42, 0.92);
       padding: 12px 24px;
       border-radius: 12px;
-      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+      box-shadow: 0 10px 15px -3px rgba(2, 6, 23, 0.6);
       margin-top: 10px;
       display: flex;
       align-items: center;
@@ -414,6 +506,44 @@
       }
     }
 
+    @media (max-width: 1200px) {
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 900px) {
+      body {
+        flex-direction: column;
+        overflow-x: hidden;
+      }
+
+      .sidebar {
+        position: relative;
+        width: 100%;
+        height: auto;
+      }
+
+      .main-content {
+        margin-left: 0;
+        padding: 20px;
+        width: 100%;
+      }
+
+      .toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .table-wrap {
+        overflow-x: auto;
+      }
+    }
+
     .config-section {
       padding-top: 8px;
     }
@@ -422,7 +552,7 @@
       display: block;
       font-size: 0.85rem;
       font-weight: 500;
-      color: #64748b;
+      color: #94a3b8;
       margin-bottom: 8px;
     }
 
@@ -430,16 +560,17 @@
       width: 100%;
       padding: 10px 14px;
       border-radius: 8px;
-      border: 1px solid #e2e8f0;
+      border: 1px solid rgba(148, 163, 184, 0.2);
       font-size: 0.95rem;
-      color: #1e293b;
+      color: #e2e8f0;
+      background: rgba(15, 23, 42, 0.7);
       transition: all 0.2s;
     }
 
     .form-input:focus {
       outline: none;
-      border-color: #3b82f6;
-      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
     }
 
     .btn-icon {
@@ -455,7 +586,7 @@
     }
 
     .btn-icon:hover {
-      color: #1e293b;
+      color: #e2e8f0;
     }
 
     .platform-tabs {
@@ -465,8 +596,8 @@
     }
 
     .platform-tabs .tab-item {
-      background: #f1f5f9;
-      color: #64748b;
+      background: rgba(15, 23, 42, 0.7);
+      color: #cbd5f5;
       padding: 8px 16px;
       border-radius: 8px;
       font-size: 0.9rem;
@@ -475,12 +606,77 @@
     }
 
     .platform-tabs .tab-item:hover {
-      background: #e2e8f0;
+      background: rgba(148, 163, 184, 0.2);
     }
 
     .platform-tabs .tab-item.active {
-      background: #3b82f6;
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.9), rgba(167, 139, 250, 0.9));
       color: #fff;
+    }
+
+    /* Config & Models Panel Overrides */
+    #keysWrapper,
+    #modelsWrapper {
+      background: transparent !important;
+      color: #e2e8f0;
+    }
+
+    #keysWrapper h2,
+    #modelsWrapper h2 {
+      color: #e2e8f0 !important;
+    }
+
+    #keysWrapper p,
+    #modelsWrapper p,
+    #keysWrapper small,
+    #modelsWrapper small {
+      color: #94a3b8 !important;
+    }
+
+    #keysWrapper .content-card,
+    #modelsWrapper .content-card {
+      background: rgba(15, 23, 42, 0.9) !important;
+      border: 1px solid rgba(148, 163, 184, 0.12) !important;
+      box-shadow: 0 20px 30px rgba(2, 6, 23, 0.45) !important;
+    }
+
+    #keysWrapper .platform-tabs .tab-item,
+    #modelsWrapper .platform-tabs .tab-item {
+      background: rgba(15, 23, 42, 0.7);
+      color: #cbd5f5;
+    }
+
+    #keysWrapper .platform-tabs .tab-item.active,
+    #modelsWrapper .platform-tabs .tab-item.active {
+      background: linear-gradient(90deg, rgba(56, 189, 248, 0.9), rgba(167, 139, 250, 0.9));
+      color: #fff;
+    }
+
+    #configTabs {
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12) !important;
+    }
+
+    #modelPlatformFilters {
+      background: rgba(15, 23, 42, 0.7) !important;
+      border: 1px solid rgba(148, 163, 184, 0.12) !important;
+    }
+
+    #keysWrapper .key-display {
+      background: rgba(15, 23, 42, 0.7) !important;
+      border-color: rgba(148, 163, 184, 0.3) !important;
+      color: #cbd5f5;
+    }
+
+    #keysWrapper .form-input,
+    #modelsWrapper .form-input {
+      background: rgba(15, 23, 42, 0.7) !important;
+      border-color: rgba(148, 163, 184, 0.2) !important;
+      color: #e2e8f0 !important;
+    }
+
+    #keysWrapper .form-input::placeholder,
+    #modelsWrapper .form-input::placeholder {
+      color: rgba(148, 163, 184, 0.6);
     }
 
     /* Toggle Switch Refinement */
@@ -562,14 +758,14 @@
     }
 
     .tag-free {
-      background: #ecfdf5;
-      color: #10b981;
-      border: 1px solid #d1fae5;
+      background: rgba(52, 211, 153, 0.16);
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, 0.3);
     }
 
     .tag-status-normal {
-      background: #ecfdf5;
-      color: #10b981;
+      background: rgba(52, 211, 153, 0.16);
+      color: #34d399;
       font-size: 0.7rem;
       padding: 4px 6px;
       line-height: 1.2;
@@ -585,12 +781,12 @@
     }
 
     .action-icon:hover {
-      color: #1e293b;
+      color: #e2e8f0;
     }
 
     .token-text {
       font-family: monospace;
-      color: #64748b;
+      color: #94a3b8;
       font-size: 0.85rem;
       max-width: 200px;
       display: inline-block;
@@ -689,6 +885,11 @@
         </a>
       </li>
       <li class="sidebar-item">
+        <a href="#" class="sidebar-link" onclick="switchTab('qa')">
+          <span>🧪</span> 质量测试
+        </a>
+      </li>
+      <li class="sidebar-item">
         <a href="#" class="sidebar-link">
           <span>📖</span> 使用教程
         </a>
@@ -780,29 +981,30 @@
       </section>
 
       <div id="accountsTabContent">
-        <div class="toolbar" style="padding: 16px; gap: 16px;">
-          <div class="filter-tabs" id="platformFilters" style="background: #f8fafc; border: 1px solid #f1f5f9;">
-            <button class="tab-item active" onclick="filterByPlatform('')">All</button>
-            <button class="tab-item" onclick="filterByPlatform('Kiro')">Kiro</button>
-            <button class="tab-item" onclick="filterByPlatform('Orchids')">Orchids</button>
-            <button class="tab-item" onclick="filterByPlatform('Antigravity')">Antigravity</button>
-            <button class="tab-item" onclick="filterByPlatform('Warp')">Warp</button>
-          </div>
+        <div class="toolbar" style="padding: 16px; gap: 16px; flex-wrap: wrap;">
+          <div class="filter-tabs" id="platformFilters"></div>
 
-          <div style="flex: 1; display: flex; gap: 12px; align-items: center; justify-content: flex-end;">
-            <div style="display: flex; gap: 8px;">
-              <button class="btn btn-outline" style="background: #fff;"
-                onclick="document.getElementById('importFile').click()">📤 导入</button>
-              <button class="btn btn-outline" style="background: #fff;" onclick="exportAccounts()">📥 导出</button>
+          <div
+            style="flex: 1; display: flex; gap: 12px; align-items: center; justify-content: flex-end; flex-wrap: wrap;">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+              <button class="btn btn-outline" onclick="document.getElementById('importFile').click()">📤 导入</button>
+              <button class="btn btn-outline" onclick="exportAccounts()">📥 导出</button>
               <input type="file" id="importFile" accept=".json" style="display: none"
                 onchange="importAccounts(event)" />
+              <button class="btn btn-outline" id="checkAllBtn" onclick="checkAllAccounts()">✅ 检测账号</button>
+              <label class="toggle"
+                style="gap: 10px; padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(148,163,184,0.2);">
+                <input type="checkbox" id="autoCheckToggle" onchange="toggleAutoCheck(this.checked)" />
+                <span class="toggle-slider"></span>
+                <span style="font-size: 0.85rem; color: #cbd5f5;">自动检测</span>
+              </label>
             </div>
             <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 4px;"></div>
             <div style="display: flex; gap: 8px;">
-              <button class="btn btn-outline" style="color: #94a3b8; background: #fff;" id="batchDeleteBtn" disabled
-                onclick="batchDeleteAccounts()">🗑️ 批量删除</button>
-              <button class="btn btn-outline" style="color: #ef4444; border-color: #fecaca; background: #fff;"
-                onclick="clearAbnormalAccounts()">🧹 清空异常</button>
+              <button class="btn btn-outline" id="batchDeleteBtn" disabled onclick="batchDeleteAccounts()">🗑️
+                批量删除</button>
+              <button class="btn btn-danger-outline" onclick="clearAbnormalAccounts()">🧹 清空异常</button>
+              <button class="btn btn-danger-outline" onclick="deleteAllAccounts()">🧨 删除全部</button>
             </div>
             <button class="btn btn-primary" style="background: #3b82f6; border: none; padding: 8px 20px;"
               onclick="openModal()">+ 添加账号</button>
@@ -1067,38 +1269,89 @@
 
 
     <!-- Models Wrapper -->
-    <div id="modelsWrapper" style="display: none; height: 100%;">
+    <div id="modelsWrapper" style="display: none;">
       <section class="header-section" id="modelsHeader">
         <h1>模型管理</h1>
         <p>管理各渠道的可用模型列表</p>
       </section>
 
-      <div class="toolbar" style="padding: 16px; gap: 16px;">
-        <div class="filter-tabs" id="modelPlatformFilters" style="background: #f8fafc; border: 1px solid #f1f5f9;">
+      <div class="toolbar" style="padding: 16px; gap: 16px; flex-wrap: wrap;">
+        <div class="filter-tabs" id="modelPlatformFilters">
           <button class="tab-item active" onclick="filterModelsByChannel('')">All</button>
-          <button class="tab-item tab-kiro" onclick="filterModelsByChannel('Kiro')">Kiro</button>
           <button class="tab-item tab-orchids" onclick="filterModelsByChannel('Orchids')">Orchids</button>
-          <button class="tab-item tab-antigravity" onclick="filterModelsByChannel('Antigravity')">Antigravity</button>
-          <button class="tab-item tab-warp" onclick="filterModelsByChannel('Warp')">Warp</button>
         </div>
 
-        <div id="modelCountDisplay" style="color: #64748b; font-size: 0.9rem; margin-left: 8px;">
+        <div
+          style="display: flex; gap: 12px; align-items: center; justify-content: flex-end; flex-wrap: wrap; margin-left: auto;">
           共 <strong id="totalModelCount">0</strong> 个模型
         </div>
+        <button class="btn btn-outline" onclick="refreshModels()">🔄 从上游刷新</button>
+        <button class="btn btn-primary" style="background: #3b82f6; border: none; padding: 8px 20px;"
+          onclick="openModelModal()">+ 添加模型</button>
+      </div>
+    </div>
 
-        <div style="flex: 1; display: flex; gap: 12px; align-items: center; justify-content: flex-end;">
-          <button class="btn btn-primary" style="background: #3b82f6; border: none; padding: 8px 20px;"
-            onclick="openModelModal()">+ 添加模型</button>
+    <div class="content-card">
+      <div id="modelsList">
+        <div class="empty-state"
+          style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #94a3b8;">
+          <span style="font-size: 3rem; margin-bottom: 16px;">💎</span>
+          <p>暂无模型数据</p>
         </div>
       </div>
+    </div>
+    </div>
+    </div>
 
-      <div class="content-card">
-        <div id="modelsList">
-          <div class="empty-state"
-            style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #94a3b8;">
-            <span style="font-size: 3rem; margin-bottom: 16px;">💎</span>
-            <p>暂无模型数据</p>
+    <!-- QA Tester Wrapper -->
+    <div id="qaWrapper" style="display: none;">
+      <section class="header-section" id="qaHeader">
+        <h1>API 质量测试</h1>
+        <p>运行预定义测试用例以验证 API 输出质量</p>
+      </section>
+
+      <div class="content-card" style="padding: 24px;">
+        <div style="display: flex; gap: 16px; margin-bottom: 24px;">
+          <div style="flex: 1;">
+            <label class="form-label">测试用例</label>
+            <select id="qaTestCase" class="form-input" onchange="loadQaPrompt()">
+              <option value="greeting">Basic Greeting (基础问候)</option>
+              <option value="math">Mathematical Reasoning (数学推理/思考)</option>
+              <option value="tool_ls">Tool Use: ls (工具调用: ls)</option>
+              <option value="tool_calc">Tool Use: calc (工具: 计算)</option>
+              <option value="mega_context">Ultra-Long Context (超长上下文 50k+)</option>
+              <option value="custom">Custom Input (自定义输入)</option>
+            </select>
           </div>
+          <div style="flex: 1;">
+            <label class="form-label">模型</label>
+            <input type="text" id="qaModel" class="form-input" value="claude-3-5-sonnet-20241022" />
+          </div>
+          <div style="display: flex; align-items: flex-end;">
+            <button class="btn btn-primary" onclick="runQaTest()" id="qaRunBtn">▶ 运行测试</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 24px;">
+          <label class="form-label">Prompt Input</label>
+          <textarea id="qaInput" class="form-input" rows="4"
+            style="font-family: monospace;">Hello, say hi locally.</textarea>
+        </div>
+
+        <div>
+          <label class="form-label">Output Log</label>
+          <div id="qaOutput" style="
+            background: #0f172a; 
+            border: 1px solid rgba(148, 163, 184, 0.2); 
+            border-radius: 8px; 
+            padding: 16px; 
+            height: 400px; 
+            overflow-y: auto; 
+            font-family: 'Menlo', 'Monaco', 'Courier New', monospace; 
+            font-size: 0.9rem; 
+            color: #e2e8f0;
+            white-space: pre-wrap;
+          "></div>
         </div>
       </div>
     </div>
@@ -1116,9 +1369,6 @@
             <label class="form-label">渠道</label>
             <select class="form-input" id="modelChannel" style="background: #fbfbfc;">
               <option value="Orchids">Orchids</option>
-              <option value="Kiro">Kiro</option>
-              <option value="Antigravity">Antigravity</option>
-              <option value="Warp">Warp</option>
             </select>
           </div>
           <div class="form-group">
@@ -1247,13 +1497,17 @@
         <form id="accountForm" onsubmit="saveAccount(event)">
           <input type="hidden" id="accountId" />
           <div class="form-group">
-            <label class="form-label">名称</label>
-            <input type="text" class="form-input" id="name" required placeholder="账号名称" />
+            <label class="form-label">名称（可选）</label>
+            <input type="text" class="form-input" id="name" placeholder="账号名称" />
           </div>
           <div class="form-group">
-            <label class="form-label">Client Cookie (__client)</label>
-            <input type="text" class="form-input" id="clientCookie" required placeholder="eyJhbGciOiJ..." />
-            <small style="color: #666; font-size: 12px">只需输入 __client cookie，其他信息将自动获取</small>
+            <label class="form-label">账号类型</label>
+            <input type="text" class="form-input" id="accountType" placeholder="orchids" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">Token</label>
+            <input type="text" class="form-input" id="clientCookie" required placeholder="粘贴 token（支持完整Cookie/纯JWT）" />
+            <small style="color: #666; font-size: 12px">支持完整Cookie（含 __session）或纯JWT；运行时自动获取</small>
           </div>
           <div class="form-row">
             <div class="form-group">
@@ -1284,6 +1538,9 @@
     <script>
       let accounts = [];
       let currentPlatform = '';
+      let accountHealth = {};
+      let autoCheckTimer = null;
+      let autoCheckRunning = false;
       let pageSize = 20;
 
       async function loadAccounts() {
@@ -1294,6 +1551,7 @@
             return;
           }
           accounts = await res.json();
+          renderPlatformTabs();
           renderAccounts();
           updateStats();
         } catch (err) {
@@ -1302,9 +1560,117 @@
         }
       }
 
+      function normalizeAccountType(acc) {
+        return (acc.account_type || 'orchids').toLowerCase();
+      }
+
+      function renderPlatformTabs() {
+        const container = document.getElementById("platformFilters");
+        if (!container) return;
+        const types = new Set(accounts.map(normalizeAccountType));
+        const sorted = Array.from(types).sort();
+        // Remove 'all' option
+        const tabs = sorted;
+
+        // Default to first tab if current is empty or invalid
+        if ((currentPlatform === '' || currentPlatform === 'All') && tabs.length > 0) {
+          currentPlatform = tabs[0];
+          renderAccounts(); // Re-render to reflect the change
+        }
+
+        container.innerHTML = tabs.map(type => {
+          const label = type;
+          const active = currentPlatform === label;
+          return `<button class="tab-item ${active ? 'active' : ''}" onclick="filterByPlatform('${label}')">${label}</button>`;
+        }).join("");
+      }
+
+      function updateAccountHealth(id, ok, msg = '') {
+        accountHealth[id] = {
+          ok,
+          msg,
+          checkedAt: new Date().toISOString(),
+        };
+      }
+
+      function statusBadge(acc) {
+        const health = accountHealth[acc.id];
+        if (health && !health.ok) {
+          return { text: '异常', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: health.msg || '检测失败' };
+        }
+        if (!acc.enabled) {
+          return { text: '禁用', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: '账号已禁用' };
+        }
+        if (!acc.session_id && !acc.session_cookie) {
+          return { text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少会话信息' };
+        }
+        return { text: '正常', color: '#34d399', bg: 'rgba(52, 211, 153, 0.16)', tip: '状态正常' };
+      }
+
+      async function checkAccount(id, silent = false) {
+        try {
+          const res = await fetch(`/api/accounts/${id}/refresh`);
+          if (!res.ok) {
+            throw new Error(await res.text());
+          }
+          const updated = await res.json();
+          accounts = accounts.map(a => (a.id === id ? updated : a));
+          updateAccountHealth(id, true);
+          if (!silent) showToast(`账号 ${updated.name || updated.email || id} 正常`, "success");
+        } catch (err) {
+          updateAccountHealth(id, false, err.message || String(err));
+          if (!silent) showToast(`账号 ${id} 检测失败`, "error");
+        } finally {
+          renderAccounts();
+          updateStats();
+        }
+      }
+
+      async function checkAllAccounts() {
+        if (autoCheckRunning) return;
+        if (!accounts.length) return;
+        autoCheckRunning = true;
+        showToast("开始检测账号状态", "info");
+        for (const acc of accounts) {
+          await checkAccount(acc.id, true);
+        }
+        showToast("账号检测完成", "success");
+        autoCheckRunning = false;
+      }
+
+      function toggleAutoCheck(enabled) {
+        if (enabled) {
+          if (autoCheckTimer) clearInterval(autoCheckTimer);
+          autoCheckTimer = setInterval(checkAllAccounts, 10 * 60 * 1000);
+          checkAllAccounts();
+          showToast("已开启自动检测", "success");
+        } else {
+          if (autoCheckTimer) clearInterval(autoCheckTimer);
+          autoCheckTimer = null;
+          showToast("已关闭自动检测", "info");
+        }
+        localStorage.setItem("autoCheckEnabled", enabled ? "true" : "false");
+      }
+
+      async function deleteAllAccounts() {
+        if (!accounts.length) return;
+        if (!confirm(`确定要删除全部 ${accounts.length} 个账号吗？此操作不可恢复。`)) return;
+        for (const acc of accounts) {
+          await fetch(`/api/accounts/${acc.id}`, { method: "DELETE" });
+        }
+        await loadAccounts();
+        showToast("已删除全部账号", "success");
+      }
+
       function renderAccounts() {
         const container = document.getElementById("accountsList");
-        const filtered = accounts.filter(acc => !currentPlatform || acc.agent_mode?.toLowerCase().includes(currentPlatform.toLowerCase()) || acc.name?.toLowerCase().includes(currentPlatform.toLowerCase()));
+        const filtered = accounts.filter(acc => {
+          if (!currentPlatform) return true;
+          const key = currentPlatform.toLowerCase();
+          return normalizeAccountType(acc).includes(key)
+            || acc.agent_mode?.toLowerCase().includes(key)
+            || acc.name?.toLowerCase().includes(key);
+        });
 
         if (filtered.length === 0) {
           container.innerHTML = `
@@ -1317,12 +1683,14 @@
         }
 
         container.innerHTML = `
+                <div class="table-wrap">
                 <table>
                     <thead>
                         <tr>
                             <th style="width: 40px;"><input type="checkbox" onchange="toggleSelectAll(this.checked)"></th>
                             <th style="width: 60px;">ID</th>
-                            <th>邮箱</th>
+                            <th>邮箱/名称</th>
+                            <th>类型</th>
                             <th>TOKEN</th>
                             <th>订阅</th>
                             <th style="width: 180px;">用量</th>
@@ -1336,11 +1704,14 @@
                     <tbody>
                         ${filtered
             .map(
-              (acc) => `
+              (acc) => {
+                const badge = statusBadge(acc);
+                return `
                             <tr>
                                 <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" onchange="updateSelectedCount()"></td>
                                 <td style="color: #64748b; font-size: 0.9rem;">${acc.id}</td>
-                                <td style="font-weight: 600; font-size: 0.95rem; color: #1e293b;">${escapeHtml(acc.email || '-')}</td>
+                                <td style="font-weight: 600; font-size: 0.95rem; color: #e2e8f0;">${escapeHtml(acc.email || acc.name || '-')}</td>
+                                <td style="font-size: 0.9rem; color: #94a3b8;">${escapeHtml(acc.account_type || 'orchids')}</td>
                                 <td>
                                     <span class="token-text" title="${escapeHtml(acc.token || '-')}">${escapeHtml(acc.token || (acc.session_id ? acc.session_id.substring(0, 20) + '...' : '-'))}</span>
                                 </td>
@@ -1355,11 +1726,11 @@
                                     </div>
                                 </td>
                                 <td>
-                                    <span class="tag tag-status-normal" style="background: ${acc.enabled ? '#ecfdf5' : '#fef2f2'}; color: ${acc.enabled ? '#10b981' : '#ef4444'}; border: none;">
-                                        ${acc.enabled ? '正常' : '禁用'}
+                                    <span class="tag tag-status-normal" title="${escapeHtml(badge.tip)}" style="background: ${badge.bg}; color: ${badge.color}; border: none;">
+                                        ${badge.text}
                                     </span>
                                 </td>
-                                <td style="font-size: 0.9rem; color: #1e293b; font-weight: 500;">${acc.request_count || 0}</td>
+                                <td style="font-size: 0.9rem; color: #e2e8f0; font-weight: 500;">${acc.request_count || 0}</td>
                                 <td style="font-size: 0.8rem; color: #64748b;">${acc.last_used_at && !acc.last_used_at.startsWith('0001') ? formatTime(acc.last_used_at) : '-'}</td>
                                 <td style="color: #64748b; font-size: 0.9rem;">${acc.reset_date || '-'}</td>
                                 <td style="text-align: right;">
@@ -1369,11 +1740,13 @@
                                     </div>
                                 </td>
                             </tr>
-                        `,
+                        `;
+              },
             )
             .join("")}
                     </tbody>
                 </table>
+                </div>
             `;
 
         document.getElementById("paginationInfo").textContent = `共 ${filtered.length} 条记录，第 1/1 页`;
@@ -1383,7 +1756,8 @@
       function updateStats() {
         const total = accounts.length;
         const enabled = accounts.filter((a) => a.enabled).length;
-        const disabled = total - enabled;
+        const abnormal = accounts.filter((a) => !a.enabled || (accountHealth[a.id] && !accountHealth[a.id].ok)).length;
+        const disabled = abnormal;
 
         // Update cards
         document.getElementById("totalAccounts").textContent = total;
@@ -1408,8 +1782,8 @@
         const batchBtn = document.getElementById("batchDeleteBtn");
         if (batchBtn) {
           batchBtn.disabled = checked === 0;
-          batchBtn.style.color = checked === 0 ? "#94a3b8" : "#ef4444";
-          batchBtn.style.borderColor = checked === 0 ? "#e2e8f0" : "#fecaca";
+          batchBtn.style.color = checked === 0 ? "#94a3b8" : "#fb7185";
+          batchBtn.style.borderColor = checked === 0 ? "rgba(148,163,184,0.2)" : "rgba(251,113,133,0.45)";
         }
       }
 
@@ -1419,11 +1793,11 @@
       }
 
       function filterByPlatform(platform) {
-        currentPlatform = platform;
+        currentPlatform = platform === 'All' ? '' : platform;
         document.querySelectorAll("#platformFilters .tab-item").forEach(btn => {
-          btn.classList.toggle("active", (platform === '' && btn.textContent === 'All') || btn.textContent === platform);
+          btn.classList.toggle("active", (currentPlatform === '' && btn.textContent === 'All') || btn.textContent === currentPlatform);
         });
-        document.getElementById("pageSubtitle").textContent = platform ? `管理您的 ${platform} API 凭证` : "管理您的所有 API 凭证";
+        document.getElementById("pageSubtitle").textContent = currentPlatform ? `管理您的 ${currentPlatform} API 凭证` : "管理您的所有 API 凭证";
         renderAccounts();
       }
 
@@ -1465,6 +1839,15 @@
           document.getElementById("modelsHeader").style.display = 'block';
           title.textContent = "模型管理";
           loadModels();
+        } else if (tabName === 'qa') {
+          accountsWrapper.style.display = 'none';
+          keysWrapper.style.display = 'none';
+          modelsWrapper.style.display = 'none';
+          document.getElementById("qaWrapper").style.display = 'block';
+          document.getElementById("accountsHeader").style.display = 'none';
+          document.getElementById("modelsHeader").style.display = 'none';
+          document.getElementById("qaHeader").style.display = 'block';
+          title.textContent = "API 质量测试";
         }
 
         localStorage.setItem("activeTab", tabName);
@@ -1522,6 +1905,7 @@
           title.textContent = "编辑账号";
           document.getElementById("accountId").value = account.id;
           document.getElementById("name").value = account.name;
+          document.getElementById("accountType").value = account.account_type || "orchids";
           document.getElementById("clientCookie").value = account.client_cookie;
           document.getElementById("agentMode").value = account.agent_mode;
           document.getElementById("weight").value = account.weight;
@@ -1532,6 +1916,7 @@
           document.getElementById("accountId").value = "";
           document.getElementById("agentMode").value = "claude-opus-4.5";
           document.getElementById("weight").value = "1";
+          document.getElementById("accountType").value = "orchids";
           document.getElementById("enabled").checked = true;
         }
         modal.classList.add("active");
@@ -1549,6 +1934,7 @@
         const id = document.getElementById("accountId").value;
         const data = {
           name: document.getElementById("name").value,
+          account_type: document.getElementById("accountType").value,
           client_cookie: document.getElementById("clientCookie").value,
           agent_mode: document.getElementById("agentMode").value,
           weight: parseInt(document.getElementById("weight").value) || 1,
@@ -1809,8 +2195,10 @@
         const container = document.getElementById("toastContainer");
         const toast = document.createElement("div");
         toast.className = `toast`;
-        toast.style.borderLeft = `4px solid ${type === 'success' ? '#22c55e' : '#ef4444'}`;
-        toast.innerHTML = `<span>${type === 'success' ? '✅' : '❌'}</span> ${msg}`;
+        const color = type === 'success' ? '#34d399' : type === 'info' ? '#38bdf8' : '#fb7185';
+        const icon = type === 'success' ? '✅' : type === 'info' ? 'ℹ️' : '❌';
+        toast.style.borderLeft = `4px solid ${color}`;
+        toast.innerHTML = `<span>${icon}</span> ${msg}`;
         container.appendChild(toast);
         setTimeout(() => toast.remove(), 3000);
       }
@@ -1989,46 +2377,48 @@
         }
 
         container.innerHTML = `
-          <table>
-            <thead>
-              <tr>
-                <th style="width: 60px;">ID</th>
-                <th>渠道</th>
-                <th>模型ID</th>
-                <th>模型名称</th>
-                <th>状态</th>
-                <th>默认</th>
-                <th>排序</th>
-                <th style="text-align: right;">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${filtered.map(m => `
+          <div class="table-wrap">
+            <table>
+              <thead>
                 <tr>
-                  <td style="color: #64748b; font-size: 0.9rem;">${m.id}</td>
-                  <td><span class="tag badge-${m.channel.toLowerCase()}">${escapeHtml(m.channel)}</span></td>
-                  <td style="font-family: monospace; color: #475569;">${escapeHtml(m.model_id)}</td>
-                  <td style="font-weight: 500; color: #1e293b;">${escapeHtml(m.name)}</td>
-                  <td>
-                    <span class="status-badge status-enabled">
-                      ${m.status === 'available' || m.status === true ? '启用' : '禁用'}
-                    </span>
-                  </td>
-                  <td style="text-align: center;">
-                    ${m.is_default ? '<span class="default-check">✅</span>' : '-'}
-                  </td>
-                  <td>${m.sort_order}</td>
-                  <td style="text-align: right;">
-                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
-                      <i class="action-icon" style="font-size: 1.2rem;" onclick="editModel('${m.id}')" title="编辑">📋</i>
-                      ${!m.is_default ? `<a class="set-default-link" onclick="setDefaultModel('${m.id}')">设为默认</a>` : ''}
-                      <i class="action-icon" style="font-size: 1.2rem;" onclick="deleteModel('${m.id}')" title="删除">🗑️</i>
-                    </div>
-                  </td>
+                  <th style="width: 60px;">ID</th>
+                  <th>渠道</th>
+                  <th>模型ID</th>
+                  <th>模型名称</th>
+                  <th>状态</th>
+                  <th>默认</th>
+                  <th>排序</th>
+                  <th style="text-align: right;">操作</th>
                 </tr>
-              `).join("")}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                ${filtered.map(m => `
+                  <tr>
+                    <td style="color: #64748b; font-size: 0.9rem;">${m.id}</td>
+                    <td><span class="tag badge-${m.channel.toLowerCase()}">${escapeHtml(m.channel)}</span></td>
+                    <td style="font-family: monospace; color: #94a3b8;">${escapeHtml(m.model_id)}</td>
+                    <td style="font-weight: 500; color: #e2e8f0;">${escapeHtml(m.name)}</td>
+                    <td>
+                      <span class="status-badge status-enabled">
+                        ${m.status === 'available' || m.status === true ? '启用' : '禁用'}
+                      </span>
+                    </td>
+                    <td style="text-align: center;">
+                      ${m.is_default ? '<span class="default-check">✅</span>' : '-'}
+                    </td>
+                    <td>${m.sort_order}</td>
+                    <td style="text-align: right;">
+                      <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
+                        <i class="action-icon" style="font-size: 1.2rem;" onclick="editModel('${m.id}')" title="编辑">📋</i>
+                        ${!m.is_default ? `<a class="set-default-link" onclick="setDefaultModel('${m.id}')">设为默认</a>` : ''}
+                        <i class="action-icon" style="font-size: 1.2rem;" onclick="deleteModel('${m.id}')" title="删除">🗑️</i>
+                      </div>
+                    </td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
         `;
       }
 
@@ -2143,9 +2533,153 @@
         }
       }
 
+      async function refreshModels() {
+        if (!confirm("确定要从上游刷新模型列表吗？")) return;
+        try {
+          showToast("正在查询上游模型...", "info");
+          const res = await fetch("/api/models/refresh", { method: "POST" });
+          if (!res.ok) throw new Error(await res.text());
+          const result = await res.json();
+          showToast(`同步成功: 更新了 ${result.count} 个模型`);
+          loadModels();
+        } catch (err) {
+          showToast("同步失败: " + err.message, "error");
+        }
+      }
+
+      // QA Logic
+      const qaTestCases = {
+        greeting: "Hello, say hi locally.",
+        math: "Calculate 25 * 42 step by step.",
+        tool_ls: "List the files in the current directory.",
+        tool_calc: "Use the calculator to find 123 * 456.",
+        mega_context: "generate", // Special flag
+        custom: ""
+      };
+
+      function loadQaPrompt() {
+        const key = document.getElementById("qaTestCase").value;
+        if (key === 'custom') {
+          return;
+        }
+        if (key === 'mega_context') {
+          const base = "This is a line of text to simulate context. ";
+          let result = "Ignore the following repeated context and just tell me the specific count of the word 'context'.\n\n";
+          // Generate approx 50k tokens (1 token ~ 4 chars). 50k * 4 = 200k chars.
+          // base length ~ 40 chars. 200000 / 40 = 5000 lines.
+          for (let i = 0; i < 5000; i++) {
+            result += `${i + 1}. ${base}\n`;
+          }
+          result += "\n\nEnd of context. How many times does the word 'context' appear in the numbered list above?";
+          document.getElementById("qaInput").value = result;
+        } else {
+          document.getElementById("qaInput").value = qaTestCases[key];
+        }
+      }
+
+      async function runQaTest() {
+        const input = document.getElementById("qaInput").value;
+        const model = document.getElementById("qaModel").value;
+        const outputDiv = document.getElementById("qaOutput");
+        const btn = document.getElementById("qaRunBtn");
+
+        outputDiv.innerHTML = '<span style="color: #94a3b8;">Connecting...</span>';
+        btn.disabled = true;
+
+        try {
+          const res = await fetch("/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: model,
+              messages: [{ role: "user", content: input }],
+              stream: true
+            })
+          });
+
+          if (!res.ok) {
+            outputDiv.innerHTML = `<span style="color: #ef4444;">Error: ${res.status} ${res.statusText}</span>\n${await res.text()}`;
+            btn.disabled = false;
+            return;
+          }
+
+          outputDiv.innerHTML = ""; // Clear
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const dataStr = line.slice(6);
+                if (dataStr === "[DONE]") continue;
+                try {
+                  const event = JSON.parse(dataStr);
+                  handleQaEvent(event, outputDiv);
+                } catch (e) {
+                  // ignore json parse error for partial lines
+                }
+              }
+            }
+          }
+          outputDiv.innerHTML += `\n<span style="color: #10b981;">[DONE]</span>`;
+
+        } catch (err) {
+          outputDiv.innerHTML += `\n<span style="color: #ef4444;">Request Failed: ${err.message}</span>`;
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      function handleQaEvent(event, container) {
+        if (event.type === 'message_start') {
+          // init
+        } else if (event.type === 'content_block_start') {
+          const block = event.content_block;
+          if (block.type === 'thinking') {
+            container.innerHTML += `<span style="color: #6366f1;">[THINKING START]</span>\n`;
+          } else if (block.type === 'tool_use') {
+            container.innerHTML += `<span style="color: #f59e0b;">[TOOL USE: ${block.name}]</span>\n`;
+          }
+        } else if (event.type === 'content_block_delta') {
+          const delta = event.delta;
+          if (delta.type === 'text_delta') {
+            container.textContent += delta.text; // Use textContent to append text safely, but wait, innerHTML is used above.
+            // Better strictly append text node or use innerHTML with escaping if we want colors. 
+            // Ideally we should separate structure from content. 
+            // For simplicity, let's just append text.
+            // Actually, mixing innerHTML and textContent is tricky. Let's append spans.
+            const span = document.createElement('span');
+            span.textContent = delta.text;
+            container.appendChild(span);
+            container.scrollTop = container.scrollHeight;
+          } else if (delta.type === 'thinking_delta') {
+            const span = document.createElement('span');
+            span.style.color = '#818cf8';
+            span.textContent = delta.thinking;
+            container.appendChild(span);
+            container.scrollTop = container.scrollHeight;
+          }
+        } else if (event.type === 'content_block_stop') {
+          // block end
+        }
+      }
+
       document.addEventListener("DOMContentLoaded", () => {
         const savedTab = localStorage.getItem("activeTab") || "accounts";
         switchTab(savedTab);
+        const autoCheckEnabled = localStorage.getItem("autoCheckEnabled") === "true";
+        const autoToggle = document.getElementById("autoCheckToggle");
+        if (autoToggle) {
+          autoToggle.checked = autoCheckEnabled;
+          if (autoCheckEnabled) {
+            toggleAutoCheck(true);
+          }
+        }
       });
     </script>
 </body>

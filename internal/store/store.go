@@ -12,26 +12,28 @@ import (
 var ErrNoRows = fmt.Errorf("no rows in result set")
 
 type Account struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	SessionID    string    `json:"session_id"`
-	ClientCookie string    `json:"client_cookie"`
-	ClientUat    string    `json:"client_uat"`
-	ProjectID    string    `json:"project_id"`
-	UserID       string    `json:"user_id"`
-	AgentMode    string    `json:"agent_mode"`
-	Email        string    `json:"email"`
-	Weight       int       `json:"weight"`
-	Enabled      bool      `json:"enabled"`
-	Token        string    `json:"token"`        // Truncated display token
-	Subscription string    `json:"subscription"` // "free", "pro", etc.
-	UsageCurrent float64   `json:"usage_current"`
-	UsageTotal   float64   `json:"usage_total"`
-	ResetDate    string    `json:"reset_date"`
-	RequestCount int64     `json:"request_count"`
-	LastUsedAt   time.Time `json:"last_used_at"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID            int64     `json:"id"`
+	Name          string    `json:"name"`
+	AccountType   string    `json:"account_type"`
+	SessionID     string    `json:"session_id"`
+	ClientCookie  string    `json:"client_cookie"`
+	SessionCookie string    `json:"session_cookie"`
+	ClientUat     string    `json:"client_uat"`
+	ProjectID     string    `json:"project_id"`
+	UserID        string    `json:"user_id"`
+	AgentMode     string    `json:"agent_mode"`
+	Email         string    `json:"email"`
+	Weight        int       `json:"weight"`
+	Enabled       bool      `json:"enabled"`
+	Token         string    `json:"token"`        // Truncated display token
+	Subscription  string    `json:"subscription"` // "free", "pro", etc.
+	UsageCurrent  float64   `json:"usage_current"`
+	UsageTotal    float64   `json:"usage_total"`
+	ResetDate     string    `json:"reset_date"`
+	RequestCount  int64     `json:"request_count"`
+	LastUsedAt    time.Time `json:"last_used_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 type Settings struct {
@@ -136,24 +138,10 @@ func (s *Store) seedModels() error {
 	}
 
 	models := []model.Model{
-		// Antigravity
-		{ID: "11", Channel: "Antigravity", ModelID: "gemini-2.5-flash-preview", Name: "Gemini 2.5 Flash", Status: true, IsDefault: true, SortOrder: 0},
-		{ID: "12", Channel: "Antigravity", ModelID: "gemini-3-flash-preview", Name: "Gemini 3 Flash", Status: true, IsDefault: false, SortOrder: 1},
-		{ID: "13", Channel: "Antigravity", ModelID: "gemini-3-pro-preview", Name: "Gemini 3 Pro", Status: true, IsDefault: false, SortOrder: 2},
-		{ID: "14", Channel: "Antigravity", ModelID: "gemini-3-pro-image-preview", Name: "Gemini 3 Pro Image", Status: true, IsDefault: false, SortOrder: 3},
-		{ID: "15", Channel: "Antigravity", ModelID: "gemini-2.5-computer-use-preview-1022", Name: "Gemini 2.5 Computer Use", Status: true, IsDefault: false, SortOrder: 4},
-		// Warp
-		{ID: "19", Channel: "Warp", ModelID: "claude-4-sonnet", Name: "Claude 4 Sonnet", Status: true, IsDefault: false, SortOrder: 0},
-		{ID: "20", Channel: "Warp", ModelID: "claude-4.5-sonnet", Name: "Claude 4.5 Sonnet", Status: true, IsDefault: false, SortOrder: 1},
-		{ID: "21", Channel: "Warp", ModelID: "claude-4.5-sonnet-thinking", Name: "Claude 4.5 Sonnet Thinking", Status: true, IsDefault: false, SortOrder: 2},
-		{ID: "22", Channel: "Warp", ModelID: "claude-4.5-opus", Name: "Claude 4.5 Opus", Status: true, IsDefault: true, SortOrder: 3},
 		// Orchids
 		{ID: "6", Channel: "Orchids", ModelID: "claude-sonnet-4-5", Name: "Claude Sonnet 4.5", Status: true, IsDefault: true, SortOrder: 0},
 		{ID: "7", Channel: "Orchids", ModelID: "claude-opus-4-5", Name: "Claude Opus 4.5", Status: true, IsDefault: false, SortOrder: 1},
 		{ID: "8", Channel: "Orchids", ModelID: "claude-sonnet-4-5-thinking", Name: "Claude Sonnet 4.5 Thinking", Status: true, IsDefault: false, SortOrder: 2},
-		// Kiro
-		{ID: "1", Channel: "Kiro", ModelID: "claude-sonnet-4-5", Name: "Claude Sonnet 4.5", Status: true, IsDefault: true, SortOrder: 0},
-		{ID: "2", Channel: "Kiro", ModelID: "claude-opus-4-5", Name: "Claude Opus 4.5", Status: true, IsDefault: false, SortOrder: 1},
 	}
 
 	for _, m := range models {

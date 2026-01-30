@@ -114,6 +114,31 @@ func isPlanMode(messages []prompt.Message) bool {
 	return false
 }
 
+func isSuggestionMode(messages []prompt.Message) bool {
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg := messages[i]
+		if msg.Role != "user" {
+			continue
+		}
+		if msg.Content.IsString() {
+			if containsSuggestionMode(msg.Content.GetText()) {
+				return true
+			}
+			continue
+		}
+		for _, block := range msg.Content.GetBlocks() {
+			if block.Type == "text" && containsSuggestionMode(block.Text) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsSuggestionMode(text string) bool {
+	return strings.Contains(strings.ToLower(text), "suggestion mode")
+}
+
 func containsPlanReminder(text string) bool {
 	lower := strings.ToLower(text)
 	if !strings.Contains(lower, "<system-reminder>") {

@@ -124,8 +124,18 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 
 	updated := *existing
 	updated.Name = acc.Name
+	if acc.AccountType == "" {
+		updated.AccountType = existing.AccountType
+	} else {
+		updated.AccountType = acc.AccountType
+	}
 	updated.SessionID = acc.SessionID
 	updated.ClientCookie = acc.ClientCookie
+	if acc.SessionCookie == "" {
+		updated.SessionCookie = existing.SessionCookie
+	} else {
+		updated.SessionCookie = acc.SessionCookie
+	}
 	updated.ClientUat = acc.ClientUat
 	updated.ProjectID = acc.ProjectID
 	updated.UserID = acc.UserID

@@ -5,6 +5,7 @@
 | 端点 | 方法 | 描述 | 认证 |
 |------|------|------|------|
 | `/v1/messages` | POST | Claude API 代理端点 | 无 |
+| `/v1/messages/count_tokens` | POST | 估算输入 Token | 无 |
 | `/api/accounts` | GET | 获取所有账号列表 | Basic Auth |
 | `/api/accounts` | POST | 创建新账号 | Basic Auth |
 | `/api/accounts/{id}` | GET | 获取单个账号 | Basic Auth |
@@ -63,3 +64,17 @@
 |----------|----------|
 | `claude-opus-4-5-*` | `claude-opus-4.5` |
 | `claude-haiku-4-5-*` | `gemini-3-flash` |
+
+## /v1/messages/count_tokens 端点
+
+### 请求格式
+
+与 `/v1/messages` 相同（支持 `messages` / `system` / `tools` / `model`）。
+
+### 响应格式
+
+```json
+{
+  "input_tokens": 1234
+}
+```

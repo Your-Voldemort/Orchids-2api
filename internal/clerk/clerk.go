@@ -1,10 +1,12 @@
 package clerk
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -48,6 +50,8 @@ func FetchAccountInfo(clientCookie string) (*AccountInfo, error) {
 
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Orchids/0.0.57 Chrome/138.0.7204.251 Electron/37.10.3 Safari/537.36")
 	req.Header.Set("Accept-Language", "zh-CN")
+	req.Header.Set("Origin", "https://www.orchids.app")
+	req.Header.Set("Referer", "https://www.orchids.app/")
 	req.AddCookie(&http.Cookie{Name: "__client", Value: clientCookie})
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -85,4 +89,98 @@ func FetchAccountInfo(clientCookie string) (*AccountInfo, error) {
 		Email:        session.User.EmailAddresses[0].EmailAddress,
 		JWT:          session.LastActiveToken.JWT,
 	}, nil
+}
+
+func NormalizeClientCookie(input string) (string, error) {
+	client, _, err := ParseClientCookies(input)
+	return client, err
+}
+
+func ParseClientCookies(input string) (clientJWT string, sessionJWT string, err error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return "", "", nil
+	}
+
+	if strings.Contains(trimmed, "__client=") {
+		client, err := extractCookieValue(trimmed, "__client")
+		if err != nil {
+			return "", "", err
+		}
+		if !isLikelyJWT(client) {
+			return "", "", fmt.Errorf("invalid __client value")
+		}
+		session, _ := extractCookieValue(trimmed, "__session")
+		if session != "" && !isLikelyJWT(session) {
+			return "", "", fmt.Errorf("invalid __session value")
+		}
+		return client, session, nil
+	}
+
+	if strings.Contains(trimmed, "|") {
+		parts := strings.Split(trimmed, "|")
+		jwt := strings.TrimSpace(parts[0])
+		if isLikelyJWT(jwt) {
+			return jwt, "", nil
+		}
+		return "", "", fmt.Errorf("invalid JWT before '|'")
+	}
+
+	if isLikelyJWT(trimmed) {
+		return trimmed, "", nil
+	}
+
+	return "", "", fmt.Errorf("unsupported client cookie format")
+}
+
+func extractCookieValue(input string, name string) (string, error) {
+	key := name + "="
+	idx := strings.Index(input, key)
+	if idx < 0 {
+		return "", nil
+	}
+	value := input[idx+len(key):]
+	if end := strings.Index(value, ";"); end >= 0 {
+		value = value[:end]
+	}
+	return strings.TrimSpace(value), nil
+}
+
+func ParseSessionInfoFromJWT(sessionJWT string) (sessionID string, userID string) {
+	parts := strings.Split(sessionJWT, ".")
+	if len(parts) != 3 {
+		return "", ""
+	}
+	payload := parts[1]
+	payload = strings.ReplaceAll(payload, "-", "+")
+	payload = strings.ReplaceAll(payload, "_", "/")
+	switch len(payload) % 4 {
+	case 2:
+		payload += "=="
+	case 3:
+		payload += "="
+	}
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return "", ""
+	}
+	var data struct {
+		SID string `json:"sid"`
+		SUB string `json:"sub"`
+	}
+	if err := json.Unmarshal(decoded, &data); err != nil {
+		return "", ""
+	}
+	return data.SID, data.SUB
+}
+
+func isLikelyJWT(value string) bool {
+	if value == "" {
+		return false
+	}
+	if strings.Count(value, ".") != 2 {
+		return false
+	}
+	parts := strings.Split(value, ".")
+	return len(parts) == 3 && parts[0] != "" && parts[1] != "" && parts[2] != ""
 }
