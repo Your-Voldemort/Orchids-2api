@@ -6,7 +6,11 @@ let createdKeys = [];
 // Switch between config tabs
 function switchConfigTab(tab) {
   document.querySelectorAll("#configTabs .tab-item").forEach(btn => {
-    btn.classList.toggle("active", btn.textContent.includes(tab === 'basic' ? '基础' : tab === 'auth' ? '授权' : '代理'));
+    btn.classList.toggle("active",
+      (tab === 'basic' && btn.textContent.includes('基础')) ||
+      (tab === 'auth' && btn.textContent.includes('API Key')) ||
+      (tab === 'proxy' && btn.textContent.includes('代理'))
+    );
   });
   document.getElementById("basicConfig").style.display = tab === 'basic' ? 'block' : 'none';
   document.getElementById("authConfig").style.display = tab === 'auth' ? 'block' : 'none';
@@ -155,7 +159,7 @@ function renderApiKeys() {
         <td>
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="cursor: pointer;" onclick="toggleKeyVisibility(${idx})">👁️</span>
-            <span id="key-display-${idx}" style="font-family: monospace; color: #64748b; cursor: pointer;" onclick="copyToClipboard('${keyDisplay}')">
+            <span id="key-display-${idx}" style="font-family: monospace; color: var(--text-secondary); cursor: pointer;" onclick="copyToClipboard('${keyDisplay}')">
               ${k.key_prefix}****...${k.key_suffix}
             </span>
           </div>
@@ -166,7 +170,7 @@ function renderApiKeys() {
             <span class="toggle-slider"></span>
           </label>
         </td>
-        <td style="color: #94a3b8; font-size: 0.8rem;">${k.last_used_at ? formatTime(k.last_used_at) : "从未使用"}</td>
+        <td style="color: var(--text-secondary); font-size: 0.8rem;">${k.last_used_at ? formatTime(k.last_used_at) : "从未使用"}</td>
         <td>
           <button class="btn btn-danger-outline" style="padding: 4px 8px;" onclick="openDeleteKeyModal(${k.id}, '${escapeHtml(k.key_prefix)}...${escapeHtml(k.key_suffix)}')">删除</button>
         </td>
@@ -188,7 +192,7 @@ function renderApiKeys() {
         ${rows}
       </tbody>
     </table>
-    <div style="margin-top: 24px; padding: 16px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; color: #1e40af;">
+    <div style="margin-top: 24px; padding: 16px; background: rgba(56, 189, 248, 0.1); border: 1px solid var(--accent-blue); border-radius: 8px; color: var(--text-primary);">
       <div style="display: flex; gap: 8px; align-items: start;">
         <span style="font-size: 1.2rem;">💡</span>
         <div style="flex: 1;">
@@ -273,9 +277,9 @@ async function createApiKey(e) {
 function renderCreatedKeys() {
   const container = document.getElementById("fullKeyDisplay");
   const keyDisplays = createdKeys.map(k => `
-    <div class="key-display" style="margin-bottom: 8px; padding: 12px; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px;">
-      <div style="font-size: 0.8rem; color: #64748b;">${escapeHtml(k.name)}</div>
-      <div style="font-weight: bold; margin-top: 4px; word-break: break-all; color: #22c55e;">${escapeHtml(k.key || k.error)}</div>
+    <div class="key-display" style="margin-bottom: 8px; padding: 12px; background: var(--card-soft); border: 1px dashed var(--border-color); border-radius: 8px;">
+      <div style="font-size: 0.8rem; color: var(--text-secondary);">${escapeHtml(k.name)}</div>
+      <div style="font-weight: bold; margin-top: 4px; word-break: break-all; color: var(--accent-green);">${escapeHtml(k.key || k.error)}</div>
     </div>
   `).join("");
   container.innerHTML = keyDisplays;
@@ -415,5 +419,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (cacheEnabled) {
       loadCacheStats();
     }
+    // Load API keys as they are now part of the basic configuration tab
+    loadApiKeys();
   });
 });

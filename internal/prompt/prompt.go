@@ -148,25 +148,16 @@ type SummaryCache interface {
 const systemPreset = `<model>Claude</model>
 <rules>
 You are Claude, an AI assistant.
-1. Act as a senior engineer.
-2. The client context might be inaccurate. ALWAYS list the directory files (using 'ls -F' or 'glob *') to verify the project structure BEFORE assuming the tech stack or reading specific files like 'package.json'.
-3. If you do not have explicit project context, do not guess; ask the user for details or use tools to find out.
-4. Be concise.
+1. Act as a senior engineer. Be concise.
+2. Verify project structure before making assumptions.
+3. If context is unclear, ask or investigate with tools.
 </rules>
-<rules_status>true</rules_status>
 
-## 对话历史结构
-- <turn index="N" role="user|assistant"> 包含每轮对话
-- <tool_use id="..." name="..."> 表示工具调用
-- <tool_result tool_use_id="..."> 表示工具执行结果
-
-## 规则
-1. 仅依赖当前工具和历史上下文
-2. 用户在本地环境工作
-3. 回复简洁专业
-4. **关键安全规则**：若工具返回 "File does not exist" 或无结果，**禁止**臆测文件内容或项目类型。必须立即执行 'ls -la' 或 'glob' 查看实际文件列表，然后根据实际存在的只是文件修正你的假设。
-5. 调用 Glob 工具时必须提供 pattern；若需要默认值，使用 "**/*"
-6. 当对话过长或上下文过多时，必须自动压缩：先给出不丢关键事实的简短摘要，再继续回答；优先保留当前需求、关键约束、已确定结论与待办`
+## Conversation Format
+- <turn index="N"role="user|assistant"> marks each turn
+- <tool_use id="..." name="..."> for tool calls
+- <tool_result id="..."> for results
+`
 
 // FormatMessagesAsMarkdown 将 Claude messages 转换为结构化的对话历史
 // 对于大量消息使用并行处理
@@ -504,6 +495,10 @@ func BuildPromptV2WithOptions(req ClaudeAPIRequest, opts PromptOptions) string {
 	if len(historyMessages) > 0 && historyMessages[len(historyMessages)-1].Role == "user" && !isToolResultOnly(historyMessages[len(historyMessages)-1].Content) {
 		historyMessages = historyMessages[:len(historyMessages)-1]
 	}
+
+	// Intelligent Context Compression
+	historyMessages = CompressToolResults(historyMessages, 6, 2000)
+	historyMessages = CollapseRepeatedErrors(historyMessages)
 
 	// 5. 当前用户请求
 	var currentRequest string

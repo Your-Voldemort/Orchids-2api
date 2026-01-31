@@ -192,31 +192,21 @@ func (h *streamHandler) addOutputTokens(text string) {
 	}
 	h.outputMu.Unlock()
 
-	if h.outputTokenMode == "stream" {
-		tokens := tiktoken.EstimateTextTokens(text)
-		h.outputMu.Lock()
-		h.outputTokens += tokens
-		h.outputMu.Unlock()
-		return
-	}
-
 	h.outputMu.Lock()
 	h.outputBuilder.WriteString(text)
 	h.outputMu.Unlock()
 }
 
 func (h *streamHandler) finalizeOutputTokens() {
-	if h.outputTokenMode == "stream" {
-		return
-	}
 	h.outputMu.Lock()
+	defer h.outputMu.Unlock()
+
 	if h.useUpstreamUsage {
-		h.outputMu.Unlock()
 		return
 	}
+
 	text := h.outputBuilder.String()
 	h.outputTokens = tiktoken.EstimateTextTokens(text)
-	h.outputMu.Unlock()
 }
 
 func (h *streamHandler) setUsageTokens(input, output int) {
@@ -247,7 +237,7 @@ func (h *streamHandler) resetRoundState() {
 	h.activeBlockType = ""
 	h.hasReturn = false
 
-	h.toolBlocks = make(map[string]int)
+	clear(h.toolBlocks)
 	h.responseText.Reset()
 	h.contentBlocks = nil
 	h.currentTextIndex = -1
@@ -255,23 +245,23 @@ func (h *streamHandler) resetRoundState() {
 	for _, sb := range h.textBlockBuilders {
 		perf.ReleaseStringBuilder(sb)
 	}
-	h.textBlockBuilders = map[int]*strings.Builder{}
+	clear(h.textBlockBuilders)
 
 	for _, sb := range h.thinkingBlockBuilders {
 		perf.ReleaseStringBuilder(sb)
 	}
-	h.thinkingBlockBuilders = map[int]*strings.Builder{}
+	clear(h.thinkingBlockBuilders)
 
 	h.pendingToolCalls = nil
-	h.toolInputNames = map[string]string{}
+	clear(h.toolInputNames)
 
 	for _, sb := range h.toolInputBuffers {
 		perf.ReleaseStringBuilder(sb)
 	}
-	h.toolInputBuffers = map[string]*strings.Builder{}
+	clear(h.toolInputBuffers)
 
-	h.toolInputHadDelta = map[string]bool{}
-	h.toolCallHandled = map[string]bool{}
+	clear(h.toolInputHadDelta)
+	clear(h.toolCallHandled)
 	h.currentToolInputID = ""
 	h.toolCallCount = 0
 	h.outputTokens = 0
@@ -324,32 +314,42 @@ func (h *streamHandler) emitToolCallStream(call toolCall, idx int, write func(ev
 	h.addOutputTokens(call.input)
 	fixedInput := fixToolInput(call.input)
 
-	startData, _ := json.Marshal(map[string]interface{}{
-		"type":  "content_block_start",
-		"index": idx,
-		"content_block": map[string]interface{}{
-			"type":  "tool_use",
-			"id":    call.id,
-			"name":  call.name,
-			"input": map[string]interface{}{},
-		},
-	})
+	startMap := perf.AcquireMap()
+	startMap["type"] = "content_block_start"
+	startMap["index"] = idx
+
+	contentBlock := perf.AcquireMap()
+	contentBlock["type"] = "tool_use"
+	contentBlock["id"] = call.id
+	contentBlock["name"] = call.name
+	contentBlock["input"] = perf.AcquireMap() // Empty map
+	startMap["content_block"] = contentBlock
+
+	startData, _ := json.Marshal(startMap)
+	perf.ReleaseMap(contentBlock["input"].(map[string]interface{}))
+	perf.ReleaseMap(contentBlock)
+	perf.ReleaseMap(startMap)
 	write("content_block_start", string(startData))
 
-	deltaData, _ := json.Marshal(map[string]interface{}{
-		"type":  "content_block_delta",
-		"index": idx,
-		"delta": map[string]interface{}{
-			"type":         "input_json_delta",
-			"partial_json": fixedInput,
-		},
-	})
+	deltaMap := perf.AcquireMap()
+	deltaMap["type"] = "content_block_delta"
+	deltaMap["index"] = idx
+
+	deltaContent := perf.AcquireMap()
+	deltaContent["type"] = "input_json_delta"
+	deltaContent["partial_json"] = fixedInput
+	deltaMap["delta"] = deltaContent
+
+	deltaData, _ := json.Marshal(deltaMap)
+	perf.ReleaseMap(deltaContent)
+	perf.ReleaseMap(deltaMap)
 	write("content_block_delta", string(deltaData))
 
-	stopData, _ := json.Marshal(map[string]interface{}{
-		"type":  "content_block_stop",
-		"index": idx,
-	})
+	stopMap := perf.AcquireMap()
+	stopMap["type"] = "content_block_stop"
+	stopMap["index"] = idx
+	stopData, _ := json.Marshal(stopMap)
+	perf.ReleaseMap(stopMap)
 	write("content_block_stop", string(stopData))
 }
 
@@ -422,14 +422,24 @@ func (h *streamHandler) finishResponse(stopReason string) {
 	if h.isStream {
 		h.flushPendingToolCalls(stopReason, h.writeFinalSSE)
 		h.finalizeOutputTokens()
-		deltaData, _ := json.Marshal(map[string]interface{}{
-			"type":  "message_delta",
-			"delta": map[string]string{"stop_reason": stopReason},
-			"usage": map[string]int{"output_tokens": h.outputTokens},
-		})
+		deltaMap := perf.AcquireMap()
+		deltaMap["type"] = "message_delta"
+		deltaDelta := perf.AcquireMap()
+		deltaDelta["stop_reason"] = stopReason
+		deltaUsage := perf.AcquireMap()
+		deltaUsage["output_tokens"] = h.outputTokens
+		deltaMap["delta"] = deltaDelta
+		deltaMap["usage"] = deltaUsage
+		deltaData, _ := json.Marshal(deltaMap)
+		perf.ReleaseMap(deltaUsage)
+		perf.ReleaseMap(deltaDelta)
+		perf.ReleaseMap(deltaMap)
 		h.writeFinalSSE("message_delta", string(deltaData))
 
-		stopData, _ := json.Marshal(map[string]string{"type": "message_stop"})
+		stopMap := perf.AcquireMap()
+		stopMap["type"] = "message_stop"
+		stopData, _ := json.Marshal(stopMap)
+		perf.ReleaseMap(stopMap)
 		h.writeFinalSSE("message_stop", string(stopData))
 	} else {
 		h.flushPendingToolCalls(stopReason, h.writeFinalSSE)
@@ -492,11 +502,19 @@ func (h *streamHandler) ensureBlock(blockType string) int {
 			h.thinkingBlockBuilders[h.activeThinkingBlockIndex] = perf.AcquireStringBuilder()
 			idx = h.activeThinkingBlockIndex
 		}
-		startData, _ = json.Marshal(map[string]interface{}{
-			"type":          "content_block_start",
-			"index":         idx,
-			"content_block": map[string]interface{}{"type": "thinking", "thinking": ""},
-		})
+
+		m := perf.AcquireMap()
+		m["type"] = "content_block_start"
+		m["index"] = idx
+
+		cb := perf.AcquireMap()
+		cb["type"] = "thinking"
+		cb["thinking"] = ""
+		m["content_block"] = cb
+
+		startData, _ = json.Marshal(m)
+		perf.ReleaseMap(cb)
+		perf.ReleaseMap(m)
 	case "text":
 		h.activeTextBlockIndex = idx
 		if !h.isStream {
@@ -504,13 +522,21 @@ func (h *streamHandler) ensureBlock(blockType string) int {
 				"type": "text",
 			})
 			h.currentTextIndex = len(h.contentBlocks) - 1
-			h.textBlockBuilders[h.currentTextIndex] = &strings.Builder{}
+			h.textBlockBuilders[h.currentTextIndex] = perf.AcquireStringBuilder()
 		}
-		startData, _ = json.Marshal(map[string]interface{}{
-			"type":          "content_block_start",
-			"index":         idx,
-			"content_block": map[string]string{"type": "text", "text": ""},
-		})
+
+		m := perf.AcquireMap()
+		m["type"] = "content_block_start"
+		m["index"] = idx
+
+		cb := perf.AcquireMap()
+		cb["type"] = "text"
+		cb["text"] = ""
+		m["content_block"] = cb
+
+		startData, _ = json.Marshal(m)
+		perf.ReleaseMap(cb)
+		perf.ReleaseMap(m)
 	}
 
 	if len(startData) > 0 {
@@ -546,10 +572,13 @@ func (h *streamHandler) closeActiveBlockLocked() {
 	}
 
 	h.activeBlockType = ""
-	stopData, _ := json.Marshal(map[string]interface{}{
-		"type":  "content_block_stop",
-		"index": idx,
-	})
+
+	m := perf.AcquireMap()
+	m["type"] = "content_block_stop"
+	m["index"] = idx
+	stopData, _ := json.Marshal(m)
+	perf.ReleaseMap(m)
+
 	h.writeSSELocked("content_block_stop", string(stopData))
 }
 
@@ -623,24 +652,35 @@ func (h *streamHandler) handleToolCall(call toolCall) {
 			idx := h.blockIndex
 			h.mu.Unlock()
 
-			startData, _ := json.Marshal(map[string]interface{}{
-				"type":          "content_block_start",
-				"index":         idx,
-				"content_block": map[string]interface{}{"type": "text", "text": ""},
-			})
+			startMap := perf.AcquireMap()
+			startMap["type"] = "content_block_start"
+			startMap["index"] = idx
+			startContent := perf.AcquireMap()
+			startContent["type"] = "text"
+			startContent["text"] = ""
+			startMap["content_block"] = startContent
+			startData, _ := json.Marshal(startMap)
+			perf.ReleaseMap(startContent)
+			perf.ReleaseMap(startMap)
 			h.writeSSE("content_block_start", string(startData))
 
-			deltaData, _ := json.Marshal(map[string]interface{}{
-				"type":  "content_block_delta",
-				"index": idx,
-				"delta": map[string]interface{}{"type": "text_delta", "text": notification},
-			})
+			deltaMap := perf.AcquireMap()
+			deltaMap["type"] = "content_block_delta"
+			deltaMap["index"] = idx
+			deltaContent := perf.AcquireMap()
+			deltaContent["type"] = "text_delta"
+			deltaContent["text"] = notification
+			deltaMap["delta"] = deltaContent
+			deltaData, _ := json.Marshal(deltaMap)
+			perf.ReleaseMap(deltaContent)
+			perf.ReleaseMap(deltaMap)
 			h.writeSSE("content_block_delta", string(deltaData))
 
-			stopData, _ := json.Marshal(map[string]interface{}{
-				"type":  "content_block_stop",
-				"index": idx,
-			})
+			stopMap := perf.AcquireMap()
+			stopMap["type"] = "content_block_stop"
+			stopMap["index"] = idx
+			stopData, _ := json.Marshal(stopMap)
+			perf.ReleaseMap(stopMap)
 			h.writeSSE("content_block_stop", string(stopData))
 		}
 
@@ -736,12 +776,17 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 				builder.WriteString(delta)
 			}
 		}
-		data, _ := json.Marshal(map[string]interface{}{
-			"type":  "content_block_delta",
-			"index": idx,
-			"delta": map[string]interface{}{"type": "thinking_delta", "thinking": delta},
-		})
+		m := perf.AcquireMap()
+		m["type"] = "content_block_delta"
+		m["index"] = idx
+		deltaMap := perf.AcquireMap()
+		deltaMap["type"] = "thinking_delta"
+		deltaMap["thinking"] = delta
+		m["delta"] = deltaMap
+		data, _ := json.Marshal(m)
 		h.writeSSE("content_block_delta", string(data))
+		perf.ReleaseMap(deltaMap)
+		perf.ReleaseMap(m)
 
 	case "model.reasoning-end":
 		h.closeActiveBlock()
@@ -770,12 +815,17 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 				builder.WriteString(delta)
 			}
 		}
-		data, _ := json.Marshal(map[string]interface{}{
-			"type":  "content_block_delta",
-			"index": idx,
-			"delta": map[string]string{"type": "text_delta", "text": delta},
-		})
+		m := perf.AcquireMap()
+		m["type"] = "content_block_delta"
+		m["index"] = idx
+		deltaMap := perf.AcquireMap()
+		deltaMap["type"] = "text_delta"
+		deltaMap["text"] = delta
+		m["delta"] = deltaMap
+		data, _ := json.Marshal(m)
 		h.writeSSE("content_block_delta", string(data))
+		perf.ReleaseMap(deltaMap)
+		perf.ReleaseMap(m)
 
 	case "model.text-end":
 		h.closeActiveBlock()
@@ -795,11 +845,16 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		}
 		feedback := fmt.Sprintf("\n[Feedback: %s %s...]\n", opType, opPath)
 		idx := h.ensureBlock("text")
-		deltaData, _ := json.Marshal(map[string]interface{}{
-			"type":  "content_block_delta",
-			"index": idx,
-			"delta": map[string]interface{}{"type": "text_delta", "text": feedback},
-		})
+		deltaMap := perf.AcquireMap()
+		deltaMap["type"] = "content_block_delta"
+		deltaMap["index"] = idx
+		deltaContent := perf.AcquireMap()
+		deltaContent["type"] = "text_delta"
+		deltaContent["text"] = feedback
+		deltaMap["delta"] = deltaContent
+		deltaData, _ := json.Marshal(deltaMap)
+		perf.ReleaseMap(deltaContent)
+		perf.ReleaseMap(deltaMap)
 		h.writeSSE("content_block_delta", string(deltaData))
 
 	case "model.tool-input-start":
@@ -828,16 +883,20 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		h.toolBlocks[toolID] = idx
 		h.toolCallCount++
 		h.mu.Unlock()
-		startData, _ := json.Marshal(map[string]interface{}{
-			"type":  "content_block_start",
-			"index": idx,
-			"content_block": map[string]interface{}{
-				"type":  "tool_use",
-				"id":    toolID,
-				"name":  finalName,
-				"input": map[string]interface{}{},
-			},
-		})
+		startMap := perf.AcquireMap()
+		startMap["type"] = "content_block_start"
+		startMap["index"] = idx
+		startContent := perf.AcquireMap()
+		startContent["type"] = "tool_use"
+		startContent["id"] = toolID
+		startContent["name"] = finalName
+		startInput := perf.AcquireMap()
+		startContent["input"] = startInput
+		startMap["content_block"] = startContent
+		startData, _ := json.Marshal(startMap)
+		perf.ReleaseMap(startInput)
+		perf.ReleaseMap(startContent)
+		perf.ReleaseMap(startMap)
 		h.writeSSE("content_block_start", string(startData))
 
 	case "model.tool-input-delta":
@@ -859,15 +918,17 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		if !ok {
 			return
 		}
-		deltaData, _ := json.Marshal(map[string]interface{}{
-			"type":  "content_block_delta",
-			"index": idx,
-			"delta": map[string]interface{}{
-				"type":         "input_json_delta",
-				"partial_json": delta,
-			},
-		})
+		m := perf.AcquireMap()
+		m["type"] = "content_block_delta"
+		m["index"] = idx
+		deltaMap := perf.AcquireMap()
+		deltaMap["type"] = "input_json_delta"
+		deltaMap["partial_json"] = delta
+		m["delta"] = deltaMap
+		deltaData, _ := json.Marshal(m)
 		h.writeSSE("content_block_delta", string(deltaData))
+		perf.ReleaseMap(deltaMap)
+		perf.ReleaseMap(m)
 
 	case "coding_agent.Edit.edit.started":
 		h.editFilePath = ""
@@ -890,12 +951,12 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 			return
 		}
 
-		input := map[string]interface{}{
-			"file_path":  h.editFilePath,
-			"new_string": h.editNewString,
-			// old_string is optional/not available in stream often, or we ignore it for simple notification
-		}
-		inputJSON, err := json.Marshal(input)
+		inputMap := perf.AcquireMap()
+		inputMap["file_path"] = h.editFilePath
+		inputMap["new_string"] = h.editNewString
+		inputMap["old_string"] = ""
+		inputJSON, err := json.Marshal(inputMap)
+		perf.ReleaseMap(inputMap)
 		if err != nil {
 			inputJSON = []byte("{}")
 		}
@@ -925,26 +986,51 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 				idx := h.blockIndex
 				h.mu.Unlock()
 
-				startData, _ := json.Marshal(map[string]interface{}{
-					"type":          "content_block_start",
-					"index":         idx,
-					"content_block": map[string]interface{}{"type": "text", "text": ""},
-				})
+				// Emit notification (manual text block construction)
+				// Start Block
+				startMap := perf.AcquireMap()
+				startMap["type"] = "content_block_start"
+				startMap["index"] = idx
+
+				cb := perf.AcquireMap()
+				cb["type"] = "text"
+				cb["text"] = ""
+				startMap["content_block"] = cb
+
+				startData, _ := json.Marshal(startMap)
+				perf.ReleaseMap(cb)
+				perf.ReleaseMap(startMap)
 				h.writeSSE("content_block_start", string(startData))
 
-				deltaData, _ := json.Marshal(map[string]interface{}{
-					"type":  "content_block_delta",
-					"index": idx,
-					"delta": map[string]interface{}{"type": "text_delta", "text": notification},
-				})
+				// Delta Block
+				deltaMap := perf.AcquireMap()
+				deltaMap["type"] = "content_block_delta"
+				deltaMap["index"] = idx
+
+				deltaContent := perf.AcquireMap()
+				deltaContent["type"] = "text_delta"
+				deltaContent["text"] = notification
+				deltaMap["delta"] = deltaContent
+
+				deltaData, _ := json.Marshal(deltaMap)
+				perf.ReleaseMap(deltaContent)
+				perf.ReleaseMap(deltaMap)
 				h.writeSSE("content_block_delta", string(deltaData))
 
-				stopData, _ := json.Marshal(map[string]interface{}{
-					"type":  "content_block_stop",
-					"index": idx,
-				})
+				// Stop Block
+				stopMap := perf.AcquireMap()
+				stopMap["type"] = "content_block_stop"
+				stopMap["index"] = idx
+
+				stopData, _ := json.Marshal(stopMap)
+				perf.ReleaseMap(stopMap)
 				h.writeSSE("content_block_stop", string(stopData))
 			}
+
+			// FIX: Queue tool call for execution in auto mode
+			h.mu.Lock()
+			h.autoPendingCalls = append(h.autoPendingCalls, call)
+			h.mu.Unlock()
 		}
 
 		h.editFilePath = ""
@@ -975,20 +1061,23 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 			}
 			if idx, ok := h.toolBlocks[toolID]; ok {
 				if !h.toolInputHadDelta[toolID] && inputStr != "" {
-					deltaData, _ := json.Marshal(map[string]interface{}{
-						"type":  "content_block_delta",
-						"index": idx,
-						"delta": map[string]interface{}{
-							"type":         "input_json_delta",
-							"partial_json": inputStr,
-						},
-					})
+					deltaMap := perf.AcquireMap()
+					deltaMap["type"] = "content_block_delta"
+					deltaMap["index"] = idx
+					deltaContent := perf.AcquireMap()
+					deltaContent["type"] = "input_json_delta"
+					deltaContent["partial_json"] = inputStr
+					deltaMap["delta"] = deltaContent
+					deltaData, _ := json.Marshal(deltaMap)
+					perf.ReleaseMap(deltaContent)
+					perf.ReleaseMap(deltaMap)
 					h.writeSSE("content_block_delta", string(deltaData))
 				}
-				stopData, _ := json.Marshal(map[string]interface{}{
-					"type":  "content_block_stop",
-					"index": idx,
-				})
+				stopMap := perf.AcquireMap()
+				stopMap["type"] = "content_block_stop"
+				stopMap["index"] = idx
+				stopData, _ := json.Marshal(stopMap)
+				perf.ReleaseMap(stopMap)
 				h.writeSSE("content_block_stop", string(stopData))
 				delete(h.toolBlocks, toolID)
 			}

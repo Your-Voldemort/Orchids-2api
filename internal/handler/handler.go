@@ -465,7 +465,11 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 					failedAccountIDs = append(failedAccountIDs, currentAccount.ID)
 					slog.Warn("Account request failed, switching account", "account", currentAccount.Name, "failed_count", len(failedAccountIDs))
 					if retryErr := selectAccount(); retryErr == nil {
-						slog.Info("Switched to account", "account", currentAccount.Name)
+						if currentAccount != nil {
+							slog.Info("Switched to account", "account", currentAccount.Name)
+						} else {
+							slog.Info("Switched to default upstream config")
+						}
 					} else {
 						slog.Error("No more accounts available", "error", retryErr)
 						sh.finishResponse("end_turn")

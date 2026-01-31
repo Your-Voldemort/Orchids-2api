@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -35,58 +34,81 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	token, err := c.getWSToken()
-	if err != nil {
-		return fmt.Errorf("failed to get ws token: %w", err)
-	}
+	// Get connection from pool (or create new if pool unavailable)
+	var conn *websocket.Conn
+	var err error
 
-	wsURL := c.buildWSURLAIClient(token)
-	if wsURL == "" {
-		return errors.New("ws url not configured")
-	}
-	headers := http.Header{
-		"User-Agent": []string{orchidsWSUserAgent},
-		"Origin":     []string{orchidsWSOrigin},
-	}
-
-	dialer := websocket.Dialer{
-		HandshakeTimeout: orchidsWSConnectTimeout,
-		Proxy:            http.ProxyFromEnvironment,
-		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			d := &net.Dialer{
-				Timeout: orchidsWSConnectTimeout,
+	if c.wsPool != nil {
+		conn, err = c.wsPool.Get(ctx)
+		if err != nil {
+			// Fall back to direct connection if pool fails
+			token, err := c.getWSToken()
+			if err != nil {
+				return fmt.Errorf("failed to get ws token: %w", err)
 			}
-			return d.DialContext(ctx, network, addr)
-		},
-	}
-
-	conn, resp, err := dialer.DialContext(ctx, wsURL, headers)
-	if err != nil {
-		if resp != nil {
+			wsURL := c.buildWSURLAIClient(token)
+			if wsURL == "" {
+				return errors.New("ws url not configured")
+			}
+			headers := http.Header{
+				"User-Agent": []string{orchidsWSUserAgent},
+				"Origin":     []string{orchidsWSOrigin},
+			}
+			dialer := websocket.Dialer{
+				HandshakeTimeout: orchidsWSConnectTimeout,
+			}
+			conn, _, err = dialer.DialContext(ctx, wsURL, headers)
+			if err != nil {
+				if parentCtx.Err() == nil {
+					return wsFallbackError{err: fmt.Errorf("ws dial failed: %w", err)}
+				}
+				return fmt.Errorf("ws dial failed: %w", err)
+			}
+		} else {
+			// Successfully got connection from pool
+			// Return to pool when done (unless error occurs)
+			defer func() {
+				if conn != nil {
+					c.wsPool.Put(conn)
+				}
+			}()
+		}
+	} else {
+		// No pool available, create connection directly
+		token, err := c.getWSToken()
+		if err != nil {
+			return fmt.Errorf("failed to get ws token: %w", err)
+		}
+		wsURL := c.buildWSURLAIClient(token)
+		if wsURL == "" {
+			return errors.New("ws url not configured")
+		}
+		headers := http.Header{
+			"User-Agent": []string{orchidsWSUserAgent},
+			"Origin":     []string{orchidsWSOrigin},
+		}
+		dialer := websocket.Dialer{
+			HandshakeTimeout: orchidsWSConnectTimeout,
+		}
+		conn, _, err = dialer.DialContext(ctx, wsURL, headers)
+		if err != nil {
 			if parentCtx.Err() == nil {
-				return wsFallbackError{err: fmt.Errorf("ws dial failed: %s", resp.Status)}
+				return wsFallbackError{err: fmt.Errorf("ws dial failed: %w", err)}
 			}
-			return fmt.Errorf("ws dial failed: %s", resp.Status)
+			return fmt.Errorf("ws dial failed: %w", err)
 		}
-		if parentCtx.Err() == nil {
-			return wsFallbackError{err: fmt.Errorf("ws dial failed: %w", err)}
-		}
-		return fmt.Errorf("ws dial failed: %w", err)
+		defer conn.Close()
 	}
-	defer conn.Close()
 
 	wsPayload, err := c.buildWSRequestAIClient(req)
 	if err != nil {
 		return err
 	}
 
-	if logger != nil {
-		logHeaders := map[string]string{
-			"User-Agent": orchidsWSUserAgent,
-			"Origin":     orchidsWSOrigin,
-		}
-		logger.LogUpstreamRequest(wsURL, logHeaders, wsPayload)
-	}
+	// Note: Logger disabled for pooled connections
+	// if logger != nil {
+	// 	logger.LogUpstreamRequest(wsURL, logHeaders, wsPayload)
+	// }
 
 	if err := conn.WriteJSON(wsPayload); err != nil {
 		if parentCtx.Err() == nil {

@@ -55,10 +55,8 @@ func ReleaseMap(m map[string]interface{}) {
 	if len(m) > 256 {
 		return
 	}
-	// Clear map before returning
-	for k := range m {
-		delete(m, k)
-	}
+	// Clear map before returning (Go 1.21+ optimized)
+	clear(m)
 	MapPool.Put(m)
 }
 
@@ -110,10 +108,8 @@ func ReleaseStringSlice(s *[]string) {
 	if cap(*s) > 256 {
 		return
 	}
-	// Clear slice to release string references
-	for i := range *s {
-		(*s)[i] = ""
-	}
+	// Clear slice to release string references (Go 1.21+ optimized)
+	clear(*s)
 	*s = (*s)[:0]
 	StringSlicePool.Put(s)
 }
@@ -232,7 +228,7 @@ func ReleaseTieredByteSlice(b *[]byte) {
 		return
 	}
 	*b = (*b)[:0]
-	
+
 	capacity := cap(*b)
 	switch {
 	case capacity <= 4096:
@@ -241,7 +237,7 @@ func ReleaseTieredByteSlice(b *[]byte) {
 		tieredBytePool.medium.Put(b)
 	case capacity <= 65536:
 		tieredBytePool.large.Put(b)
-	// Don't pool very large slices
+		// Don't pool very large slices
 	}
 }
 

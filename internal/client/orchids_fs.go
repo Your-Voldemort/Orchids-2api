@@ -78,6 +78,9 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 
 	switch operation {
 	case "edit":
+		if c.fsCache != nil {
+			c.fsCache.Clear() // Invalidate cache on write
+		}
 		if op.Path == "" {
 			return respond(false, nil, "path is required for edit")
 		}
@@ -150,12 +153,32 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		if err := validatePathIgnore(baseDir, path, ignore); err != nil {
 			return respond(false, nil, err.Error())
 		}
+
+		if c.fsCache != nil {
+			if val, errMsg, ok := c.fsCache.Get("read:" + path); ok {
+				if errMsg != "" {
+					return respond(false, nil, errMsg)
+				}
+				return respond(true, val, "")
+			}
+		}
+
 		data, err := readFileLimited(path)
 		if err != nil {
+			if c.fsCache != nil {
+				c.fsCache.SetError("read:"+path, err.Error())
+			}
 			return respond(false, nil, err.Error())
+		}
+
+		if c.fsCache != nil {
+			c.fsCache.Set("read:"+path, data)
 		}
 		return respond(true, data, "")
 	case "write":
+		if c.fsCache != nil {
+			c.fsCache.Clear() // Invalidate cache on write
+		}
 		if op.Path == "" {
 			return respond(false, nil, "path is required for write")
 		}
@@ -172,6 +195,9 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		}
 		return respond(true, nil, "")
 	case "delete":
+		if c.fsCache != nil {
+			c.fsCache.Clear() // Invalidate cache on write
+		}
 		if op.Path == "" {
 			return respond(false, nil, "path is required for delete")
 		}
@@ -198,9 +224,26 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		if err := validatePathIgnore(baseDir, path, ignore); err != nil {
 			return respond(false, nil, err.Error())
 		}
+
+		if c.fsCache != nil {
+			if val, errMsg, ok := c.fsCache.Get("list:" + path); ok {
+				if errMsg != "" {
+					return respond(false, nil, errMsg)
+				}
+				return respond(true, val, "")
+			}
+		}
+
 		entries, err := listDir(baseDir, path, ignore)
 		if err != nil {
+			if c.fsCache != nil {
+				c.fsCache.SetError("list:"+path, err.Error())
+			}
 			return respond(false, nil, err.Error())
+		}
+
+		if c.fsCache != nil {
+			c.fsCache.Set("list:"+path, entries)
 		}
 		return respond(true, entries, "")
 	case "glob":
@@ -263,6 +306,9 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		}
 		return respond(true, output, "")
 	case "run_command":
+		if c.fsCache != nil {
+			c.fsCache.Clear() // Invalidate cache on command execution
+		}
 		if !c.config.OrchidsAllowRunCommand {
 			return respond(false, nil, "run_command is disabled by server config")
 		}

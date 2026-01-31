@@ -18,6 +18,8 @@ import (
 	"orchids-api/internal/clerk"
 	"orchids-api/internal/config"
 	"orchids-api/internal/debug"
+	"orchids-api/internal/perf"
+	"orchids-api/internal/pool"
 	"orchids-api/internal/prompt"
 	"orchids-api/internal/store"
 )
@@ -34,6 +36,8 @@ type Client struct {
 	account    *store.Account
 	httpClient *http.Client
 	authHandle *OrchidsAuthHandle
+	fsCache    *perf.TTLCache
+	wsPool     *pool.WSPool
 }
 
 type UpstreamRequest struct {
@@ -124,11 +128,15 @@ func newHTTPClient() *http.Client {
 }
 
 func New(cfg *config.Config) *Client {
-	return &Client{
+	c := &Client{
 		config:     cfg,
 		httpClient: defaultHTTPClient,
 		authHandle: NewOrchidsAuth(cfg.OrchidsCredsPath),
+		fsCache:    perf.NewTTLCache(10 * time.Second),
 	}
+	// Initialize connection pool with pre-warming
+	c.wsPool = pool.NewWSPool(c.createWSConnection, 2, 5)
+	return c
 }
 
 func NewFromAccount(acc *store.Account, base *config.Config) *Client {
@@ -164,12 +172,16 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		cfg.OrchidsRunAllowlist = base.OrchidsRunAllowlist
 		cfg.AutoRefreshToken = base.AutoRefreshToken
 	}
-	return &Client{
+	c := &Client{
 		config:     cfg,
 		account:    acc,
 		httpClient: defaultHTTPClient,
 		authHandle: NewOrchidsAuth(cfg.OrchidsCredsPath),
+		fsCache:    perf.NewTTLCache(10 * time.Second),
 	}
+	// Initialize connection pool
+	c.wsPool = pool.NewWSPool(c.createWSConnection, 2, 5)
+	return c
 }
 
 func (c *Client) GetToken() (string, error) {
