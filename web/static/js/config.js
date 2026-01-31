@@ -72,8 +72,13 @@ async function loadConfiguration() {
     autoUsage.checked = cfg.auto_refresh_usage || false;
     updateSwitchLabel(autoUsage, "自动刷新用量");
 
-    document.getElementById("cfg_output_token_count").checked = cfg.output_token_count || false;
-    document.getElementById("cfg_cache_token_count").checked = cfg.cache_token_count || false;
+    const outputTokenCount = document.getElementById("cfg_output_token_count");
+    outputTokenCount.checked = cfg.output_token_count || false;
+    updateSwitchLabel(outputTokenCount, "输出Token计数");
+
+    const cacheTokenCount = document.getElementById("cfg_cache_token_count");
+    cacheTokenCount.checked = cfg.cache_token_count || false;
+    updateSwitchLabel(cacheTokenCount, "缓存Token计数");
     document.getElementById("cfg_cache_ttl").value = cfg.cache_ttl || 5;
     document.getElementById("cfg_cache_strategy").value = cfg.cache_strategy || "split";
 
@@ -147,7 +152,6 @@ function renderApiKeys() {
     const keyDisplay = k.key_full || k.key_prefix + '****' + k.key_suffix;
     return `
       <tr>
-        <td style="font-weight: 600;">${escapeHtml(k.name)}</td>
         <td>
           <div style="display: flex; align-items: center; gap: 8px;">
             <span style="cursor: pointer;" onclick="toggleKeyVisibility(${idx})">👁️</span>
@@ -164,7 +168,7 @@ function renderApiKeys() {
         </td>
         <td style="color: #94a3b8; font-size: 0.8rem;">${k.last_used_at ? formatTime(k.last_used_at) : "从未使用"}</td>
         <td>
-          <button class="btn btn-danger-outline" style="padding: 4px 8px;" onclick="openDeleteKeyModal(${k.id}, '${escapeHtml(k.name)}')">删除</button>
+          <button class="btn btn-danger-outline" style="padding: 4px 8px;" onclick="openDeleteKeyModal(${k.id}, '${escapeHtml(k.key_prefix)}...${escapeHtml(k.key_suffix)}')">删除</button>
         </td>
       </tr>
     `;
@@ -174,8 +178,7 @@ function renderApiKeys() {
     <table>
       <thead>
         <tr>
-          <th>名称</th>
-          <th>Key</th>
+          <th>Token</th>
           <th>状态</th>
           <th>最后使用</th>
           <th>操作</th>
@@ -184,7 +187,21 @@ function renderApiKeys() {
       <tbody>
         ${rows}
       </tbody>
-    </table>`;
+    </table>
+    <div style="margin-top: 24px; padding: 16px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; color: #1e40af;">
+      <div style="display: flex; gap: 8px; align-items: start;">
+        <span style="font-size: 1.2rem;">💡</span>
+        <div style="flex: 1;">
+          <div style="font-weight: 600; margin-bottom: 4px;">提示</div>
+          <div style="font-size: 0.9rem; line-height: 1.6;">
+            • API Key 用于访问接口的身份认证<br>
+            • 禁用的 Key 将无法访问 API<br>
+            • 请妥善保管您的 API Key，不要泄露给他人
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // Toggle key visibility
@@ -323,7 +340,80 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// Toggle cache config details
+function toggleCacheConfig(checked) {
+  const details = document.getElementById("cacheConfigDetails");
+  if (details) {
+    details.style.display = checked ? "block" : "none";
+  }
+}
+
+// Update memory estimation
+function updateMemoryEstimation() {
+  const ttlMin = parseInt(document.getElementById("cfg_cache_ttl").value) || 5;
+  const strategy = document.getElementById("cfg_cache_strategy").value;
+  const mult = strategy === "split" ? 2 : 1;
+  const ttlSec = ttlMin * 60;
+
+  document.getElementById("estTTLSeconds").textContent = ttlSec;
+  document.getElementById("estStrategyMult").textContent = mult === 2 ? "× 2" : "× 1";
+  document.getElementById("memoryEstTitle").textContent = `内存估算 (当前: TTL=${ttlMin}分钟, ${strategy === "split" ? "分离缓存×2" : "混合缓存×1"})`;
+
+  const calc = (qps) => {
+    const kb = qps * ttlSec * 0.5 * mult;
+    if (kb > 1024) return (kb / 1024).toFixed(1) + "MB";
+    return kb.toFixed(1) + "KB";
+  };
+
+  document.getElementById("estLow").textContent = calc(10);
+  document.getElementById("estMid").textContent = calc(50);
+  document.getElementById("estHigh").textContent = calc(100);
+}
+
+// Load cache stats
+async function loadCacheStats() {
+  try {
+    const res = await fetch("/api/config/cache/stats");
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (data.status === "disabled") {
+      document.getElementById("cacheStatsText").textContent = "缓存未启用";
+      return;
+    }
+
+    const sizeStr = data.size_bytes > 1024 * 1024
+      ? (data.size_bytes / (1024 * 1024)).toFixed(2) + " MB"
+      : (data.size_bytes / 1024).toFixed(2) + " KB";
+
+    document.getElementById("cacheStatsText").textContent = `缓存条目: ${data.count} 条，占用内存: ${sizeStr}`; // Note: size is approximate
+  } catch (err) {
+    console.error("Failed to load cache stats", err);
+  }
+}
+
+// Clear cache
+async function clearCache() {
+  if (!confirm("确定要清空所有缓存吗？")) return;
+  try {
+    const res = await fetch("/api/config/cache/clear", { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    showToast("缓存已清空");
+    loadCacheStats();
+  } catch (err) {
+    showToast("清空失败: " + err.message, "error");
+  }
+}
+
 // Load configuration on page load
 document.addEventListener('DOMContentLoaded', () => {
-  loadConfiguration();
+  loadConfiguration().then(() => {
+    // Initialize UI states after config load
+    const cacheEnabled = document.getElementById("cfg_cache_token_count").checked;
+    toggleCacheConfig(cacheEnabled);
+    updateMemoryEstimation();
+    if (cacheEnabled) {
+      loadCacheStats();
+    }
+  });
 });

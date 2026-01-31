@@ -241,6 +241,39 @@ func (s *redisStore) IncrementRequestCount(ctx context.Context, id int64) error 
 	return s.client.Set(ctx, s.accountsKey(id), data, 0).Err()
 }
 
+func (s *redisStore) IncrementUsage(ctx context.Context, id int64, usage float64) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("redis store not configured")
+	}
+	if id == 0 {
+		return nil
+	}
+	if usage <= 0 {
+		return nil
+	}
+
+	acc, err := s.getAccount(ctx, id)
+	if err == ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	acc.UsageCurrent += usage
+	acc.UsageTotal += usage
+	acc.LastUsedAt = now
+	acc.UpdatedAt = now
+
+	data, err := json.Marshal(acc)
+	if err != nil {
+		return err
+	}
+
+	return s.client.Set(ctx, s.accountsKey(id), data, 0).Err()
+}
+
 func (s *redisStore) getAccount(ctx context.Context, id int64) (*Account, error) {
 	if id == 0 {
 		return nil, ErrNoRows

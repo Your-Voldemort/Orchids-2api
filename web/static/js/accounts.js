@@ -6,6 +6,7 @@ let accountHealth = {};
 let autoCheckTimer = null;
 let autoCheckRunning = false;
 let pageSize = 20;
+let currentPage = 1;
 
 // Load accounts from API
 async function loadAccounts() {
@@ -16,6 +17,7 @@ async function loadAccounts() {
       return;
     }
     accounts = await res.json();
+    sortAccounts();
     renderPlatformTabs();
     renderAccounts();
     updateStats();
@@ -23,6 +25,11 @@ async function loadAccounts() {
     console.error("Failed to load accounts:", err);
     showToast("加载账号失败", "error");
   }
+}
+
+// Sort accounts (Default by ID desc)
+function sortAccounts() {
+  accounts.sort((a, b) => b.id - a.id);
 }
 
 // Normalize account type
@@ -39,10 +46,7 @@ function renderPlatformTabs() {
   const tabs = [...sorted];
 
   if (currentPlatform === '' || !tabs.includes(currentPlatform)) {
-    if (currentPlatform !== '' && tabs.length > 0) {
-      currentPlatform = tabs[0];
-    }
-    if (currentPlatform === '' && tabs.length > 0) currentPlatform = tabs[0];
+    currentPlatform = tabs.length > 0 ? tabs[0] : '';
   }
 
   container.innerHTML = tabs.map(type => {
@@ -170,31 +174,40 @@ function renderAccounts() {
   const filtered = accounts.filter(acc => {
     if (!currentPlatform) return true;
     const key = currentPlatform.toLowerCase();
-    return normalizeAccountType(acc).includes(key)
-      || acc.agent_mode?.toLowerCase().includes(key)
-      || acc.name?.toLowerCase().includes(key);
+    return normalizeAccountType(acc).includes(key);
   });
 
-  if (filtered.length === 0) {
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / pageSize) || 1;
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  const start = (currentPage - 1) * pageSize;
+  const end = start + pageSize;
+  const pageItems = filtered.slice(start, end);
+
+  if (pageItems.length === 0) {
     container.innerHTML = `
       <div class="empty-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #94a3b8;">
         <span style="font-size: 3rem; margin-bottom: 16px;">📂</span>
         <p>暂无 ${currentPlatform ? currentPlatform : ''} 账号数据</p>
       </div>`;
     document.getElementById("paginationInfo").textContent = `共 0 条记录，第 1/1 页`;
+    renderPagination(1, 1);
     return;
   }
 
-  const rows = filtered.map(acc => {
+  const rows = pageItems.map(acc => {
     const badge = statusBadge(acc);
+    const tokenDisplay = acc.token || (acc.session_id ? acc.session_id.substring(0, 30) + '...' : '-');
     return `
       <tr>
         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" onchange="updateSelectedCount()"></td>
         <td style="color: #64748b; font-size: 0.9rem;">${acc.id}</td>
         <td>
-          <span class="token-text" title="${escapeHtml(acc.token || '-')}">${escapeHtml(acc.token || (acc.session_id ? acc.session_id.substring(0, 20) + '...' : '-'))}</span>
+          <span class="token-text" title="${escapeHtml(acc.token || '-')}" style="font-family: monospace; color: #94a3b8;">${escapeHtml(tokenDisplay)}</span>
         </td>
-        <td><span class="tag tag-free">${acc.subscription || 'free'}</span></td>
+        <td><span class="tag tag-free">${acc.agent_mode || 'auto'}</span></td>
         <td>
           <div style="display: flex; align-items: center; gap: 8px;">
             <div class="usage-progress-container">
@@ -214,6 +227,7 @@ function renderAccounts() {
         <td style="color: #64748b; font-size: 0.9rem;">${acc.reset_date || '-'}</td>
         <td style="text-align: right;">
           <div style="display: flex; justify-content: flex-end; gap: 12px;">
+            <i class="action-icon" onclick="editAccount(${acc.id})" title="编辑">✏️</i>
             <i class="action-icon" onclick="refreshToken(${acc.id})" title="刷新">🔄</i>
             <i class="action-icon" onclick="deleteAccount(${acc.id})" title="删除">🗑️</i>
           </div>
@@ -229,8 +243,8 @@ function renderAccounts() {
           <tr>
             <th style="width: 40px;"><input type="checkbox" onchange="toggleSelectAll(this.checked)"></th>
             <th style="width: 60px;">ID</th>
-            <th>TOKEN</th>
-            <th>订阅</th>
+            <th>Token</th>
+            <th>模型</th>
             <th style="width: 180px;">用量</th>
             <th>状态</th>
             <th>调用</th>
@@ -246,8 +260,67 @@ function renderAccounts() {
     </div>
   `;
 
-  document.getElementById("paginationInfo").textContent = `共 ${filtered.length} 条记录，第 1/1 页`;
+  document.getElementById("paginationInfo").textContent = `共 ${total} 条记录，第 ${currentPage}/${totalPages} 页`;
+  renderPagination(currentPage, totalPages);
   updateSelectedCount();
+}
+
+function renderPagination(current, total) {
+  const container = document.getElementById("paginationControls");
+  if (!container) return;
+
+  let html = '';
+  
+  // First & Prev
+  html += `<button class="btn btn-outline" style="padding: 4px 10px;" onclick="goToPage(1)" ${current === 1 ? 'disabled' : ''}>首页</button>`;
+  html += `<button class="btn btn-outline" style="padding: 4px 10px;" onclick="goToPage(${current - 1})" ${current === 1 ? 'disabled' : ''}>上一页</button>`;
+
+  // Page Numbers (simplified logic: show surrounding)
+  let startPage = Math.max(1, current - 2);
+  let endPage = Math.min(total, startPage + 4);
+  if (endPage - startPage < 4) {
+    startPage = Math.max(1, endPage - 4);
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    const activeClass = i === current ? 'btn-primary' : 'btn-outline';
+    html += `<button class="btn ${activeClass}" style="padding: 4px 10px; min-width: 32px; justify-content: center;" onclick="goToPage(${i})">${i}</button>`;
+  }
+
+  // Next & Last
+  html += `<button class="btn btn-outline" style="padding: 4px 10px;" onclick="goToPage(${current + 1})" ${current === total ? 'disabled' : ''}>下一页</button>`;
+  html += `<button class="btn btn-outline" style="padding: 4px 10px;" onclick="goToPage(${total})" ${current === total ? 'disabled' : ''}>末页</button>`;
+
+  container.innerHTML = html;
+}
+
+function goToPage(page) {
+  if (page < 1) return;
+  // We can't check 'total' easily here without storing it or querying DOM
+  // But renderAccounts will clamp it.
+  currentPage = page;
+  renderAccounts();
+}
+
+// Filter by platform
+function filterByPlatform(platform) {
+  currentPlatform = platform;
+  currentPage = 1; // Reset to first page
+  document.querySelectorAll("#platformFilters .tab-item").forEach(btn => {
+    btn.classList.toggle("active", btn.textContent === platform);
+  });
+  const subtitle = document.getElementById("pageSubtitle");
+  if (subtitle) {
+    subtitle.textContent = currentPlatform ? `管理您的 ${currentPlatform} API 凭证` : "管理您的所有 API 凭证";
+  }
+  renderAccounts();
+}
+
+// Update page size
+function updatePageSize(size) {
+  pageSize = parseInt(size);
+  currentPage = 1;
+  renderAccounts();
 }
 
 // Update statistics
@@ -260,33 +333,21 @@ function updateStats() {
   document.getElementById("enabledAccounts").textContent = enabled;
   document.getElementById("disabledAccounts").textContent = abnormal;
 
-  document.getElementById("footerTotal").textContent = total;
-  document.getElementById("footerNormal").textContent = enabled;
-  document.getElementById("footerAbnormal").textContent = abnormal;
+  // Attempt to update selected if element exists (it should)
+  updateSelectedCount();
 
   const totalUsage = accounts.reduce((sum, acc) => sum + (acc.usage_current || 0), 0);
   const totalLimit = accounts.reduce((sum, acc) => sum + (acc.usage_total || 550), 0);
 
-  const usageText = document.querySelector('.sidebar-footer div[style*="font-size: 0.8rem"]');
-  if (usageText && usageText.firstChild) {
-    usageText.firstChild.textContent = `今日用量 `;
-  }
-  const usageSpan = document.querySelector('.sidebar-footer span[style*="float: right"]');
-  if (usageSpan) {
-    usageSpan.textContent = `${totalUsage.toFixed(1)}/${totalLimit}`;
-  }
-
-  const percent = totalLimit > 0 ? (totalUsage / totalLimit) * 100 : 0;
-  const progressBar = document.getElementById("usageProgress");
-  if (progressBar) {
-    progressBar.style.width = Math.min(100, percent) + "%";
-  }
+  // Update sidebar footer if possible (might not work if outside frame, but okay)
+  // ...
 }
 
 // Update selected count
 function updateSelectedCount() {
   const checked = document.querySelectorAll(".row-checkbox:checked").length;
-  document.getElementById("selectedCount").textContent = checked;
+  const el = document.getElementById("selectedCount");
+  if (el) el.textContent = checked;
   const batchBtn = document.getElementById("batchDeleteBtn");
   if (batchBtn) {
     batchBtn.disabled = checked === 0;
@@ -301,25 +362,6 @@ function toggleSelectAll(checked) {
   updateSelectedCount();
 }
 
-// Filter by platform
-function filterByPlatform(platform) {
-  currentPlatform = platform;
-  document.querySelectorAll("#platformFilters .tab-item").forEach(btn => {
-    btn.classList.toggle("active", btn.textContent === currentPlatform);
-  });
-  const subtitle = document.getElementById("pageSubtitle");
-  if (subtitle) {
-    subtitle.textContent = currentPlatform ? `管理您的 ${currentPlatform} API 凭证` : "管理您的所有 API 凭证";
-  }
-  renderAccounts();
-}
-
-// Update page size
-function updatePageSize(size) {
-  pageSize = parseInt(size);
-  renderAccounts();
-}
-
 // Open modal
 function openModal(account = null) {
   const modal = document.getElementById("accountModal");
@@ -329,7 +371,6 @@ function openModal(account = null) {
   if (account) {
     title.textContent = "编辑账号";
     document.getElementById("accountId").value = account.id;
-    document.getElementById("name").value = account.name || '';
     document.getElementById("accountType").value = account.account_type || "orchids";
     document.getElementById("clientCookie").value = account.client_cookie || '';
     document.getElementById("agentMode").value = account.agent_mode || 'claude-opus-4.5';
@@ -360,7 +401,6 @@ async function saveAccount(e) {
   e.preventDefault();
   const id = document.getElementById("accountId").value;
   const data = {
-    name: document.getElementById("name").value,
     account_type: document.getElementById("accountType").value,
     client_cookie: document.getElementById("clientCookie").value,
     agent_mode: document.getElementById("agentMode").value,

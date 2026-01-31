@@ -116,3 +116,36 @@ func (c *MemoryCache) removeElement(el *list.Element) {
 	item := el.Value.(*cacheItem)
 	delete(c.items, item.key)
 }
+
+func (c *MemoryCache) GetStats(ctx context.Context) (int64, int64, error) {
+	if c == nil {
+		return 0, 0, nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	count := int64(len(c.items))
+	// Estimate size: simple approximation
+	var size int64
+	for _, el := range c.items {
+		item := el.Value.(*cacheItem)
+		size += int64(len(item.key) + len(item.value.Summary))
+		for _, line := range item.value.Lines {
+			size += int64(len(line))
+		}
+	}
+
+	return count, size, nil
+}
+
+func (c *MemoryCache) Clear(ctx context.Context) error {
+	if c == nil {
+		return nil
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.ll.Init()
+	c.items = make(map[string]*list.Element)
+	return nil
+}

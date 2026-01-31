@@ -78,6 +78,7 @@ type accountStore interface {
 	ListAccounts(ctx context.Context) ([]*Account, error)
 	GetEnabledAccounts(ctx context.Context) ([]*Account, error)
 	IncrementRequestCount(ctx context.Context, id int64) error
+	IncrementUsage(ctx context.Context, id int64, usage float64) error
 }
 
 type settingsStore interface {
@@ -204,6 +205,13 @@ func (s *Store) GetEnabledAccounts(ctx context.Context) ([]*Account, error) {
 func (s *Store) IncrementRequestCount(ctx context.Context, id int64) error {
 	if s.accounts != nil {
 		return s.accounts.IncrementRequestCount(ctx, id)
+	}
+	return fmt.Errorf("store not configured")
+}
+
+func (s *Store) IncrementUsage(ctx context.Context, id int64, usage float64) error {
+	if s.accounts != nil {
+		return s.accounts.IncrementUsage(ctx, id, usage)
 	}
 	return fmt.Errorf("store not configured")
 }

@@ -12,11 +12,25 @@ import (
 func mapModel(requestModel string) string {
 	lowerModel := strings.ToLower(requestModel)
 	if strings.Contains(lowerModel, "opus") {
-		return "claude-opus-4.5"
+		return "claude-3-opus-20240229"
 	}
-	if strings.Contains(lowerModel, "haiku") {
+	if strings.Contains(lowerModel, "sonnet-3-5") {
+		return "claude-3-5-sonnet-20241022"
+	}
+	if strings.Contains(lowerModel, "sonnet-3.5") {
+		return "claude-3-5-sonnet-20241022"
+	}
+	if strings.Contains(lowerModel, "sonnet-4-5") {
 		return "claude-sonnet-4-5"
 	}
+	if strings.Contains(lowerModel, "sonnet") {
+		// Default to latest sonnet if version not specified
+		return "claude-sonnet-4-5"
+	}
+	if strings.Contains(lowerModel, "haiku") {
+		return "claude-3-5-haiku-20241022"
+	}
+	// Fallback to Sonnet 4.5
 	return "claude-sonnet-4-5"
 }
 

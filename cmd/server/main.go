@@ -25,6 +25,7 @@ import (
 	"orchids-api/internal/prompt"
 	"orchids-api/internal/store"
 	"orchids-api/internal/summarycache"
+	credsync "orchids-api/internal/sync"
 	"orchids-api/internal/template"
 	"orchids-api/web"
 
@@ -66,6 +67,13 @@ func main() {
 
 	slog.Info("Store initialized", "mode", "redis", "addr", cfg.RedisAddr, "prefix", cfg.RedisPrefix)
 
+	// Auto-sync credentials for fallback
+	if err := credsync.SyncCredentials(s, cfg.OrchidsCredsPath); err != nil {
+		slog.Warn("Failed to sync credentials from DB", "error", err)
+	} else {
+		slog.Debug("Credentials sync check completed")
+	}
+
 	lb := loadbalancer.NewWithCacheTTL(s, time.Duration(cfg.LoadBalancerCacheTTL)*time.Second)
 	apiHandler := api.New(s, cfg.AdminUser, cfg.AdminPass, cfg, resolvedCfgPath)
 	h := handler.NewWithLoadBalancer(cfg, lb)
@@ -92,7 +100,9 @@ func main() {
 		}
 
 		if baseCache != nil {
-			h.SetSummaryCache(summarycache.NewInstrumentedCache(baseCache, stats))
+			instrumented := summarycache.NewInstrumentedCache(baseCache, stats)
+			h.SetSummaryCache(instrumented)
+			apiHandler.SetSummaryCache(instrumented)
 		}
 	}
 	slog.Info("Summary cache mode", "mode", cacheMode)

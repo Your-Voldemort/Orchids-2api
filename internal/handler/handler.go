@@ -67,6 +67,7 @@ func New(cfg *config.Config) *Handler {
 func NewWithLoadBalancer(cfg *config.Config, lb *loadbalancer.LoadBalancer) *Handler {
 	return &Handler{
 		config:       cfg,
+		client:       client.New(cfg),
 		loadBalancer: lb,
 		summaryLog:   cfg.SummaryCacheLog,
 	}
@@ -80,17 +81,29 @@ func (h *Handler) SetSummaryStats(stats *summarycache.Stats) {
 	h.summaryStats = stats
 }
 
+func (h *Handler) writeErrorResponse(w http.ResponseWriter, errType string, message string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"type": "error",
+		"error": map[string]string{
+			"type":    errType,
+			"message": message,
+		},
+	})
+}
+
 func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		h.writeErrorResponse(w, "invalid_request_error", "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	var req ClaudeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		h.writeErrorResponse(w, "invalid_request_error", "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
@@ -140,7 +153,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := selectAccount(); err != nil {
-		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		h.writeErrorResponse(w, "overloaded_error", err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 
@@ -224,7 +237,6 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	mappedModel := mapModel(req.Model)
 	slog.Info("Model mapping", "original", req.Model, "mapped", mappedModel)
 
-	useWS := strings.EqualFold(strings.TrimSpace(h.config.UpstreamMode), "ws")
 	if toolCallMode == "internal" && req.Stream {
 		req.Stream = false
 	}
@@ -238,7 +250,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Connection", "keep-alive")
 
 		if _, ok := w.(http.Flusher); !ok {
-			http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+			h.writeErrorResponse(w, "api_error", "Streaming not supported by underlying connection", http.StatusInternalServerError)
 			return
 		}
 	} else {
@@ -285,7 +297,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	if name, ok := resolveToolName("bash"); ok {
 		allowBashName = name
 	}
-	if toolCallMode == "internal" && !useWS && allowBashName != "" && shouldPreflightTools(userText) {
+	if (toolCallMode == "internal" || toolCallMode == "auto") && allowBashName != "" && shouldPreflightTools(userText) {
 		preflight := []string{
 			"pwd",
 			"find . -maxdepth 2 -not -path '*/.*'",
@@ -392,7 +404,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer close(done)
+		turnCount := 1
 		for {
+			slog.Info("Starting turn", "turn", turnCount, "mode", toolCallMode)
 			sh.internalNeedsFollowup = false // Reset per retry/turn
 			sh.internalToolResults = nil
 			maxRetries := h.config.MaxRetries
@@ -413,6 +427,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				NoThinking:  suggestionMode,
 			}
 			for {
+				sh.resetRoundState() // Ensure fresh state indicators for each attempt
 				var err error
 				if sender, ok := apiClient.(UpstreamPayloadClient); ok {
 					err = sender.SendRequestWithPayload(r.Context(), upstreamReq, sh.handleMessage, logger)
@@ -425,6 +440,15 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				}
 
 				slog.Error("Request error", "error", err)
+
+				// Check for non-retriable errors
+				errStr := err.Error()
+				if strings.Contains(errStr, "Input is too long") || strings.Contains(errStr, "status 400") {
+					slog.Error("Aborting retries for non-retriable error", "error", err)
+					sh.finishResponse("end_turn")
+					return
+				}
+
 				if r.Context().Err() != nil {
 					sh.finishResponse("end_turn")
 					return
@@ -458,57 +482,61 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if (toolCallMode == "internal" || toolCallMode == "auto") && sh.internalNeedsFollowup {
-				for _, result := range sh.internalToolResults {
+				slog.Info("Turn completed, follow-up required", "turn", turnCount)
+				turnCount++
+				if len(sh.internalToolResults) > 0 {
+					var assistantBlocks []prompt.ContentBlock
+					var userBlocks []prompt.ContentBlock
+					var assistantHistoryBlocks []map[string]interface{}
+					var userHistoryBlocks []map[string]interface{}
+
+					for _, result := range sh.internalToolResults {
+						assistantBlocks = append(assistantBlocks, prompt.ContentBlock{
+							Type:  "tool_use",
+							ID:    result.call.id,
+							Name:  result.call.name,
+							Input: result.input,
+						})
+						userBlocks = append(userBlocks, prompt.ContentBlock{
+							Type:      "tool_result",
+							ToolUseID: result.call.id,
+							Content:   result.output,
+							IsError:   result.isError,
+						})
+						assistantHistoryBlocks = append(assistantHistoryBlocks, map[string]interface{}{
+							"type":  "tool_use",
+							"id":    result.call.id,
+							"name":  result.call.name,
+							"input": result.input,
+						})
+						userHistoryBlocks = append(userHistoryBlocks, map[string]interface{}{
+							"type":        "tool_result",
+							"tool_use_id": result.call.id,
+							"content":     result.output,
+							"is_error":    result.isError,
+						})
+					}
+
 					upstreamMessages = append(upstreamMessages,
-						prompt.Message{
-							Role: "assistant",
-							Content: prompt.MessageContent{
-								Blocks: []prompt.ContentBlock{
-									{
-										Type:  "tool_use",
-										ID:    result.call.id,
-										Name:  result.call.name,
-										Input: result.input,
-									},
-								},
-							},
-						},
-						prompt.Message{
-							Role: "user",
-							Content: prompt.MessageContent{
-								Blocks: []prompt.ContentBlock{
-									{
-										Type:      "tool_result",
-										ToolUseID: result.call.id,
-										Content:   result.output,
-										IsError:   result.isError,
-									},
-								},
-							},
-						},
+						prompt.Message{Role: "assistant", Content: prompt.MessageContent{Blocks: assistantBlocks}},
+						prompt.Message{Role: "user", Content: prompt.MessageContent{Blocks: userBlocks}},
 					)
-					chatHistory = append(chatHistory, map[string]interface{}{
-						"Role": "assistant",
-						"Content": []map[string]interface{}{
-							{
-								"Type":  "tool_use",
-								"ID":    result.call.id,
-								"Name":  result.call.name,
-								"Input": result.input,
-							},
-						},
-					})
-					chatHistory = append(chatHistory, map[string]interface{}{
-						"Role": "user",
-						"Content": []map[string]interface{}{
-							{
-								"Type":      "tool_result",
-								"ToolUseID": result.call.id,
-								"Content":   result.output,
-								"IsError":   result.isError,
-							},
-						},
-					})
+					chatHistory = append(chatHistory,
+						map[string]interface{}{"role": "assistant", "content": assistantHistoryBlocks},
+						map[string]interface{}{"role": "user", "content": userHistoryBlocks},
+					)
+
+					// Rebuild prompt for next round to include updated history
+					builtPrompt = prompt.BuildPromptV2WithOptions(prompt.ClaudeAPIRequest{
+						Model:    req.Model,
+						Messages: upstreamMessages,
+						System:   req.System,
+						Tools:    effectiveTools,
+						Stream:   req.Stream,
+					}, opts)
+					inputTokens = tiktoken.EstimateTextTokens(builtPrompt)
+					sh.setUsageTokens(inputTokens, -1)
+					logger.LogConvertedPrompt(builtPrompt)
 				}
 				sh.resetRoundState()
 				continue
@@ -535,11 +563,19 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 
 		for i := range sh.contentBlocks {
-			if blockType, ok := sh.contentBlocks[i]["type"].(string); ok && blockType == "text" {
+			blockType, _ := sh.contentBlocks[i]["type"].(string)
+			switch blockType {
+			case "text":
 				if builder, ok := sh.textBlockBuilders[i]; ok {
 					sh.contentBlocks[i]["text"] = builder.String()
 				} else if _, ok := sh.contentBlocks[i]["text"]; !ok {
 					sh.contentBlocks[i]["text"] = ""
+				}
+			case "thinking":
+				if builder, ok := sh.thinkingBlockBuilders[i]; ok {
+					sh.contentBlocks[i]["thinking"] = builder.String()
+				} else if _, ok := sh.contentBlocks[i]["thinking"]; !ok {
+					sh.contentBlocks[i]["thinking"] = ""
 				}
 			}
 		}
@@ -569,5 +605,19 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			slog.Error("Failed to write JSON response", "error", err)
 		}
 
+	}
+
+	// 3. Update account usage
+	if currentAccount != nil && h.loadBalancer != nil {
+		go func(accountID int64, inputTokens, outputTokens int) {
+			usage := float64(inputTokens + outputTokens)
+			if usage > 0 {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := h.loadBalancer.Store.IncrementUsage(ctx, accountID, usage); err != nil {
+					slog.Error("Failed to update account usage", "account_id", accountID, "error", err)
+				}
+			}
+		}(currentAccount.ID, sh.inputTokens, sh.outputTokens)
 	}
 }

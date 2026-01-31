@@ -30,22 +30,26 @@ type streamHandler struct {
 	flusher http.Flusher
 
 	// State
-	mu              sync.Mutex
-	outputMu        sync.Mutex
-	blockIndex      int
-	msgID           string
-	startTime       time.Time
-	hasReturn       bool
-	finalStopReason string
-	outputTokens    int
-	inputTokens     int
+	mu                       sync.Mutex
+	outputMu                 sync.Mutex
+	blockIndex               int
+	msgID                    string
+	startTime                time.Time
+	hasReturn                bool
+	finalStopReason          string
+	outputTokens             int
+	inputTokens              int
+	activeThinkingBlockIndex int
+	activeTextBlockIndex     int
+	activeBlockType          string // "thinking", "text", "tool_use"
 
 	// Buffers and Builders
-	responseText      *strings.Builder
-	outputBuilder     *strings.Builder
-	textBlockBuilders map[int]*strings.Builder
-	contentBlocks     []map[string]interface{}
-	currentTextIndex  int
+	responseText          *strings.Builder
+	outputBuilder         *strings.Builder
+	textBlockBuilders     map[int]*strings.Builder
+	thinkingBlockBuilders map[int]*strings.Builder
+	contentBlocks         []map[string]interface{}
+	currentTextIndex      int
 
 	// Tool Handling
 	toolBlocks         map[string]int
@@ -56,6 +60,7 @@ type streamHandler struct {
 	toolCallHandled    map[string]bool
 	currentToolInputID string
 	toolCallCount      int
+	autoPendingCalls   []toolCall
 
 	// Internal Tools & Resolution
 	allowedTools          map[string]string
@@ -114,18 +119,22 @@ func newStreamHandler(
 		shouldLocalFallback: shouldLocalFallback,
 		outputTokenMode:     outputTokenMode,
 
-		blockIndex:        -1,
-		toolBlocks:        make(map[string]int),
-		responseText:      perf.AcquireStringBuilder(),
-		outputBuilder:     perf.AcquireStringBuilder(),
-		textBlockBuilders: make(map[int]*strings.Builder),
-		toolInputNames:    make(map[string]string),
-		toolInputBuffers:  make(map[string]*strings.Builder),
-		toolInputHadDelta: make(map[string]bool),
-		toolCallHandled:   make(map[string]bool),
-		msgID:             fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
-		startTime:         time.Now(),
-		currentTextIndex:  -1,
+		blockIndex:               -1,
+		toolBlocks:               make(map[string]int),
+		responseText:             perf.AcquireStringBuilder(),
+		outputBuilder:            perf.AcquireStringBuilder(),
+		textBlockBuilders:        make(map[int]*strings.Builder),
+		thinkingBlockBuilders:    make(map[int]*strings.Builder),
+		toolInputNames:           make(map[string]string),
+		toolInputBuffers:         make(map[string]*strings.Builder),
+		toolInputHadDelta:        make(map[string]bool),
+		toolCallHandled:          make(map[string]bool),
+		msgID:                    fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
+		startTime:                time.Now(),
+		currentTextIndex:         -1,
+		activeThinkingBlockIndex: -1,
+		activeTextBlockIndex:     -1,
+		activeBlockType:          "",
 	}
 	return h
 }
@@ -217,13 +226,27 @@ func (h *streamHandler) setUsageTokens(input, output int) {
 	}
 	if output >= 0 {
 		h.outputTokens = output
+		h.useUpstreamUsage = true
 	}
-	h.useUpstreamUsage = true
 	h.outputMu.Unlock()
 }
 
 func (h *streamHandler) resetRoundState() {
-	h.blockIndex = -1
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Ensure any currently open block is closed before resetting state
+	h.closeActiveBlockLocked()
+
+	// Do NOT reset h.blockIndex = -1 here.
+	// Preserving blockIndex across retries ensures that a retry starts with NEW indices.
+	// Index collisions (re-sending index 0) cause "Mismatched content block type" on the client.
+
+	h.activeThinkingBlockIndex = -1
+	h.activeTextBlockIndex = -1
+	h.activeBlockType = ""
+	h.hasReturn = false
+
 	h.toolBlocks = make(map[string]int)
 	h.responseText.Reset()
 	h.contentBlocks = nil
@@ -233,6 +256,11 @@ func (h *streamHandler) resetRoundState() {
 		perf.ReleaseStringBuilder(sb)
 	}
 	h.textBlockBuilders = map[int]*strings.Builder{}
+
+	for _, sb := range h.thinkingBlockBuilders {
+		perf.ReleaseStringBuilder(sb)
+	}
+	h.thinkingBlockBuilders = map[int]*strings.Builder{}
 
 	h.pendingToolCalls = nil
 	h.toolInputNames = map[string]string{}
@@ -428,7 +456,151 @@ func (h *streamHandler) resolveToolName(name string) (string, bool) {
 	return "", false
 }
 
+func (h *streamHandler) ensureBlock(blockType string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// If already in a block of a different type, close it
+	if h.activeBlockType != "" && h.activeBlockType != blockType {
+		h.closeActiveBlockLocked()
+	}
+
+	// If already in the correct block type, return current index
+	if h.activeBlockType == blockType {
+		if blockType == "thinking" {
+			return h.activeThinkingBlockIndex
+		}
+		if blockType == "text" {
+			return h.activeTextBlockIndex
+		}
+	}
+
+	// Start new block
+	h.blockIndex++
+	idx := h.blockIndex
+	h.activeBlockType = blockType
+
+	var startData []byte
+	switch blockType {
+	case "thinking":
+		h.activeThinkingBlockIndex = idx
+		if !h.isStream {
+			h.contentBlocks = append(h.contentBlocks, map[string]interface{}{
+				"type": "thinking",
+			})
+			h.activeThinkingBlockIndex = len(h.contentBlocks) - 1
+			h.thinkingBlockBuilders[h.activeThinkingBlockIndex] = perf.AcquireStringBuilder()
+			idx = h.activeThinkingBlockIndex
+		}
+		startData, _ = json.Marshal(map[string]interface{}{
+			"type":          "content_block_start",
+			"index":         idx,
+			"content_block": map[string]interface{}{"type": "thinking", "thinking": ""},
+		})
+	case "text":
+		h.activeTextBlockIndex = idx
+		if !h.isStream {
+			h.contentBlocks = append(h.contentBlocks, map[string]interface{}{
+				"type": "text",
+			})
+			h.currentTextIndex = len(h.contentBlocks) - 1
+			h.textBlockBuilders[h.currentTextIndex] = &strings.Builder{}
+		}
+		startData, _ = json.Marshal(map[string]interface{}{
+			"type":          "content_block_start",
+			"index":         idx,
+			"content_block": map[string]string{"type": "text", "text": ""},
+		})
+	}
+
+	if len(startData) > 0 {
+		h.writeSSELocked("content_block_start", string(startData))
+	}
+
+	return idx
+}
+
+func (h *streamHandler) closeActiveBlock() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closeActiveBlockLocked()
+}
+
+func (h *streamHandler) closeActiveBlockLocked() {
+	if h.activeBlockType == "" {
+		return
+	}
+
+	var idx int
+	switch h.activeBlockType {
+	case "thinking":
+		idx = h.activeThinkingBlockIndex
+		h.activeThinkingBlockIndex = -1
+	case "text":
+		idx = h.activeTextBlockIndex
+		h.activeTextBlockIndex = -1
+	default:
+		// tool_use and others are usually handled as single-event blocks or managed separately
+		h.activeBlockType = ""
+		return
+	}
+
+	h.activeBlockType = ""
+	stopData, _ := json.Marshal(map[string]interface{}{
+		"type":  "content_block_stop",
+		"index": idx,
+	})
+	h.writeSSELocked("content_block_stop", string(stopData))
+}
+
+func (h *streamHandler) writeSSELocked(event, data string) {
+	if !h.isStream {
+		return
+	}
+	fmt.Fprintf(h.w, "event: %s\ndata: %s\n\n", event, data)
+	if h.flusher != nil {
+		h.flusher.Flush()
+	}
+	h.logger.LogOutputSSE(event, data)
+	// Log to slog for server.log visibility
+	slog.Info("SSE Out", "event", event, "data_len", len(data))
+}
+
 // Event Handlers
+
+func (h *streamHandler) processAutoPendingCalls() {
+	if len(h.autoPendingCalls) == 0 {
+		return
+	}
+
+	h.mu.Lock()
+	calls := make([]toolCall, len(h.autoPendingCalls))
+	copy(calls, h.autoPendingCalls)
+	h.autoPendingCalls = nil
+	h.mu.Unlock()
+
+	if len(calls) == 0 {
+		return
+	}
+
+	var wg sync.WaitGroup
+	results := make([]safeToolResult, len(calls))
+
+	// Execute in parallel
+	for i, call := range calls {
+		wg.Add(1)
+		go func(i int, c toolCall) {
+			defer wg.Done()
+			results[i] = executeToolCall(c, h.config)
+		}(i, call)
+	}
+	wg.Wait()
+
+	// Append results in order
+	for _, res := range results {
+		h.internalToolResults = append(h.internalToolResults, res)
+	}
+}
 
 func (h *streamHandler) handleToolCall(call toolCall) {
 	if call.id == "" {
@@ -471,8 +643,10 @@ func (h *streamHandler) handleToolCall(call toolCall) {
 			})
 			h.writeSSE("content_block_stop", string(stopData))
 		}
-		result := executeToolCall(call, h.config)
-		h.internalToolResults = append(h.internalToolResults, result)
+
+		h.mu.Lock()
+		h.autoPendingCalls = append(h.autoPendingCalls, call)
+		h.mu.Unlock()
 		return
 	}
 	h.mu.Lock()
@@ -539,24 +713,28 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 
 	switch eventKey {
 	case "model.reasoning-start":
-		h.mu.Lock()
-		h.blockIndex++
-		idx := h.blockIndex
-		h.mu.Unlock()
-		data, _ := json.Marshal(map[string]interface{}{
-			"type":          "content_block_start",
-			"index":         idx,
-			"content_block": map[string]interface{}{"type": "thinking", "thinking": ""},
-		})
-		h.writeSSE("content_block_start", string(data))
+		h.ensureBlock("thinking")
 
 	case "model.reasoning-delta":
 		h.mu.Lock()
-		idx := h.blockIndex
+		idx := h.activeThinkingBlockIndex
 		h.mu.Unlock()
+		if idx < 0 {
+			// If we get delta but no thinking block is active, try to ensure one
+			idx = h.ensureBlock("thinking")
+		}
 		delta, _ := msg.Event["delta"].(string)
 		if h.isStream {
 			h.addOutputTokens(delta)
+		} else {
+			if h.activeThinkingBlockIndex >= 0 && h.activeThinkingBlockIndex < len(h.contentBlocks) {
+				builder, ok := h.thinkingBlockBuilders[h.activeThinkingBlockIndex]
+				if !ok {
+					builder = perf.AcquireStringBuilder()
+					h.thinkingBlockBuilders[h.activeThinkingBlockIndex] = builder
+				}
+				builder.WriteString(delta)
+			}
 		}
 		data, _ := json.Marshal(map[string]interface{}{
 			"type":  "content_block_delta",
@@ -566,38 +744,19 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		h.writeSSE("content_block_delta", string(data))
 
 	case "model.reasoning-end":
-		h.mu.Lock()
-		idx := h.blockIndex
-		h.mu.Unlock()
-		data, _ := json.Marshal(map[string]interface{}{
-			"type":  "content_block_stop",
-			"index": idx,
-		})
-		h.writeSSE("content_block_stop", string(data))
+		h.closeActiveBlock()
 
 	case "model.text-start":
-		h.mu.Lock()
-		h.blockIndex++
-		idx := h.blockIndex
-		h.mu.Unlock()
-		if !h.isStream {
-			h.contentBlocks = append(h.contentBlocks, map[string]interface{}{
-				"type": "text",
-			})
-			h.currentTextIndex = len(h.contentBlocks) - 1
-			h.textBlockBuilders[h.currentTextIndex] = &strings.Builder{}
-		}
-		data, _ := json.Marshal(map[string]interface{}{
-			"type":          "content_block_start",
-			"index":         idx,
-			"content_block": map[string]string{"type": "text", "text": ""},
-		})
-		h.writeSSE("content_block_start", string(data))
+		h.ensureBlock("text")
 
 	case "model.text-delta":
 		h.mu.Lock()
-		idx := h.blockIndex
+		idx := h.activeTextBlockIndex
 		h.mu.Unlock()
+		if idx < 0 {
+			// If we get delta but no text block is active, try to ensure one
+			idx = h.ensureBlock("text")
+		}
 		delta, _ := msg.Event["delta"].(string)
 		h.addOutputTokens(delta)
 		if !h.isStream {
@@ -619,16 +778,32 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		h.writeSSE("content_block_delta", string(data))
 
 	case "model.text-end":
-		h.mu.Lock()
-		idx := h.blockIndex
-		h.mu.Unlock()
-		data, _ := json.Marshal(map[string]interface{}{
-			"type":  "content_block_stop",
+		h.closeActiveBlock()
+
+	case "fs_operation":
+		if !h.isStream {
+			return
+		}
+		data, ok := msg.Event["data"].(map[string]interface{})
+		if !ok {
+			return
+		}
+		opType, _ := data["type"].(string)
+		opPath, _ := data["path"].(string)
+		if opType == "" {
+			return
+		}
+		feedback := fmt.Sprintf("\n[Feedback: %s %s...]\n", opType, opPath)
+		idx := h.ensureBlock("text")
+		deltaData, _ := json.Marshal(map[string]interface{}{
+			"type":  "content_block_delta",
 			"index": idx,
+			"delta": map[string]interface{}{"type": "text_delta", "text": feedback},
 		})
-		h.writeSSE("content_block_stop", string(data))
+		h.writeSSE("content_block_delta", string(deltaData))
 
 	case "model.tool-input-start":
+		h.closeActiveBlock() // Tool input starts a separate block mechanism
 		toolID, _ := msg.Event["id"].(string)
 		toolName, _ := msg.Event["toolName"].(string)
 		if toolID == "" || toolName == "" {
@@ -909,18 +1084,30 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		}
 		if finishReason, ok := msg.Event["finishReason"].(string); ok {
 			switch finishReason {
-			case "tool-calls":
+			case "tool-calls", "tool_use":
 				stopReason = "tool_use"
 			case "stop", "end_turn":
 				stopReason = "end_turn"
 			}
 		}
-		if stopReason == "tool_use" && (h.toolCallMode == "internal" || h.toolCallMode == "auto") {
-			if len(h.internalToolResults) > 0 {
-				h.internalNeedsFollowup = true
-			}
+
+		// Force stopReason to tool_use if we have pending auto calls
+		h.mu.Lock()
+		if len(h.autoPendingCalls) > 0 {
+			stopReason = "tool_use"
+		}
+		h.mu.Unlock()
+
+		h.processAutoPendingCalls()
+
+		if (h.toolCallMode == "internal" || h.toolCallMode == "auto") && (stopReason == "tool_use" || len(h.internalToolResults) > 0) {
+			h.internalNeedsFollowup = true
+			h.closeActiveBlock()
+			// Return without calling finishResponse to keep the stream open for the next turn
 			return
 		}
+
+		h.closeActiveBlock()
 		h.finishResponse(stopReason)
 	}
 }

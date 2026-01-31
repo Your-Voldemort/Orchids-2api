@@ -66,48 +66,51 @@ function renderModels() {
     return;
   }
 
+  const cards = filtered.map(m => `
+    <div style="padding: 24px; border-radius: 12px; border: 1px solid ${m.is_default ? '#3b82f6' : '#e2e8f0'}; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 16px;">
+      <div style="display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px;">
+        <div style="flex: 1;">
+          <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+            <h3 style="font-weight: 600; font-size: 1.1rem; color: #1e293b; margin: 0;">${escapeHtml(m.name)}</h3>
+            <span class="tag badge-${m.channel.toLowerCase()}" style="font-size: 0.75rem;">${escapeHtml(m.channel)}</span>
+            ${m.is_default ? '<span style="background: #dbeafe; color: #1d4ed8; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500;">默认</span>' : ''}
+          </div>
+          <div style="font-family: monospace; color: #64748b; font-size: 0.9rem; margin-bottom: 8px;">${escapeHtml(m.model_id)}</div>
+          <div style="color: #64748b; font-size: 0.85rem; line-height: 1.5;">
+            该模型用于 ${m.channel} 渠道的 API 调用${m.is_default ? '，作为默认模型优先使用' : ''}
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <label class="toggle" style="transform: scale(0.9);">
+            <input type="checkbox" ${m.status === 'available' || m.status === true ? 'checked' : ''} onchange="toggleModelStatus('${m.id}', this.checked)">
+            <span class="toggle-slider"></span>
+          </label>
+          <div style="display: flex; gap: 8px;">
+            <i class="action-icon" style="font-size: 1.2rem; cursor: pointer;" onclick="editModel('${m.id}')" title="编辑">✏️</i>
+            <i class="action-icon" style="font-size: 1.2rem; cursor: pointer; color: #ef4444;" onclick="deleteModel('${m.id}')" title="删除">🗑️</i>
+          </div>
+        </div>
+      </div>
+      ${!m.is_default ? `<button class="btn btn-outline" style="padding: 6px 16px; font-size: 0.85rem;" onclick="setDefaultModel('${m.id}')">设为默认模型</button>` : ''}
+    </div>
+  `).join("");
+
   container.innerHTML = `
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th style="width: 60px;">ID</th>
-            <th>渠道</th>
-            <th>模型ID</th>
-            <th>模型名称</th>
-            <th>状态</th>
-            <th>默认</th>
-            <th>排序</th>
-            <th style="text-align: right;">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${filtered.map(m => `
-            <tr>
-              <td style="color: #64748b; font-size: 0.9rem;">${m.id}</td>
-              <td><span class="tag badge-${m.channel.toLowerCase()}">${escapeHtml(m.channel)}</span></td>
-              <td style="font-family: monospace; color: #94a3b8;">${escapeHtml(m.model_id)}</td>
-              <td style="font-weight: 500; color: #e2e8f0;">${escapeHtml(m.name)}</td>
-              <td>
-                <span class="status-badge status-enabled">
-                  ${m.status === 'available' || m.status === true ? '启用' : '禁用'}
-                </span>
-              </td>
-              <td style="text-align: center;">
-                ${m.is_default ? '<span class="default-check">✅</span>' : '-'}
-              </td>
-              <td>${m.sort_order}</td>
-              <td style="text-align: right;">
-                <div style="display: flex; justify-content: flex-end; align-items: center; gap: 12px;">
-                  <i class="action-icon" style="font-size: 1.2rem;" onclick="editModel('${m.id}')" title="编辑">📋</i>
-                  ${!m.is_default ? `<a class="set-default-link" onclick="setDefaultModel('${m.id}')">设为默认</a>` : ''}
-                  <i class="action-icon" style="font-size: 1.2rem;" onclick="deleteModel('${m.id}')" title="删除">🗑️</i>
-                </div>
-              </td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
+    <div style="max-width: 100%;">
+      ${cards}
+      <div style="margin-top: 24px; padding: 16px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; color: #1e40af;">
+        <div style="display: flex; gap: 8px; align-items: start;">
+          <span style="font-size: 1.2rem;">💡</span>
+          <div style="flex: 1;">
+            <div style="font-weight: 600; margin-bottom: 4px;">提示</div>
+            <div style="font-size: 0.9rem; line-height: 1.6;">
+              • 默认模型将优先用于 API 调用<br>
+              • 禁用的模型不会出现在可用模型列表中<br>
+              • 排序值越小，在列表中越靠前
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 }

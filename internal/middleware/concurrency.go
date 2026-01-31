@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -35,28 +36,42 @@ func NewConcurrencyLimiter(maxConcurrent int, timeout time.Duration) *Concurrenc
 	}
 }
 
-// Limit wraps a handler with concurrency limiting.
 func (cl *ConcurrencyLimiter) Limit(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt64(&cl.totalReqs, 1)
 
-		ctx, cancel := context.WithTimeout(r.Context(), cl.timeout)
-		defer cancel()
+		// Narrow timeout for waiting in the queue
+		waitTimeout := 60 * time.Second
+		if cl.timeout < waitTimeout {
+			waitTimeout = cl.timeout
+		}
+		waitCtx, cancelWait := context.WithTimeout(r.Context(), waitTimeout)
+		defer cancelWait()
 
-		// Try to acquire semaphore with timeout
-		if err := cl.sem.Acquire(ctx, 1); err != nil {
+		// Try to acquire semaphore with wait timeout
+		acquireStart := time.Now()
+		if err := cl.sem.Acquire(waitCtx, 1); err != nil {
 			atomic.AddInt64(&cl.rejectedReqs, 1)
-			http.Error(w, "Request timeout or server busy", http.StatusServiceUnavailable)
+			slog.Warn("Concurrency limit: Wait timeout", "duration", time.Since(acquireStart), "total_rejected", atomic.LoadInt64(&cl.rejectedReqs))
+			http.Error(w, "Request timed out while waiting for a worker slot or server busy", http.StatusServiceUnavailable)
 			return
 		}
+
+		slog.Info("Concurrency limit: Slot acquired", "wait_duration", time.Since(acquireStart), "active", atomic.LoadInt64(&cl.activeCount)+1)
 
 		atomic.AddInt64(&cl.activeCount, 1)
 		defer func() {
 			cl.sem.Release(1)
 			atomic.AddInt64(&cl.activeCount, -1)
+			slog.Info("Concurrency limit: Slot released", "active", atomic.LoadInt64(&cl.activeCount))
 		}()
 
-		next.ServeHTTP(w, r.WithContext(ctx))
+		// Use the full concurrency timeout for actual request execution
+		execCtx, cancelExec := context.WithTimeout(r.Context(), cl.timeout)
+		defer cancelExec()
+
+		slog.Info("Concurrency limit: Serving request", "path", r.URL.Path, "timeout", cl.timeout)
+		next.ServeHTTP(w, r.WithContext(execCtx))
 	}
 }
 

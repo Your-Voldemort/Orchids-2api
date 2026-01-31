@@ -16,15 +16,17 @@ import (
 	"orchids-api/internal/auth"
 	"orchids-api/internal/clerk"
 	"orchids-api/internal/model"
+	"orchids-api/internal/prompt"
 	"orchids-api/internal/store"
 )
 
 type API struct {
-	store      *store.Store
-	adminUser  string
-	adminPass  string
-	config     interface{} // Using interface{} to avoid circular dependency if any, or just use *config.Config
-	configPath string      // Path to config.json
+	store        *store.Store
+	summaryCache prompt.SummaryCache
+	adminUser    string
+	adminPass    string
+	config       interface{} // Using interface{} to avoid circular dependency if any, or just use *config.Config
+	configPath   string      // Path to config.json
 }
 
 type ExportData struct {
@@ -127,6 +129,8 @@ func (a *API) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/models", a.HandleModels)
 	mux.HandleFunc("/api/models/", a.HandleModelByID)
 	mux.HandleFunc("/api/config", a.HandleConfig)
+	mux.HandleFunc("/api/config/cache/stats", a.HandleCacheStats)
+	mux.HandleFunc("/api/config/cache/clear", a.HandleCacheClear)
 }
 
 func (a *API) HandleConfig(w http.ResponseWriter, r *http.Request) {
@@ -659,4 +663,57 @@ func prettifyModelName(id string) string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func (a *API) SetSummaryCache(c prompt.SummaryCache) {
+	a.summaryCache = c
+}
+
+func (a *API) HandleCacheStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+
+	if a.summaryCache == nil {
+		// No cache configured
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"count":      0,
+			"size_bytes": 0,
+			"status":     "disabled",
+		})
+		return
+	}
+
+	count, size, err := a.summaryCache.GetStats(r.Context())
+	if err != nil {
+		http.Error(w, "Failed to get stats: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"count":      count,
+		"size_bytes": size,
+		"status":     "enabled",
+	})
+}
+
+func (a *API) HandleCacheClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if a.summaryCache == nil {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if err := a.summaryCache.Clear(r.Context()); err != nil {
+		http.Error(w, "Failed to clear cache: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }

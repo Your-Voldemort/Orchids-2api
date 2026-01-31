@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -51,6 +52,12 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 	dialer := websocket.Dialer{
 		HandshakeTimeout: orchidsWSConnectTimeout,
 		Proxy:            http.ProxyFromEnvironment,
+		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			d := &net.Dialer{
+				Timeout: orchidsWSConnectTimeout,
+			}
+			return d.DialContext(ctx, network, addr)
+		},
 	}
 
 	conn, resp, err := dialer.DialContext(ctx, wsURL, headers)
@@ -99,6 +106,22 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		editOldString     string
 		editNewString     string
 	)
+
+	// Start Keep-Alive Ping Loop
+	go func() {
+		ticker := time.NewTicker(orchidsWSPingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+					return
+				}
+			}
+		}
+	}()
 
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(orchidsWSReadTimeout)); err != nil {
@@ -206,6 +229,8 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		}
 
 		if msgType == "fs_operation" {
+			// Notify handler for visibility
+			onMessage(SSEMessage{Type: "fs_operation", Event: msg})
 			if err := c.handleFSOperation(conn, msg); err != nil {
 				continue
 			}
@@ -595,23 +620,15 @@ func convertChatHistoryAIClient(messages []prompt.Message) ([]map[string]string,
 				continue
 			}
 			blocks := msg.Content.GetBlocks()
-			hasSystemReminder := false
-			for _, block := range blocks {
-				if block.Type == "text" && strings.Contains(block.Text, "<system-reminder>") {
-					hasSystemReminder = true
-					break
-				}
-			}
-			if hasSystemReminder {
-				continue
-			}
 			var textParts []string
+			hasValidContent := false
 			for _, block := range blocks {
 				switch block.Type {
 				case "text":
 					text := strings.TrimSpace(block.Text)
-					if text != "" {
+					if text != "" && !strings.Contains(text, "<system-reminder>") {
 						textParts = append(textParts, text)
+						hasValidContent = true
 					}
 				case "tool_result":
 					contentText := formatToolResultContentLocal(block.Content)
@@ -619,6 +636,7 @@ func convertChatHistoryAIClient(messages []prompt.Message) ([]map[string]string,
 					contentText = strings.ReplaceAll(contentText, "</tool_use_error>", "")
 					if strings.TrimSpace(contentText) != "" {
 						textParts = append(textParts, contentText)
+						hasValidContent = true
 					}
 					toolResults = append(toolResults, orchidsToolResult{
 						Content:   []map[string]string{{"text": contentText}},
@@ -627,9 +645,14 @@ func convertChatHistoryAIClient(messages []prompt.Message) ([]map[string]string,
 					})
 				case "image":
 					textParts = append(textParts, formatMediaHint(block))
+					hasValidContent = true
 				case "document":
 					textParts = append(textParts, formatMediaHint(block))
+					hasValidContent = true
 				}
+			}
+			if !hasValidContent {
+				continue
 			}
 			text := strings.TrimSpace(strings.Join(textParts, "\n"))
 			if text != "" {

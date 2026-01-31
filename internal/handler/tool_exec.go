@@ -14,7 +14,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"orchids-api/internal/client"
 	"orchids-api/internal/config"
 
 	"github.com/kballard/go-shellquote"
@@ -42,7 +44,7 @@ func executeToolCall(call toolCall, cfg *config.Config) safeToolResult {
 
 	inputMap := parseToolInputMap(call.input)
 	toolName := strings.ToLower(strings.TrimSpace(call.name))
-	toolName = normalizeToolAlias(toolName)
+	toolName = strings.ToLower(client.NormalizeToolName(toolName))
 	ignore := cfg.OrchidsFSIgnore
 
 	switch toolName {
@@ -192,8 +194,10 @@ func executeToolCall(call toolCall, cfg *config.Config) safeToolResult {
 		maxResults := toolInputInt(inputMap, "max_results", "maxResults")
 		matches, err := globSearch(baseDir, absRoot, pattern, maxResults, ignore)
 		if err != nil {
+			// Fallback: Try to use 'find' command if glob fails and it's a pattern issue or similar
+			// But for now, let's just make the error more helpful
 			result.isError = true
-			result.output = err.Error()
+			result.output = fmt.Sprintf("Glob failed: %v. Try using 'ls -R' or 'find' command instead.", err)
 			return result
 		}
 		output := fmt.Sprintf("Found %d file(s) for pattern: %s", len(matches), pattern)
@@ -672,26 +676,34 @@ func runAllowedCommand(baseDir, command string, allowlist []string) (string, err
 }
 
 func runExecCommand(baseDir string, tokens []string) (string, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, tokens[0], tokens[1:]...)
 	cmd.Dir = baseDir
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return buf.String(), fmt.Errorf("command timed out: %w", err)
+		}
 		return buf.String(), err
 	}
 	return buf.String(), nil
 }
 
 func runShellCommand(baseDir, command string) (string, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", "-lc", command)
 	cmd.Dir = baseDir
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 	if err := cmd.Run(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return buf.String(), fmt.Errorf("command timed out: %w", err)
+		}
 		return buf.String(), err
 	}
 	return buf.String(), nil

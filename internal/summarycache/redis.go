@@ -69,3 +69,56 @@ func (c *RedisCache) Put(ctx context.Context, key string, entry prompt.SummaryCa
 	}
 	_ = c.client.Set(ctx, c.prefix+key, data, 0).Err()
 }
+
+func (c *RedisCache) GetStats(ctx context.Context) (int64, int64, error) {
+	if c == nil || c.client == nil {
+		return 0, 0, nil
+	}
+
+	var count int64
+	var cursor uint64
+	var err error
+	var keys []string
+
+	for {
+		keys, cursor, err = c.client.Scan(ctx, cursor, c.prefix+"*", 100).Result()
+		if err != nil {
+			return 0, 0, err
+		}
+		count += int64(len(keys))
+		if cursor == 0 {
+			break
+		}
+	}
+
+	// Size estimation is expensive in Redis (need to fetch all items or debug object).
+	// We can skip effective size for now or sample.
+	// Returning 0 for size to indicate "unknown" or expensive-to-calculate
+	return count, 0, nil
+}
+
+func (c *RedisCache) Clear(ctx context.Context) error {
+	if c == nil || c.client == nil {
+		return nil
+	}
+
+	var cursor uint64
+	var err error
+	var keys []string
+
+	for {
+		keys, cursor, err = c.client.Scan(ctx, cursor, c.prefix+"*", 100).Result()
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			if err := c.client.Del(ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+		if cursor == 0 {
+			break
+		}
+	}
+	return nil
+}

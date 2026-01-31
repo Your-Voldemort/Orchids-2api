@@ -33,6 +33,7 @@ type Client struct {
 	config     *config.Config
 	account    *store.Account
 	httpClient *http.Client
+	authHandle *OrchidsAuthHandle
 }
 
 type UpstreamRequest struct {
@@ -126,6 +127,7 @@ func New(cfg *config.Config) *Client {
 	return &Client{
 		config:     cfg,
 		httpClient: defaultHTTPClient,
+		authHandle: NewOrchidsAuth(cfg.OrchidsCredsPath),
 	}
 }
 
@@ -166,6 +168,7 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		config:     cfg,
 		account:    acc,
 		httpClient: defaultHTTPClient,
+		authHandle: NewOrchidsAuth(cfg.OrchidsCredsPath),
 	}
 }
 
@@ -418,8 +421,11 @@ func (c *Client) sendRequestSSE(ctx context.Context, req UpstreamRequest, onMess
 						logger.LogUpstreamSSE(msgType, rawData)
 					}
 
-					// 只处理 "model" 类型的事件，以及 coding_agent.Edit 事件
-					if msgType != "model" && !strings.HasPrefix(msgType, "coding_agent.") {
+					// Allow informative events for real-time feedback
+					if msgType != "model" &&
+						!strings.HasPrefix(msgType, "coding_agent.") &&
+						msgType != "fs_operation" &&
+						msgType != "init" {
 						continue
 					}
 
@@ -506,10 +512,6 @@ func (c *Client) FetchUpstreamModels(ctx context.Context) ([]UpstreamModel, erro
 	}
 
 	return nil, lastErr
-}
-
-func getUpstreamURL() string {
-	return upstreamURL
 }
 
 func (c *Client) upstreamURL() string {

@@ -226,14 +226,9 @@ func shouldPreflightTools(text string) bool {
 	if text == "" {
 		return false
 	}
-	lower := strings.ToLower(text)
-	if strings.Contains(lower, "project") || strings.Contains(lower, "repo") || strings.Contains(lower, "directory") || strings.Contains(lower, "structure") {
-		return true
-	}
-	if strings.Contains(text, "项目") || strings.Contains(text, "目录") || strings.Contains(text, "路径") || strings.Contains(text, "结构") {
-		return true
-	}
-	return false
+	// Always run preflight to ensure model has context about project structure
+	// This prevents hallucinations about the tech stack (e.g. thinking it's Next.js/FastAPI when it's Go)
+	return true
 }
 
 var fileHintRe = regexp.MustCompile(`(?i)\b[\w\-.]+\.(go|js|ts|tsx|jsx|py|java|c|cc|cpp|h|hpp|rs|rb|php|cs|html|css|json|yaml|yml|md|txt|log|csv|toml|ini)\b`)

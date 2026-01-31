@@ -43,3 +43,17 @@ func (c *InstrumentedCache) Put(ctx context.Context, key string, entry prompt.Su
 	}
 	c.cache.Put(ctx, key, entry)
 }
+
+func (c *InstrumentedCache) GetStats(ctx context.Context) (int64, int64, error) {
+	if c == nil || c.cache == nil {
+		return 0, 0, nil
+	}
+	return c.cache.GetStats(ctx)
+}
+
+func (c *InstrumentedCache) Clear(ctx context.Context) error {
+	if c == nil || c.cache == nil {
+		return nil
+	}
+	return c.cache.Clear(ctx)
+}

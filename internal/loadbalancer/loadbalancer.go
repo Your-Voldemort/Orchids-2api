@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -127,11 +128,14 @@ func (lb *LoadBalancer) getEnabledAccounts(ctx context.Context) ([]*store.Accoun
 }
 
 func (lb *LoadBalancer) selectAccount(accounts []*store.Account) *store.Account {
+	if len(accounts) == 0 {
+		return nil
+	}
 	if len(accounts) == 1 {
 		return accounts[0]
 	}
 
-	var bestAccount *store.Account
+	var bestAccounts []*store.Account
 	minScore := float64(-1)
 
 	for _, acc := range accounts {
@@ -146,14 +150,17 @@ func (lb *LoadBalancer) selectAccount(accounts []*store.Account) *store.Account 
 		}
 		score := float64(conns) / float64(weight)
 
-		if bestAccount == nil || score < minScore {
-			bestAccount = acc
+		if bestAccounts == nil || score < minScore {
+			bestAccounts = []*store.Account{acc}
 			minScore = score
+		} else if score == minScore {
+			bestAccounts = append(bestAccounts, acc)
 		}
 	}
 
-	if bestAccount != nil {
-		return bestAccount
+	if len(bestAccounts) > 0 {
+		// Randomly select one from the best accounts to ensure load balancing
+		return bestAccounts[rand.IntN(len(bestAccounts))]
 	}
 	return accounts[0]
 }
