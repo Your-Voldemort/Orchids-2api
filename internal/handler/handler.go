@@ -211,6 +211,10 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		KeepTurns:        h.config.ContextKeepTurns,
 		SummaryCache:     h.summaryCache,
 	}
+
+	if c, ok := apiClient.(*client.Client); ok {
+		opts.ProjectContext = c.GetProjectSummary()
+	}
 	builtPrompt := prompt.BuildPromptV2WithOptions(prompt.ClaudeAPIRequest{
 		Model:    req.Model,
 		Messages: req.Messages,
@@ -220,6 +224,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}, opts)
 	if h.config.DebugEnabled {
 		log.Printf("[Performance] BuildPromptV2WithOptions took %v", time.Since(startBuild))
+		if opts.ProjectContext != "" {
+			slog.Debug("Project context injected", "context", opts.ProjectContext)
+		}
 	}
 
 	// ... rest of code
@@ -485,7 +492,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-			if (toolCallMode == "internal" || toolCallMode == "auto") && sh.internalNeedsFollowup {
+			if ((toolCallMode == "internal" || toolCallMode == "auto") && sh.internalNeedsFollowup) || (sh.internalNeedsFollowup && len(sh.internalToolResults) > 0) {
 				slog.Info("Turn completed, follow-up required", "turn", turnCount)
 				turnCount++
 				if len(sh.internalToolResults) > 0 {

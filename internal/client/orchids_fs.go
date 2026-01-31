@@ -41,7 +41,7 @@ type fsOperation struct {
 	RipgrepParams  map[string]interface{} `json:"ripgrepParameters"`
 }
 
-func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interface{}) error {
+func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interface{}, onResult func(success bool, data interface{}, errMsg string)) error {
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -53,6 +53,9 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 	}
 
 	respond := func(success bool, data interface{}, errMsg string) error {
+		if onResult != nil {
+			onResult(success, data, errMsg)
+		}
 		payload := map[string]interface{}{
 			"type":    "fs_operation_response",
 			"id":      op.ID,
@@ -62,6 +65,8 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		if errMsg != "" {
 			payload["error"] = errMsg
 		}
+		c.wsWriteMu.Lock()
+		defer c.wsWriteMu.Unlock()
 		return conn.WriteJSON(payload)
 	}
 
@@ -140,6 +145,7 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 			if err := writeFile(path, content); err != nil {
 				return respond(false, nil, err.Error())
 			}
+			go c.RefreshFSIndex()
 			return respond(true, map[string]interface{}{"replacements": 1}, "")
 		}
 	case "read":
@@ -193,6 +199,7 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		if err := writeFile(path, content); err != nil {
 			return respond(false, nil, err.Error())
 		}
+		go c.RefreshFSIndex()
 		return respond(true, nil, "")
 	case "delete":
 		if c.fsCache != nil {
@@ -211,6 +218,7 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		if err := os.RemoveAll(path); err != nil {
 			return respond(false, nil, err.Error())
 		}
+		go c.RefreshFSIndex()
 		return respond(true, nil, "")
 	case "list":
 		target := op.Path
@@ -224,6 +232,18 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		if err := validatePathIgnore(baseDir, path, ignore); err != nil {
 			return respond(false, nil, err.Error())
 		}
+
+		// Fast path: use memory index
+		rel, _ := filepath.Rel(baseDir, path)
+		rel = filepath.ToSlash(rel)
+		c.fsIndexMu.RLock()
+		if c.fsIndex != nil {
+			if names, ok := c.fsIndex[rel]; ok {
+				c.fsIndexMu.RUnlock()
+				return respond(true, names, "")
+			}
+		}
+		c.fsIndexMu.RUnlock()
 
 		if c.fsCache != nil {
 			if val, errMsg, ok := c.fsCache.Get("list:" + path); ok {
@@ -267,6 +287,38 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		}
 		if err := validatePathIgnore(baseDir, root, ignore); err != nil {
 			return respond(false, nil, err.Error())
+		}
+
+		// Fast path: use memory index for glob matching
+		re, err := globToRegex(pattern)
+		if err == nil {
+			c.fsIndexMu.RLock()
+			if len(c.fsFileList) > 0 {
+				var results []string
+				rootRel, _ := filepath.Rel(baseDir, root)
+				rootRel = filepath.ToSlash(rootRel)
+				for _, f := range c.fsFileList {
+					// Filter by sub-directory
+					if rootRel != "." {
+						if !strings.HasPrefix(f, rootRel) {
+							continue
+						}
+					}
+					// Match pattern relative to root
+					matchTarget := f
+					if rootRel != "." {
+						if sub, err := filepath.Rel(rootRel, f); err == nil {
+							matchTarget = filepath.ToSlash(sub)
+						}
+					}
+					if re.MatchString(matchTarget) {
+						results = append(results, filepath.Join(baseDir, f))
+					}
+				}
+				c.fsIndexMu.RUnlock()
+				return respond(true, results, "")
+			}
+			c.fsIndexMu.RUnlock()
 		}
 		maxResults := 0
 		if params != nil {
@@ -373,23 +425,84 @@ func validatePathIgnore(baseDir, target string, ignore []string) error {
 	return nil
 }
 
+func (c *Client) RefreshFSIndex() {
+	baseDir := c.resolveLocalWorkdir()
+	ignore := c.config.OrchidsFSIgnore
+
+	newIndex := make(map[string][]string)
+	newFileList := make([]string, 0)
+
+	filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+
+		rel, err := filepath.Rel(baseDir, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+
+		if rel != "." && isIgnoredRelPath(rel, ignore) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if d.IsDir() {
+			entries, err := os.ReadDir(path)
+			if err == nil {
+				names := make([]string, 0, len(entries))
+				for _, e := range entries {
+					eRel := filepath.ToSlash(filepath.Join(rel, e.Name()))
+					if !isIgnoredRelPath(eRel, ignore) {
+						names = append(names, e.Name())
+					}
+				}
+				newIndex[rel] = names
+			}
+		} else {
+			newFileList = append(newFileList, rel)
+		}
+		return nil
+	})
+
+	c.fsIndexMu.Lock()
+	c.fsIndex = newIndex
+	c.fsFileList = newFileList
+	c.fsIndexMu.Unlock()
+}
+
 func isIgnoredRelPath(rel string, ignore []string) bool {
 	rel = strings.TrimPrefix(rel, "./")
+	rel = strings.TrimSpace(rel)
 	rel = strings.Trim(rel, "/")
 	if rel == "" || rel == "." {
 		return false
 	}
+
+	relParts := strings.Split(filepath.ToSlash(rel), "/")
+
 	for _, item := range ignore {
 		name := strings.TrimSpace(item)
 		if name == "" {
 			continue
 		}
 		name = filepath.ToSlash(strings.Trim(name, "/"))
-		if name == "" {
-			continue
-		}
-		if rel == name || strings.HasPrefix(rel, name+"/") || strings.Contains(rel, "/"+name+"/") || strings.HasSuffix(rel, "/"+name) {
-			return true
+		nameParts := strings.Split(name, "/")
+
+		if len(relParts) >= len(nameParts) {
+			match := true
+			for i := range nameParts {
+				if relParts[i] != nameParts[i] {
+					match = false
+					break
+				}
+			}
+			if match {
+				return true
+			}
 		}
 	}
 	return false

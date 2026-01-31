@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	orchidsWSConnectTimeout = 10 * time.Second
+	orchidsWSConnectTimeout = 5 * time.Second // Reduced from 10s for faster retry
 	orchidsWSReadTimeout    = 600 * time.Second
 	orchidsWSRequestTimeout = 60 * time.Second
 	orchidsWSPingInterval   = 10 * time.Second
@@ -157,6 +157,14 @@ func buildLocalAssistantPrompt(systemText string, userText string) string {
 	b.WriteString("- Use ONLY Claude Code native tools: Read, Write, Edit, Bash, Glob, Grep, LS.\n")
 	b.WriteString("- All tool calls execute LOCALLY on user's machine.\n")
 	b.WriteString("</guidelines>\n\n")
+	b.WriteString("<fs_optimization>\n")
+	b.WriteString("CRITICAL: Minimize file system operations during initialization.\n")
+	b.WriteString("- Only scan root directory initially (max 1-3 LS calls)\n")
+	b.WriteString("- File system has 60-second caching - avoid redundant reads\n")
+	b.WriteString("- Target: <10 fs operations total, <5 seconds initialization\n")
+	b.WriteString("- Use Grep instead of reading multiple files\n")
+	b.WriteString("</fs_optimization>\n\n")
+
 	if strings.TrimSpace(systemText) != "" {
 		b.WriteString("<system_context>\n")
 		b.WriteString(systemText)

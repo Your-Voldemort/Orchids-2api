@@ -857,6 +857,48 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		perf.ReleaseMap(deltaMap)
 		h.writeSSE("content_block_delta", string(deltaData))
 
+	case "fs_operation_result":
+		success, _ := msg.Event["success"].(bool)
+		data := msg.Event["data"]
+		errMsg, _ := msg.Event["error"].(string)
+		op, _ := msg.Event["op"].(map[string]interface{})
+
+		opID, _ := op["id"].(string)
+		opName, _ := op["operation"].(string)
+
+		// Map orchids operation back to Claude tool name if possible
+		mappedName := client.DefaultToolMapper.FromOrchids(opName)
+
+		output := ""
+		if !success {
+			output = errMsg
+			if output == "" {
+				output = "Operation failed"
+			}
+		} else {
+			if data != nil {
+				if s, ok := data.(string); ok {
+					output = s
+				} else {
+					jsonData, _ := json.Marshal(data)
+					output = string(jsonData)
+				}
+			}
+		}
+
+		h.mu.Lock()
+		h.internalToolResults = append(h.internalToolResults, safeToolResult{
+			call: toolCall{
+				id:   opID,
+				name: mappedName,
+			},
+			input:   op,
+			output:  output,
+			isError: !success,
+		})
+		h.internalNeedsFollowup = true
+		h.mu.Unlock()
+
 	case "model.tool-input-start":
 		h.closeActiveBlock() // Tool input starts a separate block mechanism
 		toolID, _ := msg.Event["id"].(string)

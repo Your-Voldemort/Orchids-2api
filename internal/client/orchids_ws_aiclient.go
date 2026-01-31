@@ -253,9 +253,24 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		if msgType == "fs_operation" {
 			// Notify handler for visibility
 			onMessage(SSEMessage{Type: "fs_operation", Event: msg})
-			if err := c.handleFSOperation(conn, msg); err != nil {
-				continue
-			}
+			// Execute file system operations in parallel to avoid blocking the message loop
+			go func(m map[string]interface{}) {
+				if err := c.handleFSOperation(conn, m, func(success bool, data interface{}, errMsg string) {
+					if onMessage != nil {
+						onMessage(SSEMessage{
+							Type: "fs_operation_result",
+							Event: map[string]interface{}{
+								"success": success,
+								"data":    data,
+								"error":   errMsg,
+								"op":      m,
+							},
+						})
+					}
+				}); err != nil {
+					// Error handled inside respond or logged via debug
+				}
+			}(msg)
 			continue
 		}
 

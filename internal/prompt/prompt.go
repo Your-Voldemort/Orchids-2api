@@ -126,6 +126,7 @@ type PromptOptions struct {
 	SummaryMaxTokens int
 	KeepTurns        int
 	ConversationID   string
+	ProjectContext   string // Summary of project structure (e.g. file tree)
 	SummaryCache     SummaryCache
 }
 
@@ -151,6 +152,17 @@ You are Claude, an AI assistant.
 1. Act as a senior engineer. Be concise.
 2. Verify project structure before making assumptions.
 3. If context is unclear, ask or investigate with tools.
+
+## File System Optimization (CRITICAL)
+4. MINIMIZE initial file system operations:
+   - Use only 1-2 LS/Glob calls to understand project root
+   - Avoid recursive directory traversals
+   - Leverage 60-second file cache - do not re-read same files
+   - Target: <10 total fs operations per request
+5. Read files strategically:
+   - Only read files directly relevant to current task
+   - Use Grep to search instead of reading multiple files
+   - Trust previously seen file listings in conversation history
 </rules>
 
 ## Conversation Format
@@ -474,6 +486,11 @@ func BuildPromptV2WithOptions(req ClaudeAPIRequest, opts PromptOptions) string {
 
 	// 2. 代理系统预设
 	baseSections = append(baseSections, fmt.Sprintf("<proxy_instructions>\n%s\n</proxy_instructions>", systemPreset))
+
+	// 2.1 项目上下文（快照）
+	if opts.ProjectContext != "" {
+		baseSections = append(baseSections, fmt.Sprintf("<project_context>\n%s\n</project_context>", opts.ProjectContext))
+	}
 
 	// 3. 可用工具列表
 	if len(req.Tools) > 0 {
@@ -891,13 +908,24 @@ func summarizeMessageWithLimit(msg Message, maxTokens int) string {
 			}
 		case "tool_use":
 			if block.Name != "" {
-				parts = append(parts, fmt.Sprintf("tool_use:%s", block.Name))
+				inputStr := ""
+				if block.Input != nil {
+					if b, err := json.Marshal(block.Input); err == nil {
+						inputStr = string(b)
+					}
+				}
+				if inputStr != "" {
+					parts = append(parts, fmt.Sprintf("tool_use:%s(%s)", block.Name, inputStr))
+				} else {
+					parts = append(parts, fmt.Sprintf("tool_use:%s", block.Name))
+				}
 			}
 		case "tool_result":
+			resultText := formatToolResultContent(block.Content)
 			if block.IsError {
-				parts = append(parts, "tool_result:error")
+				parts = append(parts, "tool_result:error: "+resultText)
 			} else {
-				parts = append(parts, "tool_result:ok")
+				parts = append(parts, "tool_result: "+resultText)
 			}
 		}
 	}

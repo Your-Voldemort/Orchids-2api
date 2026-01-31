@@ -81,6 +81,11 @@ type Config struct {
 	ProxyUser   string   `json:"proxy_user"`
 	ProxyPass   string   `json:"proxy_pass"`
 	ProxyBypass []string `json:"proxy_bypass"`
+
+	// Auto Registration
+	AutoRegEnabled   bool   `json:"auto_reg_enabled"`
+	AutoRegThreshold int    `json:"auto_reg_threshold"`
+	AutoRegScript    string `json:"auto_reg_script"`
 }
 
 func Load(path string) (*Config, string, error) {
@@ -254,6 +259,14 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.ConcurrencyTimeout == 0 {
 		cfg.ConcurrencyTimeout = 120
+	}
+
+	// Auto Reg defaults
+	if cfg.AutoRegThreshold == 0 {
+		cfg.AutoRegThreshold = 5
+	}
+	if cfg.AutoRegScript == "" {
+		cfg.AutoRegScript = "scripts/autoreg.py"
 	}
 }
 

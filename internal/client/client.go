@@ -11,6 +11,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,10 @@ type Client struct {
 	authHandle *OrchidsAuthHandle
 	fsCache    *perf.TTLCache
 	wsPool     *pool.WSPool
+	wsWriteMu  sync.Mutex // Protects concurrent writes to WebSocket
+	fsIndex    map[string][]string
+	fsFileList []string
+	fsIndexMu  sync.RWMutex
 }
 
 type UpstreamRequest struct {
@@ -132,10 +137,11 @@ func New(cfg *config.Config) *Client {
 		config:     cfg,
 		httpClient: defaultHTTPClient,
 		authHandle: NewOrchidsAuth(cfg.OrchidsCredsPath),
-		fsCache:    perf.NewTTLCache(10 * time.Second),
+		fsCache:    perf.NewTTLCache(60 * time.Second), // Increased from 10s to 60s for better caching
 	}
 	// Initialize connection pool with pre-warming
 	c.wsPool = pool.NewWSPool(c.createWSConnection, 2, 5)
+	go c.RefreshFSIndex()
 	return c
 }
 
@@ -177,10 +183,11 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		account:    acc,
 		httpClient: defaultHTTPClient,
 		authHandle: NewOrchidsAuth(cfg.OrchidsCredsPath),
-		fsCache:    perf.NewTTLCache(10 * time.Second),
+		fsCache:    perf.NewTTLCache(60 * time.Second), // Increased from 10s to 60s for better caching
 	}
 	// Initialize connection pool
 	c.wsPool = pool.NewWSPool(c.createWSConnection, 2, 5)
+	go c.RefreshFSIndex()
 	return c
 }
 
@@ -455,8 +462,52 @@ func (c *Client) sendRequestSSE(ctx context.Context, req UpstreamRequest, onMess
 			}
 		}
 	}
-
 	return nil
+}
+
+func (c *Client) GetProjectSummary() string {
+	c.fsIndexMu.RLock()
+	defer c.fsIndexMu.RUnlock()
+
+	if len(c.fsIndex) == 0 {
+		return "Project structure currently unknown (indexing in progress)."
+	}
+
+	var sb strings.Builder
+	sb.WriteString("This is a Go project. Directory structure:\n")
+
+	// 限制深度和项数以节省 token
+	count := 0
+	keys := make([]string, 0, len(c.fsIndex))
+	for k := range c.fsIndex {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for _, rel := range keys {
+		if count > 20 { // 仅显示前20个核心目录
+			break
+		}
+		depth := strings.Count(rel, "/")
+		if depth > 1 { // 仅显示两层深度
+			continue
+		}
+
+		indent := strings.Repeat("  ", depth)
+		sb.WriteString(fmt.Sprintf("%s- %s/\n", indent, rel))
+
+		files := c.fsIndex[rel]
+		for i, f := range files {
+			if i > 5 { // 核心目录仅显示前5个文件
+				sb.WriteString(fmt.Sprintf("%s  - ... (%d more files)\n", indent, len(files)-5))
+				break
+			}
+			sb.WriteString(fmt.Sprintf("%s  - %s\n", indent, f))
+		}
+		count++
+	}
+
+	return sb.String()
 }
 
 type UpstreamModel struct {
