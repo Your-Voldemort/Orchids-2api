@@ -1,21 +1,18 @@
 // Package client provides tool name mapping between Claude Code and Orchids.
-package client
+package orchids
 
 import (
 	"strings"
 	"sync"
-	"sync/atomic"
 )
 
-// ToolMapper handles bidirectional tool name mapping and statistics.
+// ToolMapper handles bidirectional tool name mapping.
 type ToolMapper struct {
 	// Claude Code → Orchids 标准名
 	toOrchids map[string]string
 	// Orchids → Claude Code 标准名
 	fromOrchids map[string]string
-	// 工具调用统计
-	stats map[string]*uint64
-	mu    sync.RWMutex
+	mu          sync.RWMutex
 }
 
 // DefaultToolMapper is the global tool mapper instance.
@@ -26,7 +23,6 @@ func NewToolMapper() *ToolMapper {
 	tm := &ToolMapper{
 		toOrchids:   make(map[string]string),
 		fromOrchids: make(map[string]string),
-		stats:       make(map[string]*uint64),
 	}
 
 	// Claude Code → Orchids 映射
@@ -132,40 +128,6 @@ func (tm *ToolMapper) FromOrchids(name string) string {
 	return name
 }
 
-// RecordCall records a tool call for statistics.
-func (tm *ToolMapper) RecordCall(name string) {
-	tm.mu.Lock()
-	if tm.stats[name] == nil {
-		var count uint64
-		tm.stats[name] = &count
-	}
-	tm.mu.Unlock()
-
-	atomic.AddUint64(tm.stats[name], 1)
-}
-
-// GetStats returns a copy of tool call statistics.
-func (tm *ToolMapper) GetStats() map[string]uint64 {
-	tm.mu.RLock()
-	defer tm.mu.RUnlock()
-
-	result := make(map[string]uint64, len(tm.stats))
-	for name, count := range tm.stats {
-		result[name] = atomic.LoadUint64(count)
-	}
-	return result
-}
-
-// ResetStats clears all statistics.
-func (tm *ToolMapper) ResetStats() {
-	tm.mu.Lock()
-	defer tm.mu.Unlock()
-
-	for name := range tm.stats {
-		atomic.StoreUint64(tm.stats[name], 0)
-	}
-}
-
 // IsBlocked checks if a tool should be blocked.
 // 可以在这里添加工具过滤逻辑
 var blockedTools = map[string]bool{
@@ -186,15 +148,3 @@ func NormalizeToolName(name string) string {
 	return DefaultToolMapper.ToOrchids(name)
 }
 
-// MapToolCall maps a tool call from Claude Code format to Orchids format.
-// Returns the mapped name and records the call.
-func MapToolCall(name string) string {
-	mapped := DefaultToolMapper.ToOrchids(name)
-	DefaultToolMapper.RecordCall(mapped)
-	return mapped
-}
-
-// MapToolResponse maps a tool response from Orchids format to Claude Code format.
-func MapToolResponse(name string) string {
-	return DefaultToolMapper.FromOrchids(name)
-}

@@ -1,4 +1,4 @@
-package client
+package orchids
 
 import (
 	"bufio"
@@ -22,9 +22,9 @@ import (
 	"orchids-api/internal/config"
 	"orchids-api/internal/debug"
 	"orchids-api/internal/perf"
-	"orchids-api/internal/pool"
 	"orchids-api/internal/prompt"
 	"orchids-api/internal/store"
+	"orchids-api/internal/upstream"
 )
 
 const upstreamURL = "https://orchids-server.calmstone-6964e08a.westeurope.azurecontainerapps.io/agent/coding-agent"
@@ -35,12 +35,11 @@ const (
 )
 
 type Client struct {
-	config         *config.Config
-	account        *store.Account
-	httpClient     *http.Client
-	authHandle     *OrchidsAuthHandle
-	fsCache        *perf.TTLCache
-	wsPool         *pool.WSPool
+	config     *config.Config
+	account    *store.Account
+	httpClient *http.Client
+	fsCache    *perf.TTLCache
+	wsPool         *upstream.WSPool
 	wsWriteMu      sync.Mutex // Protects concurrent writes to WebSocket
 	fsIndex        map[string][]string
 	fsFileList     []string
@@ -142,11 +141,9 @@ func New(cfg *config.Config) *Client {
 	c := &Client{
 		config:     cfg,
 		httpClient: defaultHTTPClient,
-		authHandle: NewOrchidsAuth(cfg.OrchidsCredsPath),
-		fsCache:    perf.NewTTLCache(60 * time.Second), // Increased from 10s to 60s for better caching
+		fsCache:    perf.NewTTLCache(60 * time.Second),
 	}
-	// Initialize connection pool with pre-warming
-	c.wsPool = pool.NewWSPool(c.createWSConnection, 5, 20)
+	c.wsPool = upstream.NewWSPool(c.createWSConnection, 5, 20)
 	go c.RefreshFSIndex()
 	return c
 }
@@ -195,12 +192,9 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		config:     cfg,
 		account:    acc,
 		httpClient: defaultHTTPClient,
-		// Reuse existing auth handle if possible, or new one - actually NewFromAccount implies using provided account creds
-		// but we might need authHandle for token refresh? For now let's leave authHandle nil as account is provided.
-		authHandle: NewOrchidsAuth(base.OrchidsCredsPath),
 		fsCache:    perf.NewTTLCache(60 * time.Second),
 	}
-	c.wsPool = pool.NewWSPool(c.createWSConnection, 5, 20)
+	c.wsPool = upstream.NewWSPool(c.createWSConnection, 5, 20)
 	go c.RefreshFSIndex()
 	return c
 }
@@ -387,7 +381,7 @@ func (c *Client) sendRequestSSE(ctx context.Context, req UpstreamRequest, onMess
 	url := c.upstreamURL()
 
 	// 使用 Circuit Breaker 保护上游调用
-	breaker := GetAccountBreaker(c.config.Email)
+	breaker := upstream.GetAccountBreaker(c.config.Email)
 	start := time.Now()
 
 	result, err := breaker.Execute(func() (interface{}, error) {

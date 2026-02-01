@@ -1,4 +1,4 @@
-package client
+package orchids
 
 import (
 	"crypto/rand"
@@ -199,25 +199,6 @@ func extractSystemPrompt(messages []prompt.Message) string {
 func (c *Client) getWSToken() (string, error) {
 	if c.config != nil && strings.TrimSpace(c.config.UpstreamToken) != "" {
 		return c.config.UpstreamToken, nil
-	}
-
-	if c.authHandle != nil {
-		// 1. Try getting token directly (if valid)
-		token, err := c.authHandle.GetWSToken()
-		if err == nil && token != "" {
-			return token, nil
-		}
-
-		// 2. If no token, try full initialization flow
-		// This handles the first run or lost session
-		if err := c.authHandle.LoadCredentials(); err == nil {
-			if err := c.authHandle.GetSessionFromClerk(); err == nil {
-				return c.authHandle.GetWSToken()
-			} else {
-				// Only log request error if we successfully found credentials but failed to get session
-				// fmt.Printf("[Auth] Failed to get session from valid credentials: %v\n", err)
-			}
-		}
 	}
 
 	if c.config != nil && strings.TrimSpace(c.config.ClientCookie) != "" {
@@ -434,14 +415,3 @@ func formatToolResultContentLocal(content interface{}) string {
 	}
 }
 
-func truncateSnippet(text string, max int) string {
-	text = strings.TrimSpace(text)
-	if max <= 0 {
-		return text
-	}
-	runes := []rune(text)
-	if len(runes) <= max {
-		return text
-	}
-	return string(runes[:max])
-}
