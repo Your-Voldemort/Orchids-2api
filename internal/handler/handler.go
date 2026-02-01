@@ -10,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -57,6 +58,8 @@ type toolCall struct {
 }
 
 const keepAliveInterval = 15 * time.Second
+const maxRequestBytes = 32 * 1024 * 1024
+const maxToolFollowups = 1
 
 func New(cfg *config.Config) *Handler {
 	return &Handler{
@@ -104,7 +107,13 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req ClaudeRequest
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBytes)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			h.writeErrorResponse(w, "invalid_request_error", "Request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		h.writeErrorResponse(w, "invalid_request_error", "Invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -122,10 +131,23 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cacheStrategy := h.config.CacheStrategy
+	if cacheStrategy != "" && cacheStrategy != "none" {
+		applyCacheStrategy(&req, cacheStrategy)
+	}
+	if len(req.Messages) > 1 {
+		before := len(req.Messages)
+		req.Messages = dedupeConsecutiveMessages(req.Messages)
+		if len(req.Messages) != before {
+			slog.Debug("Deduped consecutive messages", "before", before, "after", len(req.Messages))
+		}
+	}
+
 	// 选择账号
 	var apiClient UpstreamClient
 	var currentAccount *store.Account
 	var failedAccountIDs []int64
+	failedAccountSet := make(map[int64]struct{})
 
 	selectAccount := func() error {
 		if h.loadBalancer != nil {
@@ -182,7 +204,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	effectiveTools := req.Tools
 	if gateNoTools {
 		effectiveTools = nil
-		slog.Info("tool_gate: disabled tools for short non-code request")
+		slog.Debug("tool_gate: disabled tools for short non-code request")
 	}
 	toolCallMode := strings.ToLower(strings.TrimSpace(h.config.ToolCallMode))
 	if toolCallMode == "" {
@@ -195,12 +217,8 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		effectiveTools = filterSupportedTools(effectiveTools)
 	}
 
-	// Apply Caching Strategy if enabled
-	cacheStrategy := h.config.CacheStrategy
-	if cacheStrategy != "" && cacheStrategy != "none" {
-		// startCache := time.Now()
-		applyCacheStrategy(&req, cacheStrategy)
-		// log.Printf("Cache strategy applied in %v", time.Since(startCache))
+	if toolCallMode == "internal" && req.Stream {
+		req.Stream = false
 	}
 
 	// 构建 prompt（V2 Markdown 格式）
@@ -212,13 +230,14 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		SummaryMaxTokens: h.config.ContextSummaryMaxTokens,
 		KeepTurns:        h.config.ContextKeepTurns,
 		SummaryCache:     h.summaryCache,
+		ProjectRoot:      h.config.OrchidsLocalWorkdir,
 	}
 
 	if c, ok := apiClient.(*client.Client); ok {
 		opts.ProjectContext = c.GetProjectSummary()
 	}
 
-	slog.Info("Starting prompt build...", "conversation_id", conversationKey)
+	slog.Debug("Starting prompt build...", "conversation_id", conversationKey)
 	builtPrompt := prompt.BuildPromptV2WithOptions(prompt.ClaudeAPIRequest{
 		Model:    req.Model,
 		Messages: req.Messages,
@@ -226,7 +245,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		Tools:    effectiveTools,
 		Stream:   req.Stream,
 	}, opts)
-	slog.Info("Prompt build completed", "duration", time.Since(startBuild))
+	slog.Debug("Prompt build completed", "duration", time.Since(startBuild))
 	if h.config.DebugEnabled {
 		log.Printf("[Performance] BuildPromptV2WithOptions took %v", time.Since(startBuild))
 		if opts.ProjectContext != "" {
@@ -241,17 +260,13 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		hitDelta := hitsAfter - hitsBefore
 		missDelta := missesAfter - missesBefore
 		if hitDelta > 0 || missDelta > 0 {
-			slog.Info("summary_cache", "hit", hitDelta, "miss", missDelta)
+			slog.Debug("summary_cache", "hit", hitDelta, "miss", missDelta)
 		}
 	}
 
 	// 映射模型
 	mappedModel := mapModel(req.Model)
 	slog.Info("Model mapping", "original", req.Model, "mapped", mappedModel)
-
-	if toolCallMode == "internal" && req.Stream {
-		req.Stream = false
-	}
 
 	isStream := req.Stream
 
@@ -383,9 +398,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	})
 	sh.writeSSE("message_start", string(startData))
 
-	slog.Info("New request received")
-
-	done := make(chan struct{})
+	slog.Debug("New request received")
 
 	// KeepAlive
 	var keepAliveStop chan struct{}
@@ -409,18 +422,20 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 					sh.mu.Unlock()
 				case <-keepAliveStop:
 					return
+				case <-r.Context().Done():
+					return
 				}
 			}
 		}()
 	}
 
-	go func() {
-		defer close(done)
+	run := func() {
 		turnCount := 1
+		followupCount := 0
 		chatSessionID := "chat_" + randomSessionID()
 
 		for {
-			slog.Info("Starting turn", "turn", turnCount, "mode", toolCallMode)
+			slog.Debug("Starting turn", "turn", turnCount, "mode", toolCallMode)
 			sh.internalNeedsFollowup = false // Reset per retry/turn
 			sh.internalToolResults = nil
 			maxRetries := h.config.MaxRetries
@@ -477,13 +492,16 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				}
 				retriesRemaining--
 				if currentAccount != nil && h.loadBalancer != nil {
-					failedAccountIDs = append(failedAccountIDs, currentAccount.ID)
+					if _, ok := failedAccountSet[currentAccount.ID]; !ok {
+						failedAccountSet[currentAccount.ID] = struct{}{}
+						failedAccountIDs = append(failedAccountIDs, currentAccount.ID)
+					}
 					slog.Warn("Account request failed, switching account", "account", currentAccount.Name, "failed_count", len(failedAccountIDs))
 					if retryErr := selectAccount(); retryErr == nil {
 						if currentAccount != nil {
-							slog.Info("Switched to account", "account", currentAccount.Name)
+							slog.Debug("Switched to account", "account", currentAccount.Name)
 						} else {
-							slog.Info("Switched to default upstream config")
+							slog.Debug("Switched to default upstream config")
 						}
 					} else {
 						slog.Error("No more accounts available", "error", retryErr)
@@ -492,16 +510,22 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				if retryDelay > 0 {
-					select {
-					case <-time.After(retryDelay):
-					case <-r.Context().Done():
+					if !sleepWithContext(r.Context(), retryDelay) {
 						sh.finishResponse("end_turn")
 						return
 					}
 				}
 			}
 			if ((toolCallMode == "internal" || toolCallMode == "auto") && sh.internalNeedsFollowup) || (sh.internalNeedsFollowup && len(sh.internalToolResults) > 0) {
-				slog.Info("Turn completed, follow-up required", "turn", turnCount)
+				if toolCallMode == "internal" || toolCallMode == "auto" {
+					if followupCount >= maxToolFollowups {
+						slog.Warn("Tool follow-up limit reached", "turn", turnCount, "max_followups", maxToolFollowups)
+						sh.finishResponse("end_turn")
+						return
+					}
+					followupCount++
+				}
+				slog.Debug("Turn completed, follow-up required", "turn", turnCount)
 				turnCount++
 				if len(sh.internalToolResults) > 0 {
 					var assistantBlocks []prompt.ContentBlock
@@ -597,9 +621,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			}
 			break
 		}
-	}()
+	}
 
-	<-done
+	run()
 
 	if keepAliveStop != nil {
 		close(keepAliveStop)
@@ -683,4 +707,42 @@ func randomSessionID() string {
 		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(b)
+}
+
+func dedupeConsecutiveMessages(messages []prompt.Message) []prompt.Message {
+	if len(messages) <= 1 {
+		return messages
+	}
+	out := make([]prompt.Message, 0, len(messages))
+	for i := range messages {
+		if len(out) > 0 {
+			prev := out[len(out)-1]
+			if prev.Role == messages[i].Role && reflect.DeepEqual(prev.Content, messages[i].Content) {
+				continue
+			}
+		}
+		out = append(out, messages[i])
+	}
+	return out
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }

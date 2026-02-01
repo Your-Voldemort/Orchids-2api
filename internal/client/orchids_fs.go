@@ -240,6 +240,9 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		if c.fsIndex != nil {
 			if names, ok := c.fsIndex[rel]; ok {
 				c.fsIndexMu.RUnlock()
+				if names == nil {
+					return respond(false, nil, "readdirent: not a directory")
+				}
 				return respond(true, names, "")
 			}
 		}
@@ -426,52 +429,70 @@ func validatePathIgnore(baseDir, target string, ignore []string) error {
 }
 
 func (c *Client) RefreshFSIndex() {
-	baseDir := c.resolveLocalWorkdir()
-	ignore := c.config.OrchidsFSIgnore
+	if c == nil {
+		return
+	}
+	if c.fsIndexRefresh.Swap(true) {
+		c.fsIndexPending.Store(true)
+		return
+	}
+	defer c.fsIndexRefresh.Store(false)
 
-	newIndex := make(map[string][]string)
-	newFileList := make([]string, 0)
+	for {
+		c.fsIndexPending.Store(false)
 
-	filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
+		baseDir := c.resolveLocalWorkdir()
+		ignore := c.config.OrchidsFSIgnore
 
-		rel, err := filepath.Rel(baseDir, path)
-		if err != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-
-		if rel != "." && isIgnoredRelPath(rel, ignore) {
-			if d.IsDir() {
-				return filepath.SkipDir
+		newIndex := make(map[string][]string)
+		newFileList := make([]string, 0)
+		filepath.WalkDir(baseDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
 			}
-			return nil
-		}
 
-		if d.IsDir() {
-			entries, err := os.ReadDir(path)
-			if err == nil {
-				names := make([]string, 0, len(entries))
-				for _, e := range entries {
-					eRel := filepath.ToSlash(filepath.Join(rel, e.Name()))
-					if !isIgnoredRelPath(eRel, ignore) {
-						names = append(names, e.Name())
-					}
+			rel, err := filepath.Rel(baseDir, path)
+			if err != nil {
+				return nil
+			}
+			rel = filepath.ToSlash(rel)
+
+			if rel != "." && isIgnoredRelPath(rel, ignore) {
+				if d.IsDir() {
+					return filepath.SkipDir
 				}
-				newIndex[rel] = names
+				return nil
 			}
-		} else {
-			newFileList = append(newFileList, rel)
-		}
-		return nil
-	})
 
-	c.fsIndexMu.Lock()
-	c.fsIndex = newIndex
-	c.fsFileList = newFileList
-	c.fsIndexMu.Unlock()
+			if d.IsDir() {
+				entries, err := os.ReadDir(path)
+				if err == nil {
+					names := make([]string, 0, len(entries))
+					for _, e := range entries {
+						eRel := filepath.ToSlash(filepath.Join(rel, e.Name()))
+						if !isIgnoredRelPath(eRel, ignore) {
+							names = append(names, e.Name())
+						}
+					}
+					newIndex[rel] = names
+				}
+			} else {
+				newFileList = append(newFileList, rel)
+				// Mark as file in index so list operations can fast-fail
+				newIndex[rel] = nil
+			}
+			return nil
+		})
+
+		c.fsIndexMu.Lock()
+		c.fsIndex = newIndex
+		c.fsFileList = newFileList
+		c.fsIndexMu.Unlock()
+
+		if !c.fsIndexPending.Load() {
+			break
+		}
+	}
 }
 
 func isIgnoredRelPath(rel string, ignore []string) bool {

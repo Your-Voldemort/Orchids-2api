@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -37,6 +38,8 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 	// Get connection from pool (or create new if pool unavailable)
 	var conn *websocket.Conn
 	var err error
+	var returnToPool bool
+	var pingDone chan struct{}
 
 	if c.wsPool != nil {
 		conn, err = c.wsPool.Get(ctx)
@@ -64,12 +67,21 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 				}
 				return fmt.Errorf("ws dial failed: %w", err)
 			}
+			defer conn.Close()
 		} else {
 			// Successfully got connection from pool
 			// Return to pool when done (unless error occurs)
+			returnToPool = true
+			pingDone = make(chan struct{})
 			defer func() {
-				if conn != nil {
+				close(pingDone)
+				if conn == nil {
+					return
+				}
+				if returnToPool {
 					c.wsPool.Put(conn)
+				} else {
+					conn.Close()
 				}
 			}()
 		}
@@ -102,6 +114,7 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 
 	wsPayload, err := c.buildWSRequestAIClient(req)
 	if err != nil {
+		returnToPool = false
 		return err
 	}
 
@@ -112,8 +125,10 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 
 	if err := conn.WriteJSON(wsPayload); err != nil {
 		if parentCtx.Err() == nil {
+			returnToPool = false
 			return wsFallbackError{err: fmt.Errorf("ws write failed: %w", err)}
 		}
+		returnToPool = false
 		return fmt.Errorf("ws write failed: %w", err)
 	}
 
@@ -127,6 +142,8 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		editFilePath      string
 		editOldString     string
 		editNewString     string
+		fsWG              sync.WaitGroup
+		hasFSOps          bool
 	)
 
 	// Start Keep-Alive Ping Loop
@@ -137,8 +154,13 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 			select {
 			case <-ctx.Done():
 				return
+			case <-pingDone:
+				return
 			case <-ticker.C:
-				if err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second)); err != nil {
+				c.wsWriteMu.Lock()
+				err := conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(10*time.Second))
+				c.wsWriteMu.Unlock()
+				if err != nil {
 					return
 				}
 			}
@@ -148,19 +170,24 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 	for {
 		if err := conn.SetReadDeadline(time.Now().Add(orchidsWSReadTimeout)); err != nil {
 			if parentCtx.Err() == nil {
+				returnToPool = false
 				return wsFallbackError{err: err}
 			}
+			returnToPool = false
 			return err
 		}
 
 		_, data, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				returnToPool = false
 				break
 			}
 			if parentCtx.Err() == nil {
+				returnToPool = false
 				return wsFallbackError{err: err}
 			}
+			returnToPool = false
 			break
 		}
 
@@ -254,7 +281,10 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 			// Notify handler for visibility
 			onMessage(SSEMessage{Type: "fs_operation", Event: msg})
 			// Execute file system operations in parallel to avoid blocking the message loop
+			hasFSOps = true
+			fsWG.Add(1)
 			go func(m map[string]interface{}) {
+				defer fsWG.Done()
 				if err := c.handleFSOperation(conn, m, func(success bool, data interface{}, errMsg string) {
 					if onMessage != nil {
 						onMessage(SSEMessage{
@@ -461,6 +491,19 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 			finishReason = "tool-calls"
 		}
 		onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "finish", "finishReason": finishReason}})
+	}
+
+	if hasFSOps {
+		fsDone := make(chan struct{})
+		go func() {
+			fsWG.Wait()
+			close(fsDone)
+		}()
+		select {
+		case <-fsDone:
+		case <-ctx.Done():
+			returnToPool = false
+		}
 	}
 
 	return nil

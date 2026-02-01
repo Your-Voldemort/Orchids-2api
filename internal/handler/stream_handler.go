@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -79,6 +80,36 @@ type streamHandler struct {
 	logger *debug.Logger
 }
 
+func parallelFor(n int, fn func(int)) {
+	if n <= 0 {
+		return
+	}
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > n {
+		workers = n
+	}
+
+	var wg sync.WaitGroup
+	jobs := make(chan int, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				fn(idx)
+			}
+		}()
+	}
+	for i := 0; i < n; i++ {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+}
+
 func newStreamHandler(
 	cfg *config.Config,
 	w http.ResponseWriter,
@@ -145,6 +176,9 @@ func (h *streamHandler) release() {
 	for _, sb := range h.textBlockBuilders {
 		perf.ReleaseStringBuilder(sb)
 	}
+	for _, sb := range h.thinkingBlockBuilders {
+		perf.ReleaseStringBuilder(sb)
+	}
 	for _, sb := range h.toolInputBuffers {
 		perf.ReleaseStringBuilder(sb)
 	}
@@ -186,14 +220,9 @@ func (h *streamHandler) addOutputTokens(text string) {
 		return
 	}
 	h.outputMu.Lock()
-	if h.useUpstreamUsage {
-		h.outputMu.Unlock()
-		return
+	if !h.useUpstreamUsage {
+		h.outputBuilder.WriteString(text)
 	}
-	h.outputMu.Unlock()
-
-	h.outputMu.Lock()
-	h.outputBuilder.WriteString(text)
 	h.outputMu.Unlock()
 }
 
@@ -449,7 +478,7 @@ func (h *streamHandler) finishResponse(stopReason string) {
 
 	// 记录摘要
 	h.logger.LogSummary(h.inputTokens, h.outputTokens, time.Since(h.startTime), stopReason)
-	slog.Info("Request completed", "input_tokens", h.inputTokens, "output_tokens", h.outputTokens, "duration", time.Since(h.startTime))
+	slog.Debug("Request completed", "input_tokens", h.inputTokens, "output_tokens", h.outputTokens, "duration", time.Since(h.startTime))
 }
 
 func (h *streamHandler) resolveToolName(name string) (string, bool) {
@@ -592,7 +621,7 @@ func (h *streamHandler) writeSSELocked(event, data string) {
 	}
 	h.logger.LogOutputSSE(event, data)
 	// Log to slog for server.log visibility
-	slog.Info("SSE Out", "event", event, "data_len", len(data))
+	slog.Debug("SSE Out", "event", event, "data_len", len(data))
 }
 
 // Event Handlers
@@ -612,18 +641,10 @@ func (h *streamHandler) processAutoPendingCalls() {
 		return
 	}
 
-	var wg sync.WaitGroup
 	results := make([]safeToolResult, len(calls))
-
-	// Execute in parallel
-	for i, call := range calls {
-		wg.Add(1)
-		go func(i int, c toolCall) {
-			defer wg.Done()
-			results[i] = executeToolCall(c, h.config)
-		}(i, call)
-	}
-	wg.Wait()
+	parallelFor(len(calls), func(i int) {
+		results[i] = executeToolCall(calls[i], h.config)
+	})
 
 	// Append results in order
 	for _, res := range results {
@@ -830,8 +851,26 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 	case "model.text-end":
 		h.closeActiveBlock()
 
+	case "coding_agent.initializing":
+		if data, ok := msg.Event["data"].(map[string]interface{}); ok {
+			if message, ok := data["message"].(string); ok {
+				idx := h.ensureBlock("text")
+				deltaMap := perf.AcquireMap()
+				deltaMap["type"] = "content_block_delta"
+				deltaMap["index"] = idx
+				deltaContent := perf.AcquireMap()
+				deltaContent["type"] = "text_delta"
+				deltaContent["text"] = fmt.Sprintf("\n[System: %s]\n", message)
+				deltaMap["delta"] = deltaContent
+				deltaData, _ := json.Marshal(deltaMap)
+				perf.ReleaseMap(deltaContent)
+				perf.ReleaseMap(deltaMap)
+				h.writeSSE("content_block_delta", string(deltaData))
+			}
+		}
+
 	case "fs_operation":
-		slog.Info("DEBUG: fs_operation received", "event_keys", len(msg.Event), "operation", msg.Event["operation"], "path", msg.Event["path"])
+		slog.Debug("fs_operation received", "event_keys", len(msg.Event), "operation", msg.Event["operation"], "path", msg.Event["path"])
 		if !h.isStream {
 			return
 		}
@@ -847,10 +886,15 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 			}
 		}
 
-		if opType == "" || opType == "list" || opType == "read" || opType == "search" || opType == "ripgrep" {
+		if opType == "" {
 			return
 		}
-		feedback := fmt.Sprintf("\n[Feedback: %s %s...]\n", opType, opPath)
+
+		// Don't filter read/list/search operations anymore, show them as feedback
+		// except for internal gitignore checks which might be too noisy?
+		// For now, let's show all to ensure aliveness.
+
+		feedback := fmt.Sprintf("\n[Scanning: %s %s...]\n", opType, opPath)
 		idx := h.ensureBlock("text")
 		deltaMap := perf.AcquireMap()
 		deltaMap["type"] = "content_block_delta"

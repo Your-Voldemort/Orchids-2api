@@ -17,6 +17,9 @@ type WSPool struct {
 	maxSize     int
 	mu          sync.RWMutex
 	closed      bool
+	done        chan struct{}
+	closeOnce   sync.Once
+	wg          sync.WaitGroup
 }
 
 // NewWSPool creates a new WebSocket connection pool
@@ -26,10 +29,13 @@ func NewWSPool(factory func() (*websocket.Conn, error), minIdle, maxSize int) *W
 		factory:     factory,
 		minIdle:     minIdle,
 		maxSize:     maxSize,
+		done:        make(chan struct{}),
 	}
 
 	// Pre-warm connections
+	pool.wg.Add(1)
 	go pool.warmUp()
+	pool.wg.Add(1)
 	go pool.maintainMinIdle()
 
 	return pool
@@ -44,6 +50,16 @@ func (p *WSPool) Get(ctx context.Context) (*websocket.Conn, error) {
 	}
 	p.mu.RUnlock()
 
+	timer := time.NewTimer(100 * time.Millisecond)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+
 	select {
 	case conn := <-p.connections:
 		if p.isHealthy(conn) {
@@ -51,8 +67,10 @@ func (p *WSPool) Get(ctx context.Context) (*websocket.Conn, error) {
 		}
 		conn.Close()
 		// Fall through to create new
-	case <-time.After(100 * time.Millisecond):
+	case <-timer.C:
 		// No idle connection available, create new
+	case <-p.done:
+		return nil, ErrPoolClosed
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -84,13 +102,22 @@ func (p *WSPool) Put(conn *websocket.Conn) {
 
 // warmUp pre-creates minimum idle connections
 func (p *WSPool) warmUp() {
+	defer p.wg.Done()
 	for i := 0; i < p.minIdle; i++ {
+		select {
+		case <-p.done:
+			return
+		default:
+		}
 		conn, err := p.factory()
 		if err != nil {
 			continue
 		}
 		select {
 		case p.connections <- conn:
+		case <-p.done:
+			conn.Close()
+			return
 		default:
 			conn.Close()
 		}
@@ -99,10 +126,16 @@ func (p *WSPool) warmUp() {
 
 // maintainMinIdle ensures minimum number of idle connections
 func (p *WSPool) maintainMinIdle() {
+	defer p.wg.Done()
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
+		select {
+		case <-ticker.C:
+		case <-p.done:
+			return
+		}
 		p.mu.RLock()
 		if p.closed {
 			p.mu.RUnlock()
@@ -120,6 +153,9 @@ func (p *WSPool) maintainMinIdle() {
 				}
 				select {
 				case p.connections <- conn:
+				case <-p.done:
+					conn.Close()
+					return
 				default:
 					conn.Close()
 				}
@@ -151,9 +187,20 @@ func (p *WSPool) Close() {
 	p.closed = true
 	p.mu.Unlock()
 
-	close(p.connections)
-	for conn := range p.connections {
-		conn.Close()
+	p.closeOnce.Do(func() {
+		close(p.done)
+	})
+	p.wg.Wait()
+
+	for {
+		select {
+		case conn := <-p.connections:
+			if conn != nil {
+				conn.Close()
+			}
+		default:
+			return
+		}
 	}
 }
 

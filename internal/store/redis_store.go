@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +19,36 @@ import (
 type redisStore struct {
 	client *redis.Client
 	prefix string
+}
+
+func parallelFor(n int, fn func(int)) {
+	if n <= 0 {
+		return
+	}
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > n {
+		workers = n
+	}
+
+	var wg sync.WaitGroup
+	jobs := make(chan int, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				fn(idx)
+			}
+		}()
+	}
+	for i := 0; i < n; i++ {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
 }
 
 type apiKeyRecord struct {
@@ -332,33 +363,27 @@ func (s *redisStore) getAccountsByIDs(ctx context.Context, ids []string, onlyEna
 	if len(values) >= parallelThreshold {
 		// 并行解析 JSON
 		results := make([]*Account, len(values))
-		var wg sync.WaitGroup
-		wg.Add(len(values))
-
-		for i, value := range values {
-			go func(idx int, val interface{}, id int64) {
-				defer wg.Done()
-				if val == nil {
-					return
-				}
-				strVal, ok := val.(string)
-				if !ok || strVal == "" {
-					return
-				}
-				var acc Account
-				if err := json.Unmarshal([]byte(strVal), &acc); err != nil {
-					return
-				}
-				if acc.ID == 0 {
-					acc.ID = id
-				}
-				if onlyEnabled && !acc.Enabled {
-					return
-				}
-				results[idx] = &acc
-			}(i, value, idNums[i])
-		}
-		wg.Wait()
+		parallelFor(len(values), func(idx int) {
+			val := values[idx]
+			if val == nil {
+				return
+			}
+			strVal, ok := val.(string)
+			if !ok || strVal == "" {
+				return
+			}
+			var acc Account
+			if err := json.Unmarshal([]byte(strVal), &acc); err != nil {
+				return
+			}
+			if acc.ID == 0 {
+				acc.ID = idNums[idx]
+			}
+			if onlyEnabled && !acc.Enabled {
+				return
+			}
+			results[idx] = &acc
+		})
 
 		// 过滤 nil 结果
 		accounts := make([]*Account, 0, len(values))
@@ -628,31 +653,25 @@ func (s *redisStore) getApiKeysByIDs(ctx context.Context, ids []string) ([]*ApiK
 
 	if len(values) >= parallelThreshold {
 		results := make([]*ApiKey, len(values))
-		var wg sync.WaitGroup
-		wg.Add(len(values))
-
-		for i, value := range values {
-			go func(idx int, val interface{}, id int64) {
-				defer wg.Done()
-				if val == nil {
-					return
-				}
-				strVal, ok := val.(string)
-				if !ok || strVal == "" {
-					return
-				}
-				var record apiKeyRecord
-				if err := json.Unmarshal([]byte(strVal), &record); err != nil {
-					return
-				}
-				key := record.toApiKey()
-				if key.ID == 0 {
-					key.ID = id
-				}
-				results[idx] = key
-			}(i, value, idNums[i])
-		}
-		wg.Wait()
+		parallelFor(len(values), func(idx int) {
+			val := values[idx]
+			if val == nil {
+				return
+			}
+			strVal, ok := val.(string)
+			if !ok || strVal == "" {
+				return
+			}
+			var record apiKeyRecord
+			if err := json.Unmarshal([]byte(strVal), &record); err != nil {
+				return
+			}
+			key := record.toApiKey()
+			if key.ID == 0 {
+				key.ID = idNums[idx]
+			}
+			results[idx] = key
+		})
 
 		items := make([]*ApiKey, 0, len(values))
 		for _, key := range results {

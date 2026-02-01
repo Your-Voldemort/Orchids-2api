@@ -128,10 +128,8 @@ func Retry(ctx context.Context, cfg RetryConfig, fn func() error) error {
 			actualDelay = cfg.MaxDelay
 		}
 
-		select {
-		case <-ctx.Done():
+		if !sleepWithContext(ctx, actualDelay) {
 			return ErrContextCanceled
-		case <-time.After(actualDelay):
 		}
 
 		delay = time.Duration(float64(delay) * cfg.Multiplier)
@@ -170,14 +168,33 @@ func RetryWithResult[T any](ctx context.Context, cfg RetryConfig, fn func() (T, 
 			actualDelay = cfg.MaxDelay
 		}
 
-		select {
-		case <-ctx.Done():
+		if !sleepWithContext(ctx, actualDelay) {
 			return result, ErrContextCanceled
-		case <-time.After(actualDelay):
 		}
 
 		delay = time.Duration(float64(delay) * cfg.Multiplier)
 	}
 
 	return result, ErrMaxRetries
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) bool {
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer func() {
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }

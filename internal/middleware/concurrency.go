@@ -57,20 +57,20 @@ func (cl *ConcurrencyLimiter) Limit(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		slog.Info("Concurrency limit: Slot acquired", "wait_duration", time.Since(acquireStart), "active", atomic.LoadInt64(&cl.activeCount)+1)
+		slog.Debug("Concurrency limit: Slot acquired", "wait_duration", time.Since(acquireStart), "active", atomic.LoadInt64(&cl.activeCount)+1)
 
 		atomic.AddInt64(&cl.activeCount, 1)
 		defer func() {
 			cl.sem.Release(1)
 			atomic.AddInt64(&cl.activeCount, -1)
-			slog.Info("Concurrency limit: Slot released", "active", atomic.LoadInt64(&cl.activeCount))
+			slog.Debug("Concurrency limit: Slot released", "active", atomic.LoadInt64(&cl.activeCount))
 		}()
 
 		// Use the full concurrency timeout for actual request execution
 		execCtx, cancelExec := context.WithTimeout(r.Context(), cl.timeout)
 		defer cancelExec()
 
-		slog.Info("Concurrency limit: Serving request", "path", r.URL.Path, "timeout", cl.timeout)
+		slog.Debug("Concurrency limit: Serving request", "path", r.URL.Path, "timeout", cl.timeout)
 		next.ServeHTTP(w, r.WithContext(execCtx))
 	}
 }

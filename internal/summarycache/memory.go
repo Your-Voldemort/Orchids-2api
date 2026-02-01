@@ -51,7 +51,9 @@ func (c *MemoryCache) Get(ctx context.Context, key string) (prompt.SummaryCacheE
 	if c.ttl > 0 && time.Now().After(item.expiresAt) {
 		c.mu.RUnlock()
 		c.mu.Lock()
-		c.removeElement(el)
+		if current, ok := c.items[key]; ok && current == el {
+			c.removeElement(el)
+		}
 		c.mu.Unlock()
 		return prompt.SummaryCacheEntry{}, false
 	}

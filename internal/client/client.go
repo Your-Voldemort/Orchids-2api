@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"orchids-api/internal/clerk"
@@ -33,16 +34,18 @@ const (
 )
 
 type Client struct {
-	config     *config.Config
-	account    *store.Account
-	httpClient *http.Client
-	authHandle *OrchidsAuthHandle
-	fsCache    *perf.TTLCache
-	wsPool     *pool.WSPool
-	wsWriteMu  sync.Mutex // Protects concurrent writes to WebSocket
-	fsIndex    map[string][]string
-	fsFileList []string
-	fsIndexMu  sync.RWMutex
+	config         *config.Config
+	account        *store.Account
+	httpClient     *http.Client
+	authHandle     *OrchidsAuthHandle
+	fsCache        *perf.TTLCache
+	wsPool         *pool.WSPool
+	wsWriteMu      sync.Mutex // Protects concurrent writes to WebSocket
+	fsIndex        map[string][]string
+	fsFileList     []string
+	fsIndexMu      sync.RWMutex
+	fsIndexRefresh atomic.Bool
+	fsIndexPending atomic.Bool
 }
 
 type UpstreamRequest struct {
@@ -141,7 +144,7 @@ func New(cfg *config.Config) *Client {
 		fsCache:    perf.NewTTLCache(60 * time.Second), // Increased from 10s to 60s for better caching
 	}
 	// Initialize connection pool with pre-warming
-	c.wsPool = pool.NewWSPool(c.createWSConnection, 2, 5)
+	c.wsPool = pool.NewWSPool(c.createWSConnection, 5, 20)
 	go c.RefreshFSIndex()
 	return c
 }
@@ -190,7 +193,7 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		authHandle: NewOrchidsAuth(base.OrchidsCredsPath),
 		fsCache:    perf.NewTTLCache(60 * time.Second),
 	}
-	c.wsPool = pool.NewWSPool(c.createWSConnection, 2, 5)
+	c.wsPool = pool.NewWSPool(c.createWSConnection, 5, 20)
 	go c.RefreshFSIndex()
 	return c
 }
@@ -627,7 +630,9 @@ func getCachedToken(sessionID string) (string, bool) {
 
 	if time.Now().After(entry.expiresAt) {
 		tokenCache.mu.Lock()
-		delete(tokenCache.items, sessionID)
+		if current, ok := tokenCache.items[sessionID]; ok && current.token == entry.token && current.expiresAt.Equal(entry.expiresAt) {
+			delete(tokenCache.items, sessionID)
+		}
 		tokenCache.mu.Unlock()
 		return "", false
 	}
@@ -654,12 +659,17 @@ func setCachedToken(sessionID, token string) {
 }
 
 func tokenExpiry(token string) time.Time {
-	parts := strings.Split(token, ".")
-	if len(parts) < 2 {
+	firstDot := strings.IndexByte(token, '.')
+	if firstDot < 0 {
+		return time.Time{}
+	}
+	rest := token[firstDot+1:]
+	secondDot := strings.IndexByte(rest, '.')
+	if secondDot < 0 {
 		return time.Time{}
 	}
 
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	payload, err := base64.RawURLEncoding.DecodeString(rest[:secondDot])
 	if err != nil {
 		return time.Time{}
 	}

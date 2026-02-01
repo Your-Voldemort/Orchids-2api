@@ -57,7 +57,9 @@ func (c *TTLCache) Get(key string) (interface{}, string, bool) {
 	if time.Now().UnixNano() > item.Expiration {
 		// Lazily delete expired item
 		c.mu.Lock()
-		delete(c.items, key)
+		if current, ok := c.items[key]; ok && current.Expiration == item.Expiration {
+			delete(c.items, key)
+		}
 		c.mu.Unlock()
 		return nil, "", false
 	}

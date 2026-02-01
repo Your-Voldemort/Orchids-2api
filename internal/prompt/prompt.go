@@ -7,11 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"orchids-api/internal/tiktoken"
 )
@@ -21,6 +25,36 @@ var hasherPool = sync.Pool{
 	New: func() interface{} {
 		return sha256.New()
 	},
+}
+
+func parallelFor(n int, fn func(int)) {
+	if n <= 0 {
+		return
+	}
+	workers := runtime.GOMAXPROCS(0)
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > n {
+		workers = n
+	}
+
+	var wg sync.WaitGroup
+	jobs := make(chan int, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for idx := range jobs {
+				fn(idx)
+			}
+		}()
+	}
+	for i := 0; i < n; i++ {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
 }
 
 // ImageSource 表示图片来源
@@ -128,6 +162,7 @@ type PromptOptions struct {
 	KeepTurns        int
 	ConversationID   string
 	ProjectContext   string // Summary of project structure (e.g. file tree)
+	ProjectRoot      string // Absolute path to project root for filtering
 	SummaryCache     SummaryCache
 }
 
@@ -170,11 +205,12 @@ You are Claude, an AI assistant.
 - <turn index="N"role="user|assistant"> marks each turn
 - <tool_use id="..." name="..."> for tool calls
 - <tool_result id="..."> for results
+</rules>
 `
 
 // FormatMessagesAsMarkdown 将 Claude messages 转换为结构化的对话历史
 // 对于大量消息使用并行处理
-func FormatMessagesAsMarkdown(messages []Message) string {
+func FormatMessagesAsMarkdown(messages []Message, projectRoot string) string {
 	if len(messages) == 0 {
 		return ""
 	}
@@ -191,49 +227,31 @@ func FormatMessagesAsMarkdown(messages []Message) string {
 	// 并发阈值：少于 8 条消息时串行处理更高效
 	const parallelThreshold = 8
 
-	var formattedContents []string
-
-	if len(historyMessages) >= parallelThreshold {
-		// 并行格式化消息
-		formattedContents = make([]string, len(historyMessages))
-		var wg sync.WaitGroup
-		wg.Add(len(historyMessages))
-
-		for i, msg := range historyMessages {
-			go func(idx int, m Message) {
-				defer wg.Done()
-				var content string
-				switch m.Role {
-				case "user":
-					content = formatUserMessage(m.Content)
-				case "assistant":
-					content = formatAssistantMessage(m.Content)
-				}
-				formattedContents[idx] = content
-			}(i, msg)
-		}
-		wg.Wait()
-	} else {
-		// 串行处理小批量消息
-		formattedContents = make([]string, len(historyMessages))
-		for i, msg := range historyMessages {
-			switch msg.Role {
-			case "user":
-				formattedContents[i] = formatUserMessage(msg.Content)
-			case "assistant":
-				formattedContents[i] = formatAssistantMessage(msg.Content)
-			}
-		}
-	}
-
 	// 顺序组装结果
 	var sb strings.Builder
 	// Estimating capacity: typical 4KB or proportional to message count
 	sb.Grow(len(historyMessages) * 512)
 
 	turnIndex := 1
-	for i, content := range formattedContents {
-		if content != "" {
+	if len(historyMessages) >= parallelThreshold {
+		// 并行格式化消息
+		formattedContents := make([]string, len(historyMessages))
+		parallelFor(len(historyMessages), func(idx int) {
+			msg := historyMessages[idx]
+			var content string
+			switch msg.Role {
+			case "user":
+				content = formatUserMessage(msg.Content)
+			case "assistant":
+				content = formatAssistantMessage(msg.Content, projectRoot)
+			}
+			formattedContents[idx] = content
+		})
+
+		for i, content := range formattedContents {
+			if content == "" {
+				continue
+			}
 			if turnIndex > 1 {
 				sb.WriteString("\n\n")
 			}
@@ -245,9 +263,34 @@ func FormatMessagesAsMarkdown(messages []Message) string {
 			sb.WriteString("\">\n")
 			sb.WriteString(content)
 			sb.WriteString("\n</turn>")
-
 			turnIndex++
 		}
+		return sb.String()
+	}
+
+	// 串行处理小批量消息并直接写入 builder
+	for _, msg := range historyMessages {
+		var content string
+		switch msg.Role {
+		case "user":
+			content = formatUserMessage(msg.Content)
+		case "assistant":
+			content = formatAssistantMessage(msg.Content, projectRoot)
+		}
+		if content == "" {
+			continue
+		}
+		if turnIndex > 1 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString("<turn index=\"")
+		sb.WriteString(strconv.Itoa(turnIndex))
+		sb.WriteString("\" role=\"")
+		sb.WriteString(msg.Role)
+		sb.WriteString("\">\n")
+		sb.WriteString(content)
+		sb.WriteString("\n</turn>")
+		turnIndex++
 	}
 
 	return sb.String()
@@ -273,6 +316,9 @@ func isToolResultOnly(content MessageContent) bool {
 func formatUserMessage(content MessageContent) string {
 	if content.IsString() {
 		text := strings.TrimSpace(content.GetText())
+		if text == "" {
+			return ""
+		}
 		return text
 	}
 
@@ -322,38 +368,53 @@ func formatUserMessage(content MessageContent) string {
 }
 
 func formatUserMessageNoToolResult(content MessageContent) string {
-	var parts []string
-
 	if content.IsString() {
-		text := strings.TrimSpace(content.GetText())
-		if text != "" {
-			parts = append(parts, text)
-		}
-		return strings.Join(parts, "\n")
+		return strings.TrimSpace(content.GetText())
 	}
 
-	for _, block := range content.GetBlocks() {
+	blocks := content.GetBlocks()
+	if len(blocks) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.Grow(len(blocks) * 64)
+	first := true
+	for _, block := range blocks {
 		switch block.Type {
 		case "text":
 			text := strings.TrimSpace(block.Text)
 			if text != "" {
-				parts = append(parts, text)
+				if !first {
+					sb.WriteByte('\n')
+				}
+				sb.WriteString(text)
+				first = false
 			}
 		case "image":
 			if block.Source != nil {
-				parts = append(parts, fmt.Sprintf("[Image: %s]", block.Source.MediaType))
+				if !first {
+					sb.WriteByte('\n')
+				}
+				sb.WriteString("[Image: ")
+				sb.WriteString(block.Source.MediaType)
+				sb.WriteByte(']')
+				first = false
 			}
 		}
 	}
 
-	return strings.Join(parts, "\n")
+	return sb.String()
 }
 
 // formatAssistantMessage 格式化 assistant 消息
-func formatAssistantMessage(content MessageContent) string {
+func formatAssistantMessage(content MessageContent, projectRoot string) string {
 	if content.IsString() {
 		text := strings.TrimSpace(content.GetText())
-		return text
+		if text == "" {
+			return ""
+		}
+		return filterLogLines(text, projectRoot)
 	}
 
 	blocks := content.GetBlocks()
@@ -370,10 +431,14 @@ func formatAssistantMessage(content MessageContent) string {
 		case "text":
 			text := strings.TrimSpace(block.Text)
 			if text != "" {
+				filtered := filterLogLines(text, projectRoot)
+				if filtered == "" {
+					continue
+				}
 				if !first {
 					sb.WriteByte('\n')
 				}
-				sb.WriteString(text)
+				sb.WriteString(filtered)
 				first = false
 			}
 		case "thinking":
@@ -397,22 +462,58 @@ func formatAssistantMessage(content MessageContent) string {
 	return sb.String()
 }
 
+func filterLogLines(text, projectRoot string) string {
+	if projectRoot == "" {
+		return text
+	}
+	if !strings.Contains(text, "[Scanning:") && !strings.Contains(text, "[System:") {
+		return text
+	}
+
+	lines := strings.Split(text, "\n")
+	var filtered []string
+	rootBase := filepath.Base(projectRoot)
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[Scanning:") {
+			// Check if line contains project path
+			// We accept if it contains either the full root path OR the base name (e.g. Orchids-2api)
+			if !strings.Contains(line, projectRoot) && !strings.Contains(line, rootBase) {
+				continue // Skip this line
+			}
+		}
+		filtered = append(filtered, line)
+	}
+	return strings.Join(filtered, "\n")
+}
+
 // formatToolResultContent 格式化工具结果内容
 func formatToolResultContent(content interface{}) string {
 	switch v := content.(type) {
 	case string:
 		return stripSystemReminders(v)
 	case []interface{}:
-		var parts []string
+		var sb strings.Builder
+		sb.Grow(len(v) * 32)
+		first := true
 		for _, item := range v {
 			if itemMap, ok := item.(map[string]interface{}); ok {
 				if text, ok := itemMap["text"].(string); ok {
-					parts = append(parts, stripSystemReminders(text))
+					clean := stripSystemReminders(text)
+					if clean == "" {
+						continue
+					}
+					if !first {
+						sb.WriteByte('\n')
+					}
+					sb.WriteString(clean)
+					first = false
 				}
 			}
 		}
-		if len(parts) > 0 {
-			return strings.Join(parts, "\n")
+		if !first {
+			return sb.String()
 		}
 		jsonBytes, _ := json.Marshal(v)
 		return string(jsonBytes)
@@ -430,7 +531,7 @@ func stripSystemReminders(text string) string {
 
 	// 快速路径：没有标签直接返回
 	if !strings.Contains(text, startTag) {
-		return strings.TrimSpace(text)
+		return trimSpaceIfNeeded(text)
 	}
 
 	var sb strings.Builder
@@ -462,7 +563,46 @@ func stripSystemReminders(text string) string {
 		i = endStart + end + len(endTag)
 	}
 
-	return strings.TrimSpace(sb.String())
+	return trimSpaceIfNeeded(sb.String())
+}
+
+func trimSpaceIfNeeded(text string) string {
+	if text == "" {
+		return text
+	}
+	first, _ := utf8.DecodeRuneInString(text)
+	if !unicode.IsSpace(first) {
+		last, _ := utf8.DecodeLastRuneInString(text)
+		if !unicode.IsSpace(last) {
+			return text
+		}
+	}
+	return strings.TrimSpace(text)
+}
+
+func wrapSection(tag, content string) string {
+	if content == "" {
+		return ""
+	}
+	var sb strings.Builder
+	sb.Grow(len(tag)*2 + len(content) + 5)
+	sb.WriteByte('<')
+	sb.WriteString(tag)
+	sb.WriteString(">\n")
+	sb.WriteString(content)
+	sb.WriteString("\n</")
+	sb.WriteString(tag)
+	sb.WriteByte('>')
+	return sb.String()
+}
+
+func wrapUserRequest(content string) string {
+	var sb strings.Builder
+	sb.Grow(len(content) + 32)
+	sb.WriteString("<user_request>\n")
+	sb.WriteString(content)
+	sb.WriteString("\n</user_request>")
+	return sb.String()
 }
 
 // BuildPromptV2 构建优化的 prompt
@@ -482,29 +622,37 @@ func BuildPromptV2WithOptions(req ClaudeAPIRequest, opts PromptOptions) string {
 		}
 	}
 	if len(clientSystem) > 0 {
-		baseSections = append(baseSections, fmt.Sprintf("<client_system>\n%s\n</client_system>", strings.Join(clientSystem, "\n\n")))
+		baseSections = append(baseSections, wrapSection("client_system", strings.Join(clientSystem, "\n\n")))
 	}
 
 	// 2. 代理系统预设
-	baseSections = append(baseSections, fmt.Sprintf("<proxy_instructions>\n%s\n</proxy_instructions>", systemPreset))
+	baseSections = append(baseSections, wrapSection("proxy_instructions", systemPreset))
 
 	// 2.1 项目上下文（快照）
 	if opts.ProjectContext != "" {
-		baseSections = append(baseSections, fmt.Sprintf("<project_context>\n%s\n</project_context>", opts.ProjectContext))
+		baseSections = append(baseSections, wrapSection("project_context", opts.ProjectContext))
 	}
 
 	// 3. 可用工具列表
 	if len(req.Tools) > 0 {
-		var toolNames []string
+		var toolBuilder strings.Builder
+		firstTool := true
 		for _, t := range req.Tools {
 			if tm, ok := t.(map[string]interface{}); ok {
 				if name, ok := tm["name"].(string); ok {
-					toolNames = append(toolNames, name)
+					if name == "" {
+						continue
+					}
+					if !firstTool {
+						toolBuilder.WriteString(", ")
+					}
+					firstTool = false
+					toolBuilder.WriteString(name)
 				}
 			}
 		}
-		if len(toolNames) > 0 {
-			baseSections = append(baseSections, fmt.Sprintf("<available_tools>\n%s\n</available_tools>", strings.Join(toolNames, ", ")))
+		if toolBuilder.Len() > 0 {
+			baseSections = append(baseSections, wrapSection("available_tools", toolBuilder.String()))
 		}
 
 	}
@@ -534,38 +682,69 @@ func BuildPromptV2WithOptions(req ClaudeAPIRequest, opts PromptOptions) string {
 		currentRequest = "继续"
 	}
 
-	buildSections := func(summary string, history string) []string {
-		sections := append([]string{}, baseSections...)
+	buildSections := func(summary string, history string) string {
+		var sb strings.Builder
+		sb.Grow(1024)
+		writeSection := func(s string) {
+			if sb.Len() > 0 {
+				sb.WriteString("\n\n")
+			}
+			sb.WriteString(s)
+		}
+		for _, section := range baseSections {
+			if section != "" {
+				writeSection(section)
+			}
+		}
 		if summary != "" {
-			sections = append(sections, fmt.Sprintf("<conversation_summary>\n%s\n</conversation_summary>", summary))
+			writeSection(wrapSection("conversation_summary", summary))
 		}
 		if history != "" {
-			sections = append(sections, fmt.Sprintf("<conversation_history>\n%s\n</conversation_history>", history))
+			writeSection(wrapSection("conversation_history", history))
 		}
-		sections = append(sections, fmt.Sprintf("<user_request>\n%s\n</user_request>", currentRequest))
-		return sections
+		writeSection(wrapUserRequest(currentRequest))
+		return sb.String()
 	}
-
-	// Calculate base tokens (System + Tools + User Request)
-	// We want to verify if we can fit everything.
-	fullHistory := FormatMessagesAsMarkdown(historyMessages)
-	sections := buildSections("", fullHistory)
-	promptText := strings.Join(sections, "\n\n")
 
 	if opts.MaxTokens <= 0 {
-		return promptText
-	}
-
-	totalTokens := tiktoken.EstimateTextTokens(promptText)
-	if totalTokens <= opts.MaxTokens {
-		return promptText
+		fullHistory := FormatMessagesAsMarkdown(historyMessages, opts.ProjectRoot)
+		return buildSections("", fullHistory)
 	}
 
 	// Optimization: Token-First History Selection
 	// If context is too large, we strictly prioritize recent messages that fit in the budget.
 	// 1. Calculate non-history usage
-	baseText := strings.Join(baseSections, "\n\n") + "\n\n" + fmt.Sprintf("<user_request>\n%s\n</user_request>", currentRequest)
+	baseText := buildSections("", "")
 	baseTokens := tiktoken.EstimateTextTokens(baseText)
+
+	if len(historyMessages) == 0 {
+		return baseText
+	}
+
+	var tokenCounts []int
+	const estimateThreshold = 16
+	if len(historyMessages) < estimateThreshold {
+		fullHistory := FormatMessagesAsMarkdown(historyMessages, opts.ProjectRoot)
+		promptText := buildSections("", fullHistory)
+		if tiktoken.EstimateTextTokens(promptText) <= opts.MaxTokens {
+			return promptText
+		}
+	} else {
+		tokenCounts = calculateMessageTokensParallel(historyMessages, opts.ProjectRoot)
+		estimatedHistoryTokens := 0
+		for _, t := range tokenCounts {
+			estimatedHistoryTokens += t
+		}
+		const wrapperOverhead = 20
+		estimatedTotal := baseTokens + estimatedHistoryTokens + wrapperOverhead
+		if estimatedTotal <= opts.MaxTokens {
+			fullHistory := FormatMessagesAsMarkdown(historyMessages, opts.ProjectRoot)
+			promptText := buildSections("", fullHistory)
+			if tiktoken.EstimateTextTokens(promptText) <= opts.MaxTokens {
+				return promptText
+			}
+		}
+	}
 
 	// Reserve some tokens for summary if possible (e.g. 500 tokens)
 	reservedForSummary := opts.SummaryMaxTokens
@@ -582,7 +761,9 @@ func BuildPromptV2WithOptions(req ClaudeAPIRequest, opts PromptOptions) string {
 	var older []Message
 
 	// 1. Calculate tokens for all history messages in parallel
-	tokenCounts := calculateMessageTokensParallel(historyMessages)
+	if tokenCounts == nil {
+		tokenCounts = calculateMessageTokensParallel(historyMessages, opts.ProjectRoot)
+	}
 
 	// 2. Select optimal history window using Suffix Sum + Binary Search
 	older, recent = selectHistoryWindow(historyMessages, tokenCounts, historyBudget, baseTokens, opts.MaxTokens)
@@ -594,22 +775,35 @@ func BuildPromptV2WithOptions(req ClaudeAPIRequest, opts PromptOptions) string {
 		summary = summarizeMessagesRecursive(older, reservedForSummary)
 	}
 
-	historyText := FormatMessagesAsMarkdown(recent)
-	finalSections := buildSections(summary, historyText)
-	return strings.Join(finalSections, "\n\n")
+	historyText := FormatMessagesAsMarkdown(recent, opts.ProjectRoot)
+	return buildSections(summary, historyText)
 }
 
-func summaryBudgetFor(maxTokens int, baseSections []string, recent []Message, currentRequest string) int {
+func summaryBudgetFor(maxTokens int, baseSections []string, recent []Message, currentRequest string, projectRoot string) int {
 	if maxTokens <= 0 {
 		return 0
 	}
-	sections := append([]string{}, baseSections...)
-	history := FormatMessagesAsMarkdown(recent)
-	if history != "" {
-		sections = append(sections, fmt.Sprintf("<conversation_history>\n%s\n</conversation_history>", history))
+	var sb strings.Builder
+	sb.Grow(1024)
+	writeSection := func(s string) {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(s)
 	}
-	sections = append(sections, fmt.Sprintf("<user_request>\n%s\n</user_request>", currentRequest))
-	promptText := strings.Join(sections, "\n\n")
+	for _, section := range baseSections {
+		if section != "" {
+			writeSection(section)
+		}
+	}
+	if len(recent) > 0 {
+		history := FormatMessagesAsMarkdown(recent, projectRoot)
+		if history != "" {
+			writeSection(wrapSection("conversation_history", history))
+		}
+	}
+	writeSection(wrapUserRequest(currentRequest))
+	promptText := sb.String()
 	usedTokens := tiktoken.EstimateTextTokens(promptText)
 	budget := maxTokens - usedTokens
 	if budget < 0 {
@@ -656,8 +850,17 @@ func summarizeMessagesWithCache(ctx context.Context, opts PromptOptions, message
 				perLineTokens = 8
 			}
 			newLines := buildSummaryLines(messages[len(entry.Hashes):], perLineTokens)
-			lines := append(append([]string{}, entry.Lines...), newLines...)
-			summary := strings.Join(lines, "\n")
+			lines := make([]string, 0, len(entry.Lines)+len(newLines))
+			lines = append(lines, entry.Lines...)
+			lines = append(lines, newLines...)
+			var sb strings.Builder
+			for i, line := range lines {
+				if i > 0 {
+					sb.WriteByte('\n')
+				}
+				sb.WriteString(line)
+			}
+			summary := sb.String()
 			if tiktoken.EstimateTextTokens(summary) > maxTokens {
 				summary = summarizeMessages(messages, maxTokens)
 				lines = splitSummaryLines(summary)
@@ -689,7 +892,7 @@ func splitSummaryLines(summary string) []string {
 		return nil
 	}
 	lines := strings.Split(summary, "\n")
-	var trimmed []string
+	trimmed := make([]string, 0, len(lines))
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line != "" {
@@ -697,6 +900,20 @@ func splitSummaryLines(summary string) []string {
 		}
 	}
 	return trimmed
+}
+
+func joinLines(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	for i, line := range lines {
+		if i > 0 {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(line)
+	}
+	return sb.String()
 }
 
 func trimSummaryToBudget(summary string, maxTokens int) string {
@@ -721,15 +938,9 @@ func hashMessages(messages []Message) []string {
 	const parallelThreshold = 8
 
 	if len(messages) >= parallelThreshold {
-		var wg sync.WaitGroup
-		wg.Add(len(messages))
-		for i, msg := range messages {
-			go func(idx int, m Message) {
-				defer wg.Done()
-				hashes[idx] = messageHash(m)
-			}(i, msg)
-		}
-		wg.Wait()
+		parallelFor(len(messages), func(idx int) {
+			hashes[idx] = messageHash(messages[idx])
+		})
 	} else {
 		for i, msg := range messages {
 			hashes[i] = messageHash(msg)
@@ -772,7 +983,7 @@ func messageHash(msg Message) string {
 				}
 			}
 		case "tool_result":
-			hasher.Write([]byte(formatToolResultContent(block.Content)))
+			writeToolResultHash(hasher, block.Content)
 			if block.IsError {
 				hasher.Write([]byte("error"))
 			}
@@ -781,6 +992,40 @@ func messageHash(msg Message) string {
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func writeToolResultHash(hasher hash.Hash, content interface{}) {
+	switch v := content.(type) {
+	case string:
+		hasher.Write([]byte(stripSystemReminders(v)))
+	case []interface{}:
+		wrote := false
+		for _, item := range v {
+			itemMap, ok := item.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			text, ok := itemMap["text"].(string)
+			if !ok {
+				continue
+			}
+			if wrote {
+				hasher.Write([]byte{'\n'})
+			}
+			hasher.Write([]byte(stripSystemReminders(text)))
+			wrote = true
+		}
+		if wrote {
+			return
+		}
+		if jsonBytes, err := json.Marshal(v); err == nil {
+			hasher.Write(jsonBytes)
+		}
+	default:
+		if jsonBytes, err := json.Marshal(v); err == nil {
+			hasher.Write(jsonBytes)
+		}
+	}
 }
 
 func isPrefix(prefix []string, full []string) bool {
@@ -832,14 +1077,15 @@ func summarizeMessages(messages []Message, maxTokens int) string {
 
 	for perLineTokens >= 4 {
 		lines := buildSummaryLines(messages, perLineTokens)
-		if tiktoken.EstimateTextTokens(strings.Join(lines, "\n")) <= maxTokens {
-			return strings.Join(lines, "\n")
+		joined := joinLines(lines)
+		if tiktoken.EstimateTextTokens(joined) <= maxTokens {
+			return joined
 		}
 		perLineTokens = int(float64(perLineTokens) * 0.7)
 	}
 
 	lines := buildSummaryLines(messages, 4)
-	return strings.Join(lines, "\n")
+	return joinLines(lines)
 }
 
 // buildSummaryLines 并行构建摘要行
@@ -858,19 +1104,13 @@ func buildSummaryLines(messages []Message, perLineTokens int) []string {
 
 	if len(messages) >= parallelThreshold {
 		results := make([]string, len(messages))
-		var wg sync.WaitGroup
-		wg.Add(len(messages))
-
-		for i, msg := range messages {
-			go func(idx int, m Message) {
-				defer wg.Done()
-				summary := summarizeMessageWithLimit(m, perLineTokens)
-				if summary != "" {
-					results[idx] = fmt.Sprintf("- %s: %s", m.Role, summary)
-				}
-			}(i, msg)
-		}
-		wg.Wait()
+		parallelFor(len(messages), func(idx int) {
+			msg := messages[idx]
+			summary := summarizeMessageWithLimit(msg, perLineTokens)
+			if summary != "" {
+				results[idx] = fmt.Sprintf("- %s: %s", msg.Role, summary)
+			}
+		})
 
 		// 过滤空行，保持顺序
 		lines := make([]string, 0, len(messages))
@@ -883,7 +1123,7 @@ func buildSummaryLines(messages []Message, perLineTokens int) []string {
 	}
 
 	// 串行处理小批量
-	var lines []string
+	lines := make([]string, 0, len(messages))
 	for _, msg := range messages {
 		summary := summarizeMessageWithLimit(msg, perLineTokens)
 		if summary == "" {
@@ -899,43 +1139,65 @@ func summarizeMessageWithLimit(msg Message, maxTokens int) string {
 		return truncateToTokens(stripSystemReminders(strings.TrimSpace(msg.Content.GetText())), maxTokens)
 	}
 
-	var parts []string
-	for _, block := range msg.Content.GetBlocks() {
+	blocks := msg.Content.GetBlocks()
+	var sb strings.Builder
+	sb.Grow(len(blocks) * 48)
+	first := true
+	for _, block := range blocks {
 		switch block.Type {
 		case "text":
 			text := stripSystemReminders(strings.TrimSpace(block.Text))
 			if text != "" {
-				parts = append(parts, text)
+				if !first {
+					sb.WriteString(" | ")
+				}
+				sb.WriteString(text)
+				first = false
 			}
 		case "tool_use":
 			if block.Name != "" {
-				inputStr := ""
+				if !first {
+					sb.WriteString(" | ")
+				}
+				sb.WriteString("tool_use:")
+				sb.WriteString(block.Name)
 				if block.Input != nil {
 					if b, err := json.Marshal(block.Input); err == nil {
-						inputStr = string(b)
+						sb.WriteByte('(')
+						sb.Write(b)
+						sb.WriteByte(')')
 					}
 				}
-				if inputStr != "" {
-					parts = append(parts, fmt.Sprintf("tool_use:%s(%s)", block.Name, inputStr))
-				} else {
-					parts = append(parts, fmt.Sprintf("tool_use:%s", block.Name))
-				}
+				first = false
 			}
 		case "tool_result":
 			resultText := formatToolResultContent(block.Content)
 			if block.IsError {
-				parts = append(parts, "tool_result:error: "+resultText)
+				if !first {
+					sb.WriteString(" | ")
+				}
+				sb.WriteString("tool_result:error: ")
+				sb.WriteString(resultText)
+				first = false
 			} else {
-				parts = append(parts, "tool_result: "+resultText)
+				if !first {
+					sb.WriteString(" | ")
+				}
+				sb.WriteString("tool_result: ")
+				sb.WriteString(resultText)
+				first = false
 			}
 		}
 	}
 
-	return truncateToTokens(strings.Join(parts, " | "), maxTokens)
+	if first {
+		return ""
+	}
+	return truncateToTokens(sb.String(), maxTokens)
 }
 
 // calculateMessageTokensParallel 并行计算消息 token
-func calculateMessageTokensParallel(messages []Message) []int {
+func calculateMessageTokensParallel(messages []Message, projectRoot string) []int {
 	historyLen := len(messages)
 	tokenCounts := make([]int, historyLen)
 	if historyLen == 0 {
@@ -944,35 +1206,16 @@ func calculateMessageTokensParallel(messages []Message) []int {
 
 	const parallelThreshold = 8
 	if historyLen >= parallelThreshold {
-		type msgTokenResult struct {
-			index  int
-			tokens int
-		}
-		var wg sync.WaitGroup
-		resultChan := make(chan msgTokenResult, historyLen)
-
-		wg.Add(historyLen)
-		for i, msg := range messages {
-			go func(idx int, m Message) {
-				defer wg.Done()
-				msgContent := ""
-				if m.Role == "user" {
-					msgContent = formatUserMessage(m.Content)
-				} else {
-					msgContent = formatAssistantMessage(m.Content)
-				}
-				// formatted turn XML overhead: <turn index="N" role="...">\n...\n</turn> ~ approx 15 tokens
-				t := tiktoken.EstimateTextTokens(msgContent) + 15
-				resultChan <- msgTokenResult{index: idx, tokens: t}
-			}(i, msg)
-		}
-		go func() {
-			wg.Wait()
-			close(resultChan)
-		}()
-		for res := range resultChan {
-			tokenCounts[res.index] = res.tokens
-		}
+		parallelFor(historyLen, func(idx int) {
+			msg := messages[idx]
+			msgContent := ""
+			if msg.Role == "user" {
+				msgContent = formatUserMessage(msg.Content)
+			} else {
+				msgContent = formatAssistantMessage(msg.Content, projectRoot)
+			}
+			tokenCounts[idx] = tiktoken.EstimateTextTokens(msgContent) + 15
+		})
 	} else {
 		// Serial for small history
 		for i, msg := range messages {
@@ -980,7 +1223,7 @@ func calculateMessageTokensParallel(messages []Message) []int {
 			if msg.Role == "user" {
 				msgContent = formatUserMessage(msg.Content)
 			} else {
-				msgContent = formatAssistantMessage(msg.Content)
+				msgContent = formatAssistantMessage(msg.Content, projectRoot)
 			}
 			tokenCounts[i] = tiktoken.EstimateTextTokens(msgContent) + 15
 		}
@@ -1042,7 +1285,7 @@ func summarizeMessagesRecursive(messages []Message, maxTokens int) string {
 		// Just format them all, but maybe still need to truncate individual large ones?
 		// For simplicity, we just use the simple line builder for small enough chunks
 		lines := buildSummaryLines(messages, maxTokens) // Reuse existing logic which formats well
-		return strings.Join(lines, "\n")
+		return joinLines(lines)
 	}
 
 	// Recursive step: Split into two halves
@@ -1072,7 +1315,8 @@ func truncateToTokens(text string, maxTokens int) string {
 	runes := []rune(text)
 
 	// 快速路径：文本足够短
-	if tiktoken.EstimateTextTokens(text) <= maxTokens {
+	estimated := tiktoken.EstimateTextTokens(text)
+	if estimated <= maxTokens {
 		return text
 	}
 
@@ -1109,7 +1353,7 @@ func truncateToTokens(text string, maxTokens int) string {
 		return ""
 	}
 
-	result := strings.TrimSpace(string(runes[:bestLen]))
+	result := trimSpaceIfNeeded(string(runes[:bestLen]))
 	if result == "" {
 		return ""
 	}
@@ -1118,7 +1362,7 @@ func truncateToTokens(text string, maxTokens int) string {
 
 func removeSection(sections []string, sectionName string) []string {
 	prefix := "<" + sectionName + ">"
-	var result []string
+	result := make([]string, 0, len(sections))
 	for _, section := range sections {
 		if strings.HasPrefix(section, prefix) {
 			continue

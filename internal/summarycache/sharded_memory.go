@@ -3,6 +3,7 @@ package summarycache
 import (
 	"container/list"
 	"context"
+	"hash"
 	"hash/fnv"
 	"sync"
 	"sync/atomic"
@@ -33,6 +34,12 @@ type shardCacheItem struct {
 	key       string
 	value     prompt.SummaryCacheEntry
 	expiresAt time.Time
+}
+
+var shardHasherPool = sync.Pool{
+	New: func() interface{} {
+		return fnv.New32a()
+	},
 }
 
 // NewShardedMemoryCache 创建一个新的分片内存缓存
@@ -100,9 +107,12 @@ func (c *ShardedMemoryCache) startEvictionLoop(interval time.Duration) {
 }
 
 func (c *ShardedMemoryCache) getShard(key string) *memoryShard {
-	h := fnv.New32a()
+	h := shardHasherPool.Get().(hash.Hash32)
+	h.Reset()
 	h.Write([]byte(key))
-	return c.shards[h.Sum32()%uint32(c.shardCount)]
+	sum := h.Sum32()
+	shardHasherPool.Put(h)
+	return c.shards[sum%uint32(c.shardCount)]
 }
 
 // Get 从缓存获取值
@@ -134,8 +144,7 @@ func (s *memoryShard) get(key string) (prompt.SummaryCacheEntry, bool) {
 	// 检查是否过期
 	if s.ttl > 0 && time.Now().After(item.expiresAt) {
 		s.mu.RUnlock()
-		// 异步删除过期项，不阻塞读操作
-		go s.tryRemoveExpired(key, el)
+		s.tryRemoveExpired(key, el)
 		return prompt.SummaryCacheEntry{}, false
 	}
 

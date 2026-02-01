@@ -1,7 +1,6 @@
 package prompt
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -41,19 +40,19 @@ func CompressToolResults(messages []Message, keepLastN int, maxLen int) []Messag
 
 		for _, block := range blocks {
 			if block.Type == "tool_result" {
-				contentStr := formatToolResultContent(block.Content)
-				if len(contentStr) > maxLen {
-					// Perform compression
-					lines := strings.Split(contentStr, "\n")
-					hiddenCount := len(lines)
-					snippet := contentStr
-					if len([]rune(snippet)) > 200 {
-						runes := []rune(snippet)
-						snippet = string(runes[:200]) + "..."
-					}
+				contentStr, ok := toolResultString(block.Content, maxLen)
+				if ok && len(contentStr) > maxLen {
+					hiddenCount := countLines(contentStr)
+					snippet := truncateRunes(contentStr, 200)
 
-					// Create a systematic summary
-					newContent := fmt.Sprintf("[Output compressed by system: %d lines hidden. Preview: %s]", hiddenCount, snippet)
+					var sb strings.Builder
+					sb.Grow(len(snippet) + 64)
+					sb.WriteString("[Output compressed by system: ")
+					sb.WriteString(itoa(hiddenCount))
+					sb.WriteString(" lines hidden. Preview: ")
+					sb.WriteString(snippet)
+					sb.WriteByte(']')
+					newContent := sb.String()
 
 					// Update block
 					newBlock := block
@@ -78,6 +77,85 @@ func CompressToolResults(messages []Message, keepLastN int, maxLen int) []Messag
 	return compressed
 }
 
+func toolResultString(content interface{}, maxLen int) (string, bool) {
+	switch v := content.(type) {
+	case string:
+		return stripSystemReminders(v), true
+	case []interface{}:
+		if maxLen > 0 {
+			var sb strings.Builder
+			first := true
+			for _, item := range v {
+				itemMap, ok := item.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				text, ok := itemMap["text"].(string)
+				if !ok {
+					continue
+				}
+				clean := stripSystemReminders(text)
+				if clean == "" {
+					continue
+				}
+				if !first {
+					sb.WriteByte('\n')
+				}
+				sb.WriteString(clean)
+				first = false
+				if sb.Len() > maxLen {
+					return sb.String(), true
+				}
+			}
+			if !first {
+				return sb.String(), true
+			}
+			return "", true
+		}
+		return formatToolResultContent(v), true
+	default:
+		return formatToolResultContent(v), true
+	}
+}
+
+func countLines(s string) int {
+	if s == "" {
+		return 0
+	}
+	n := 1
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\n' {
+			n++
+		}
+	}
+	return n
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "..."
+}
+
+func itoa(v int) string {
+	if v == 0 {
+		return "0"
+	}
+	var buf [20]byte
+	i := len(buf)
+	for v > 0 {
+		i--
+		buf[i] = byte('0' + v%10)
+		v /= 10
+	}
+	return string(buf[i:])
+}
+
 // CollapseRepeatedErrors detects and merges consecutive identical error loops.
 func CollapseRepeatedErrors(messages []Message) []Message {
 	if len(messages) < 4 {
@@ -85,6 +163,15 @@ func CollapseRepeatedErrors(messages []Message) []Message {
 	}
 
 	out := make([]Message, 0, len(messages))
+	hashes := make([]string, len(messages))
+	hasHash := make([]bool, len(messages))
+	getHash := func(i int) string {
+		if !hasHash[i] {
+			hashes[i] = messageHash(messages[i])
+			hasHash[i] = true
+		}
+		return hashes[i]
+	}
 	i := 0
 	for i < len(messages) {
 		// Look for pattern: [Assistant A, User Error A] followed by [Assistant A, User Error A]
@@ -99,7 +186,7 @@ func CollapseRepeatedErrors(messages []Message) []Message {
 
 				if isErrorResult(u1) && isErrorResult(u2) {
 					// Check if they are effectively identical loops
-					if messageHash(a1) == messageHash(a2) && messageHash(u1) == messageHash(u2) {
+					if getHash(i) == getHash(i+2) && getHash(i+1) == getHash(i+3) {
 						// Skip the first pair (deduplicate), effectively collapsing the loop
 						i += 2
 						continue
