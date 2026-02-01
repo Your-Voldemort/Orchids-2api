@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"hash"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"orchids-api/internal/tiktoken"
+	"orchids-api/internal/util"
 )
 
 // hasherPool 复用 SHA256 hasher，避免频繁内存分配
@@ -25,36 +25,6 @@ var hasherPool = sync.Pool{
 	New: func() interface{} {
 		return sha256.New()
 	},
-}
-
-func parallelFor(n int, fn func(int)) {
-	if n <= 0 {
-		return
-	}
-	workers := runtime.GOMAXPROCS(0)
-	if workers < 1 {
-		workers = 1
-	}
-	if workers > n {
-		workers = n
-	}
-
-	var wg sync.WaitGroup
-	jobs := make(chan int, workers)
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range jobs {
-				fn(idx)
-			}
-		}()
-	}
-	for i := 0; i < n; i++ {
-		jobs <- i
-	}
-	close(jobs)
-	wg.Wait()
 }
 
 // ImageSource 表示图片来源
@@ -240,7 +210,7 @@ func FormatMessagesAsMarkdown(messages []Message, projectRoot string) string {
 	if len(historyMessages) >= parallelThreshold {
 		// 并行格式化消息
 		formattedContents := make([]string, len(historyMessages))
-		parallelFor(len(historyMessages), func(idx int) {
+		util.ParallelFor(len(historyMessages), func(idx int) {
 			msg := historyMessages[idx]
 			var content string
 			switch msg.Role {
@@ -959,7 +929,7 @@ func hashMessages(messages []Message) []string {
 	const parallelThreshold = 8
 
 	if len(messages) >= parallelThreshold {
-		parallelFor(len(messages), func(idx int) {
+		util.ParallelFor(len(messages), func(idx int) {
 			hashes[idx] = messageHash(messages[idx])
 		})
 	} else {
@@ -1125,7 +1095,7 @@ func buildSummaryLines(messages []Message, perLineTokens int) []string {
 
 	if len(messages) >= parallelThreshold {
 		results := make([]string, len(messages))
-		parallelFor(len(messages), func(idx int) {
+		util.ParallelFor(len(messages), func(idx int) {
 			msg := messages[idx]
 			summary := summarizeMessageWithLimit(msg, perLineTokens)
 			if summary != "" {
@@ -1227,7 +1197,7 @@ func calculateMessageTokensParallel(messages []Message, projectRoot string) []in
 
 	const parallelThreshold = 8
 	if historyLen >= parallelThreshold {
-		parallelFor(historyLen, func(idx int) {
+		util.ParallelFor(historyLen, func(idx int) {
 			msg := messages[idx]
 			msgContent := ""
 			if msg.Role == "user" {

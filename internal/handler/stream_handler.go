@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"orchids-api/internal/debug"
 	"orchids-api/internal/perf"
 	"orchids-api/internal/tiktoken"
+	"orchids-api/internal/util"
 )
 
 type streamHandler struct {
@@ -81,36 +81,6 @@ type streamHandler struct {
 
 	// Logger
 	logger *debug.Logger
-}
-
-func parallelFor(n int, fn func(int)) {
-	if n <= 0 {
-		return
-	}
-	workers := runtime.GOMAXPROCS(0)
-	if workers < 1 {
-		workers = 1
-	}
-	if workers > n {
-		workers = n
-	}
-
-	var wg sync.WaitGroup
-	jobs := make(chan int, workers)
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range jobs {
-				fn(idx)
-			}
-		}()
-	}
-	for i := 0; i < n; i++ {
-		jobs <- i
-	}
-	close(jobs)
-	wg.Wait()
 }
 
 func newStreamHandler(
@@ -655,7 +625,7 @@ func (h *streamHandler) processAutoPendingCalls() {
 	}
 
 	results := make([]safeToolResult, len(calls))
-	parallelFor(len(calls), func(i int) {
+	util.ParallelFor(len(calls), func(i int) {
 		results[i] = executeToolCall(calls[i], h.config)
 	})
 

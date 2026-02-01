@@ -7,7 +7,6 @@ import (
 
 	"orchids-api/internal/debug"
 	"orchids-api/internal/prompt"
-	"orchids-api/internal/tiktoken"
 )
 
 // HandleCountTokens handles /v1/messages/count_tokens requests.
@@ -58,7 +57,7 @@ func (h *Handler) HandleCountTokens(w http.ResponseWriter, r *http.Request) {
 		Stream:   false,
 	}, opts)
 
-	inputTokens := tiktoken.EstimateTextTokens(builtPrompt)
+	inputTokens := h.estimateInputTokens(r.Context(), req.Model, builtPrompt)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]int{

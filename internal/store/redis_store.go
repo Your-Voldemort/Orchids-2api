@@ -4,14 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"orchids-api/internal/model"
+	"orchids-api/internal/util"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -19,36 +18,6 @@ import (
 type redisStore struct {
 	client *redis.Client
 	prefix string
-}
-
-func parallelFor(n int, fn func(int)) {
-	if n <= 0 {
-		return
-	}
-	workers := runtime.GOMAXPROCS(0)
-	if workers < 1 {
-		workers = 1
-	}
-	if workers > n {
-		workers = n
-	}
-
-	var wg sync.WaitGroup
-	jobs := make(chan int, workers)
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for idx := range jobs {
-				fn(idx)
-			}
-		}()
-	}
-	for i := 0; i < n; i++ {
-		jobs <- i
-	}
-	close(jobs)
-	wg.Wait()
 }
 
 type apiKeyRecord struct {
@@ -363,7 +332,7 @@ func (s *redisStore) getAccountsByIDs(ctx context.Context, ids []string, onlyEna
 	if len(values) >= parallelThreshold {
 		// 并行解析 JSON
 		results := make([]*Account, len(values))
-		parallelFor(len(values), func(idx int) {
+		util.ParallelFor(len(values), func(idx int) {
 			val := values[idx]
 			if val == nil {
 				return
@@ -653,7 +622,7 @@ func (s *redisStore) getApiKeysByIDs(ctx context.Context, ids []string) ([]*ApiK
 
 	if len(values) >= parallelThreshold {
 		results := make([]*ApiKey, len(values))
-		parallelFor(len(values), func(idx int) {
+		util.ParallelFor(len(values), func(idx int) {
 			val := values[idx]
 			if val == nil {
 				return

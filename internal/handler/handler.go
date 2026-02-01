@@ -21,7 +21,8 @@ import (
 	"orchids-api/internal/prompt"
 	"orchids-api/internal/store"
 	"orchids-api/internal/summarycache"
-	"orchids-api/internal/tiktoken"
+	"orchids-api/internal/tokencache"
+	"orchids-api/internal/util"
 	"orchids-api/internal/warp"
 )
 
@@ -32,6 +33,7 @@ type Handler struct {
 	summaryCache prompt.SummaryCache
 	summaryStats *summarycache.Stats
 	summaryLog   bool
+	tokenCache   tokencache.Cache
 
 	sessionWorkdirs sync.Map // Map conversationKey -> string (workdir)
 }
@@ -87,6 +89,10 @@ func (h *Handler) SetSummaryCache(cache prompt.SummaryCache) {
 
 func (h *Handler) SetSummaryStats(stats *summarycache.Stats) {
 	h.summaryStats = stats
+}
+
+func (h *Handler) SetTokenCache(cache tokencache.Cache) {
+	h.tokenCache = cache
 }
 
 func (h *Handler) writeErrorResponse(w http.ResponseWriter, errType string, message string, code int) {
@@ -433,7 +439,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	logger.LogConvertedPrompt(builtPrompt)
 
 	// Token 计数
-	inputTokens := tiktoken.EstimateTextTokens(builtPrompt)
+	inputTokens := h.estimateInputTokens(r.Context(), req.Model, builtPrompt)
 
 	sh := newStreamHandler(
 		h.config, w, logger, toolCallMode, suppressThinking, allowedTools, allowedIndex, preflightResults, shouldLocalFallback, isStream,
@@ -531,8 +537,35 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 				// Check for non-retriable errors
 				errStr := err.Error()
-				if strings.Contains(errStr, "Input is too long") || strings.Contains(errStr, "status 400") {
+				isAuthError := strings.Contains(errStr, "status 401") || strings.Contains(errStr, "Signed out") || strings.Contains(errStr, "signed_out")
+				if isAuthError || strings.Contains(errStr, "Input is too long") || strings.Contains(errStr, "status 400") {
 					slog.Error("Aborting retries for non-retriable error", "error", err)
+
+					// Inject error message to client for better visibility
+					if isAuthError {
+						errorMsg := "Warp Authentication Error: Session expired (401). Please update your credentials in orchids_creds.json."
+						idx := sh.ensureBlock("text")
+
+						// For stream, send delta immediately
+						if sh.isStream {
+							deltaMap := map[string]interface{}{
+								"type":  "content_block_delta",
+								"index": idx,
+								"delta": map[string]interface{}{
+									"type": "text_delta",
+									"text": errorMsg,
+								},
+							}
+							deltaData, _ := json.Marshal(deltaMap)
+							sh.writeSSE("content_block_delta", string(deltaData))
+						} else {
+							// For non-stream, ensureBlock has initialized the builder, we append to it
+							if builder, ok := sh.textBlockBuilders[idx]; ok {
+								builder.WriteString(errorMsg)
+							}
+						}
+					}
+
 					sh.finishResponse("end_turn")
 					return
 				}
@@ -568,7 +601,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				if retryDelay > 0 {
-					if !sleepWithContext(r.Context(), retryDelay) {
+					if !util.SleepWithContext(r.Context(), retryDelay) {
 						sh.finishResponse("end_turn")
 						return
 					}
@@ -670,7 +703,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 						Tools:    effectiveTools,
 						Stream:   req.Stream,
 					}, opts)
-					inputTokens = tiktoken.EstimateTextTokens(builtPrompt)
+					inputTokens = h.estimateInputTokens(r.Context(), req.Model, builtPrompt)
 					sh.setUsageTokens(inputTokens, -1)
 					logger.LogConvertedPrompt(builtPrompt)
 				}
@@ -743,6 +776,21 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	}
 
+	// 2.5 同步 Warp 刷新令牌（如有变更）
+	if currentAccount != nil && strings.EqualFold(currentAccount.AccountType, "warp") {
+		if h.loadBalancer != nil && h.loadBalancer.Store != nil {
+			if warpClient, ok := apiClient.(*warp.Client); ok {
+				if warpClient.SyncAccountState() {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+					if err := h.loadBalancer.Store.UpdateAccount(ctx, currentAccount); err != nil {
+						slog.Warn("同步 Warp 账号令牌失败", "account", currentAccount.Name, "error", err)
+					}
+				}
+			}
+		}
+	}
+
 	// 3. Update account usage
 	if currentAccount != nil && h.loadBalancer != nil {
 		go func(accountID int64, inputTokens, outputTokens int) {
@@ -784,23 +832,3 @@ func dedupeConsecutiveMessages(messages []prompt.Message) []prompt.Message {
 	return out
 }
 
-func sleepWithContext(ctx context.Context, d time.Duration) bool {
-	if d <= 0 {
-		return true
-	}
-	timer := time.NewTimer(d)
-	defer func() {
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-	}()
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
-}

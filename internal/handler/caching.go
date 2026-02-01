@@ -11,6 +11,9 @@ import (
 // - "mixed": Caches system prompt, tools (if applicable), and attempts to cache large context blocks in the last user message.
 func applyCacheStrategy(req *ClaudeRequest, strategy string) {
 	strategy = strings.ToLower(strings.TrimSpace(strategy))
+	if strategy == "mix" {
+		strategy = "mixed"
+	}
 	if strategy == "" || strategy == "none" || strategy == "off" {
 		return
 	}

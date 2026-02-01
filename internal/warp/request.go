@@ -83,7 +83,7 @@ func (e *encoder) writePackedVarints(field int, values []int) {
 	e.b = append(e.b, inner.b...)
 }
 
-func buildRequestBytes(prompt, model string, tools []interface{}, disableWarpTools bool, hasHistory bool) ([]byte, error) {
+func buildRequestBytes(prompt, model string, tools []interface{}, disableWarpTools bool, hasHistory bool, workdir string) ([]byte, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return nil, fmt.Errorf("empty prompt")
@@ -92,7 +92,7 @@ func buildRequestBytes(prompt, model string, tools []interface{}, disableWarpToo
 		prompt = noWarpToolsPrompt + "\n\n" + prompt
 	}
 
-	inputContext := buildInputContext()
+	inputContext := buildInputContext(workdir)
 	userQuery := buildUserQuery(prompt, !hasHistory)
 	input := buildInput(inputContext, userQuery)
 	settings := buildSettings(model, disableWarpTools)
@@ -113,8 +113,11 @@ func buildRequestBytes(prompt, model string, tools []interface{}, disableWarpToo
 	return req.bytes(), nil
 }
 
-func buildInputContext() []byte {
-	pwd, _ := os.Getwd()
+func buildInputContext(workdir string) []byte {
+	pwd := strings.TrimSpace(workdir)
+	if pwd == "" {
+		pwd, _ = os.Getwd()
+	}
 	home, _ := os.UserHomeDir()
 	shellName := filepath.Base(os.Getenv("SHELL"))
 	if shellName == "" {

@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"orchids-api/internal/config"
+	"orchids-api/internal/store"
 	"orchids-api/web"
 )
 
@@ -74,22 +75,39 @@ func parseTemplates() (*template.Template, error) {
 }
 
 // RenderIndex renders the main index page
-func (r *Renderer) RenderIndex(w http.ResponseWriter, req *http.Request, cfg *config.Config) error {
+func (r *Renderer) RenderIndex(w http.ResponseWriter, req *http.Request, cfg *config.Config, s *store.Store) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	activeTab := getActiveTab(req)
 
+	stats := &Stats{
+		TotalAccounts:    0,
+		NormalAccounts:   0,
+		AbnormalAccounts: 0,
+		SelectedAccounts: 0,
+	}
+
+	if s != nil {
+		ctx := req.Context()
+		accounts, err := s.ListAccounts(ctx)
+		if err == nil {
+			stats.TotalAccounts = len(accounts)
+			for _, acc := range accounts {
+				if acc.Enabled {
+					stats.NormalAccounts++
+				} else {
+					stats.AbnormalAccounts++
+				}
+			}
+		}
+	}
+
 	data := &PageData{
 		Title:     "API 管理面板",
 		AdminPath: cfg.AdminPath,
 		ActiveTab: activeTab,
-		Stats: &Stats{
-			TotalAccounts:    0,
-			NormalAccounts:   0,
-			AbnormalAccounts: 0,
-			SelectedAccounts: 0,
-		},
+		Stats:     stats,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

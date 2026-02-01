@@ -27,6 +27,8 @@ import (
 	"orchids-api/internal/summarycache"
 	credsync "orchids-api/internal/sync"
 	"orchids-api/internal/template"
+	"orchids-api/internal/tokencache"
+	"orchids-api/internal/warp"
 	"orchids-api/web"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -82,6 +84,10 @@ func main() {
 	lb := loadbalancer.NewWithCacheTTL(s, time.Duration(cfg.LoadBalancerCacheTTL)*time.Second)
 	apiHandler := api.New(s, cfg.AdminUser, cfg.AdminPass, cfg, resolvedCfgPath)
 	h := handler.NewWithLoadBalancer(cfg, lb)
+
+	tokenCache := tokencache.NewMemoryCache(time.Duration(cfg.CacheTTL) * time.Minute)
+	h.SetTokenCache(tokenCache)
+	apiHandler.SetTokenCache(tokenCache)
 
 	cacheMode := strings.ToLower(cfg.SummaryCacheMode)
 	if cacheMode != "off" {
@@ -148,6 +154,8 @@ func main() {
 	mux.HandleFunc("/api/export", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleExport))
 	mux.HandleFunc("/api/import", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleImport))
 	mux.HandleFunc("/api/config", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleConfig))
+	mux.HandleFunc("/api/config/cache/stats", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleCacheStats))
+	mux.HandleFunc("/api/config/cache/clear", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleCacheClear))
 
 	// Protected Web UI
 	staticHandler := http.StripPrefix(cfg.AdminPath, web.StaticHandler())
@@ -182,7 +190,7 @@ func main() {
 
 		// Render template-based index page
 		if r.URL.Path == cfg.AdminPath+"/" || r.URL.Path == cfg.AdminPath {
-			err := tmplRenderer.RenderIndex(w, r, cfg)
+			err := tmplRenderer.RenderIndex(w, r, cfg, s)
 			if err != nil {
 				slog.Error("Failed to render template", "error", err)
 				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -235,6 +243,21 @@ func main() {
 			}
 			for _, acc := range accounts {
 				if strings.TrimSpace(acc.ClientCookie) == "" {
+					continue
+				}
+				if strings.EqualFold(acc.AccountType, "warp") {
+					warpClient := warp.NewFromAccount(acc, cfg)
+					jwt, err := warpClient.RefreshAccount(context.Background())
+					if err != nil {
+						slog.Warn("Auto refresh token failed", "account", acc.Name, "type", "warp", "error", err)
+						continue
+					}
+					if jwt != "" {
+						acc.Token = jwt
+					}
+					if err := s.UpdateAccount(context.Background(), acc); err != nil {
+						slog.Warn("Auto refresh token: update account failed", "account", acc.Name, "type", "warp", "error", err)
+					}
 					continue
 				}
 				info, err := clerk.FetchAccountInfo(acc.ClientCookie)

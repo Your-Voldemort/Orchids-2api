@@ -31,17 +31,26 @@ func NewFromAccount(acc *store.Account, cfg *config.Config) *Client {
 		refresh = strings.TrimSpace(acc.ClientCookie)
 	}
 	sess := getSession(acc.ID, refresh)
+	timeout := defaultRequestTimeout
+	if cfg != nil && cfg.RequestTimeout > 0 {
+		timeout = time.Duration(cfg.RequestTimeout) * time.Second
+	}
 	return &Client{
 		config:     cfg,
 		account:    acc,
-		httpClient: newHTTPClient(),
+		httpClient: newHTTPClient(timeout),
 		session:    sess,
 	}
 }
 
-func newHTTPClient() *http.Client {
+const defaultRequestTimeout = 120 * time.Second
+
+func newHTTPClient(timeout time.Duration) *http.Client {
+	if timeout <= 0 {
+		timeout = defaultRequestTimeout
+	}
 	return &http.Client{
-		Timeout: 120 * time.Second,
+		Timeout: timeout,
 		Transport: &http.Transport{
 			Proxy:                 http.ProxyFromEnvironment,
 			MaxIdleConns:          50,
@@ -66,6 +75,9 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req client.Upstream
 	if c.session == nil {
 		return fmt.Errorf("warp session not initialized")
 	}
+	ctx, cancel := withDefaultTimeout(ctx, c.requestTimeout())
+	defer cancel()
+
 	if err := c.session.ensureToken(ctx, c.httpClient); err != nil {
 		return err
 	}
@@ -88,7 +100,7 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req client.Upstream
 		tools = nil
 	}
 
-	payload, err := buildRequestBytes(prompt, req.Model, tools, disableWarpTools, hasHistory)
+	payload, err := buildRequestBytes(prompt, req.Model, tools, disableWarpTools, hasHistory, req.Workdir)
 	if err != nil {
 		return err
 	}
@@ -122,9 +134,24 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req client.Upstream
 		}, map[string]interface{}{"payload_bytes": len(payload)})
 	}
 
-	resp, err := c.httpClient.Do(request)
+	breaker := client.GetAccountBreaker(c.breakerKey())
+	start := time.Now()
+
+	result, err := breaker.Execute(func() (interface{}, error) {
+		return c.httpClient.Do(request)
+	})
 	if err != nil {
+		if c.config != nil && c.config.DebugEnabled {
+			slog.Info("[Performance] Upstream Request Failed", "duration", time.Since(start), "error", err)
+		}
 		return err
+	}
+	if c.config != nil && c.config.DebugEnabled {
+		slog.Info("[Performance] Upstream Request Success", "duration", time.Since(start))
+	}
+	resp, ok := result.(*http.Response)
+	if !ok || resp == nil {
+		return fmt.Errorf("warp api error: unexpected response type")
 	}
 	defer resp.Body.Close()
 
@@ -151,6 +178,9 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req client.Upstream
 			}
 			data := strings.Join(dataLines, "")
 			dataLines = nil
+			if logger != nil {
+				logger.LogUpstreamSSE("warp_data", data)
+			}
 			payloadBytes, err := decodeWarpPayload(data)
 			if err != nil {
 				if logger != nil {
@@ -212,6 +242,36 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req client.Upstream
 	return nil
 }
 
+func (c *Client) requestTimeout() time.Duration {
+	if c != nil && c.config != nil && c.config.RequestTimeout > 0 {
+		return time.Duration(c.config.RequestTimeout) * time.Second
+	}
+	return defaultRequestTimeout
+}
+
+func withDefaultTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+func (c *Client) breakerKey() string {
+	if c == nil || c.account == nil {
+		return "warp:default"
+	}
+	if name := strings.TrimSpace(c.account.Name); name != "" {
+		return "warp:" + name
+	}
+	if c.account.ID > 0 {
+		return fmt.Sprintf("warp:%d", c.account.ID)
+	}
+	return "warp:default"
+}
+
 func decodeWarpPayload(data string) ([]byte, error) {
 	if data == "" {
 		return nil, fmt.Errorf("empty payload")
@@ -243,6 +303,25 @@ func (c *Client) RefreshAccount(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("warp jwt missing")
 	}
 	return jwt, nil
+}
+
+// SyncAccountState 同步内存会话中的刷新令牌与 JWT 到账号信息，返回是否有变更。
+func (c *Client) SyncAccountState() bool {
+	if c == nil || c.session == nil || c.account == nil {
+		return false
+	}
+	changed := false
+	jwt := strings.TrimSpace(c.session.currentJWT())
+	refresh := strings.TrimSpace(c.session.currentRefreshToken())
+	if refresh != "" && refresh != c.account.ClientCookie {
+		c.account.ClientCookie = refresh
+		changed = true
+	}
+	if jwt != "" && jwt != c.account.Token {
+		c.account.Token = jwt
+		changed = true
+	}
+	return changed
 }
 
 func (c *Client) LogSessionState() {

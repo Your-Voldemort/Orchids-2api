@@ -86,3 +86,86 @@ go build -o orchids-server ./cmd/server
 8. **调试日志** - 详细的请求/响应日志
 9. **管理界面** - Web UI 管理账号
 10. **导入导出** - 账号配置备份恢复
+
+## 项目架构
+
+```
+orchids-api/
+├── cmd/server/          # 应用入口
+│   └── main.go
+├── internal/
+│   ├── api/             # Admin REST API
+│   ├── auth/            # 认证服务
+│   ├── clerk/           # Clerk JWT 认证
+│   ├── client/          # 上游 API 客户端 (SSE/WebSocket)
+│   ├── config/          # 配置加载
+│   ├── constants/       # 全局常量定义
+│   ├── errors/          # 统一错误处理
+│   ├── handler/         # HTTP 请求处理器
+│   │   ├── handler.go   # 核心处理逻辑
+│   │   ├── stream_handler.go  # SSE 流处理
+│   │   ├── validation.go      # 请求验证
+│   │   ├── response.go        # 响应构建
+│   │   └── context.go         # 会话管理
+│   ├── loadbalancer/    # 加权负载均衡
+│   ├── middleware/      # HTTP 中间件
+│   │   ├── auth.go      # 认证中间件
+│   │   ├── concurrency.go  # 并发限制
+│   │   ├── session.go   # 会话管理
+│   │   └── trace.go     # 请求追踪
+│   ├── perf/            # 性能优化 (对象池)
+│   ├── pool/            # WebSocket 连接池
+│   ├── prompt/          # Prompt 构建与压缩
+│   ├── reliability/     # 熔断器与重试
+│   ├── store/           # Redis 数据存储
+│   ├── summarycache/    # 会话摘要缓存
+│   ├── tiktoken/        # Token 估算
+│   ├── util/            # 通用工具函数
+│   └── warp/            # Warp 客户端支持
+├── web/                 # 嵌入式静态资源
+│   ├── static/          # CSS, JS
+│   └── templates/       # HTML 模板
+└── docs/                # 文档
+```
+
+### 请求流程
+
+```
+Client Request
+     ↓
+[Middleware] → Trace ID → Concurrency Limit → Auth
+     ↓
+[Handler] → Validate → Select Account (LoadBalancer)
+     ↓
+[Prompt Builder] → Build Markdown Prompt → Compress History
+     ↓
+[Upstream Client] → WebSocket/SSE → Orchids Server
+     ↓
+[Stream Handler] → Parse Events → Build Response → SSE to Client
+```
+
+### 核心模块说明
+
+| 模块 | 职责 |
+|------|------|
+| `errors` | 统一错误码和结构化错误处理 |
+| `util` | 并行处理、重试、可取消休眠等工具 |
+| `constants` | 全局常量，避免魔法数字 |
+| `middleware/trace` | 请求追踪，自动注入 trace_id |
+| `reliability` | 熔断器模式，防止雪崩 |
+| `perf` | 对象池复用，减少 GC 压力 |
+
+## 运行测试
+
+```bash
+# 运行所有测试
+go test ./...
+
+# 运行特定模块测试
+go test ./internal/errors/...
+go test ./internal/util/...
+go test ./internal/middleware/...
+
+# 查看覆盖率
+go test ./... -cover
+```

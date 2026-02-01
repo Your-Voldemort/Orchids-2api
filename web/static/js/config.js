@@ -84,7 +84,8 @@ async function loadConfiguration() {
     cacheTokenCount.checked = cfg.cache_token_count || false;
     updateSwitchLabel(cacheTokenCount, "缓存Token计数");
     document.getElementById("cfg_cache_ttl").value = cfg.cache_ttl || 5;
-    document.getElementById("cfg_cache_strategy").value = cfg.cache_strategy || "split";
+    const cacheStrategy = (cfg.cache_strategy || "split").toLowerCase();
+    document.getElementById("cfg_cache_strategy").value = cacheStrategy === "mixed" ? "mix" : cacheStrategy;
 
   } catch (err) {
     showToast("加载配置失败", "error");
