@@ -76,6 +76,9 @@ type streamHandler struct {
 	editFilePath  string
 	editNewString string
 
+	// Throttling
+	lastScanTime time.Time
+
 	// Logger
 	logger *debug.Logger
 }
@@ -213,6 +216,18 @@ func (h *streamHandler) writeFinalSSE(event, data string) {
 	}
 
 	h.logger.LogOutputSSE(event, data)
+}
+
+func (h *streamHandler) writeKeepAlive() {
+	if !h.isStream {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	fmt.Fprintf(h.w, ": keep-alive\n\n")
+	if h.flusher != nil {
+		h.flusher.Flush()
+	}
 }
 
 func (h *streamHandler) addOutputTokens(text string) {
@@ -736,6 +751,9 @@ func (h *streamHandler) handleToolCall(call toolCall) {
 }
 
 func (h *streamHandler) handleMessage(msg client.SSEMessage) {
+	if h.config.DebugEnabled && msg.Type != "content_block_delta" {
+		slog.Debug("Incoming SSE", "type", msg.Type)
+	}
 	h.mu.Lock()
 	if h.hasReturn {
 		h.mu.Unlock()
@@ -870,43 +888,20 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		}
 
 	case "fs_operation":
-		slog.Debug("fs_operation received", "event_keys", len(msg.Event), "operation", msg.Event["operation"], "path", msg.Event["path"])
-		if !h.isStream {
+		// Throttle keep-alives to avoid flooding
+		h.mu.Lock()
+		if time.Since(h.lastScanTime) < 1*time.Second {
+			h.mu.Unlock()
 			return
 		}
+		h.lastScanTime = time.Now()
+		h.mu.Unlock()
 
-		opType, _ := msg.Event["operation"].(string)
-		opPath, _ := msg.Event["path"].(string)
-
-		// Fallback to Event["data"] if legacy format
-		if opType == "" {
-			if data, ok := msg.Event["data"].(map[string]interface{}); ok {
-				opType, _ = data["type"].(string)
-				opPath, _ = data["path"].(string)
-			}
+		if h.config.DebugEnabled {
+			slog.Debug("Upstream active", "op", msg.Event["operation"])
 		}
-
-		if opType == "" {
-			return
-		}
-
-		// Don't filter read/list/search operations anymore, show them as feedback
-		// except for internal gitignore checks which might be too noisy?
-		// For now, let's show all to ensure aliveness.
-
-		feedback := fmt.Sprintf("\n[Scanning: %s %s...]\n", opType, opPath)
-		idx := h.ensureBlock("text")
-		deltaMap := perf.AcquireMap()
-		deltaMap["type"] = "content_block_delta"
-		deltaMap["index"] = idx
-		deltaContent := perf.AcquireMap()
-		deltaContent["type"] = "text_delta"
-		deltaContent["text"] = feedback
-		deltaMap["delta"] = deltaContent
-		deltaData, _ := json.Marshal(deltaMap)
-		perf.ReleaseMap(deltaContent)
-		perf.ReleaseMap(deltaMap)
-		h.writeSSE("content_block_delta", string(deltaData))
+		h.writeKeepAlive()
+		return
 
 	case "fs_operation_result":
 		success, _ := msg.Event["success"].(bool)
@@ -1029,110 +1024,18 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		perf.ReleaseMap(m)
 
 	case "coding_agent.Edit.edit.started":
-		h.editFilePath = ""
-		h.editNewString = ""
-		if data, ok := msg.Raw["data"].(map[string]interface{}); ok {
-			if v, ok := data["file_path"].(string); ok {
-				h.editFilePath = v
-			}
-		}
+		// Redundant: handled via standard model.tool-call
+		return
 
 	case "coding_agent.Edit.edit.chunk":
-		if data, ok := msg.Raw["data"].(map[string]interface{}); ok {
-			if v, ok := data["text"].(string); ok {
-				h.editNewString += v
-			}
-		}
+		// Redundant: handled via standard model.tool-call
+		return
 
 	case "coding_agent.Edit.edit.completed":
-		if h.editFilePath == "" {
-			return
-		}
-
-		inputMap := perf.AcquireMap()
-		inputMap["file_path"] = h.editFilePath
-		inputMap["new_string"] = h.editNewString
-		inputMap["old_string"] = ""
-		inputJSON, err := json.Marshal(inputMap)
-		perf.ReleaseMap(inputMap)
-		if err != nil {
-			inputJSON = []byte("{}")
-		}
-
-		toolID := "toolu_edit_" + fmt.Sprintf("%d", time.Now().UnixNano()) // Simple ID generation
-
-		call := toolCall{
-			id:    toolID,
-			name:  "Edit",
-			input: string(inputJSON),
-		}
-
-		if h.toolCallMode == "auto" {
-			// In auto mode, we execute the tool internally.
-			// Do NOT emit a tool_use event, because that instructs the client to execute the tool,
-			// causing "Sibling tool call errored" or double execution.
-			// Instead, emit a text block to notify the user of what's happening.
-			if h.isStream {
-				notification := fmt.Sprintf("\n[Running tool: %s]\n", call.name)
-
-				// Ensure we have a text block open or start one
-				h.mu.Lock()
-				// If the last block was text, we could append, but simpler to just start a new block
-				// or just write to the stream if we are in between blocks?
-				// To be safe and compatible with UI, let's start a text block.
-				h.blockIndex++
-				idx := h.blockIndex
-				h.mu.Unlock()
-
-				// Emit notification (manual text block construction)
-				// Start Block
-				startMap := perf.AcquireMap()
-				startMap["type"] = "content_block_start"
-				startMap["index"] = idx
-
-				cb := perf.AcquireMap()
-				cb["type"] = "text"
-				cb["text"] = ""
-				startMap["content_block"] = cb
-
-				startData, _ := json.Marshal(startMap)
-				perf.ReleaseMap(cb)
-				perf.ReleaseMap(startMap)
-				h.writeSSE("content_block_start", string(startData))
-
-				// Delta Block
-				deltaMap := perf.AcquireMap()
-				deltaMap["type"] = "content_block_delta"
-				deltaMap["index"] = idx
-
-				deltaContent := perf.AcquireMap()
-				deltaContent["type"] = "text_delta"
-				deltaContent["text"] = notification
-				deltaMap["delta"] = deltaContent
-
-				deltaData, _ := json.Marshal(deltaMap)
-				perf.ReleaseMap(deltaContent)
-				perf.ReleaseMap(deltaMap)
-				h.writeSSE("content_block_delta", string(deltaData))
-
-				// Stop Block
-				stopMap := perf.AcquireMap()
-				stopMap["type"] = "content_block_stop"
-				stopMap["index"] = idx
-
-				stopData, _ := json.Marshal(stopMap)
-				perf.ReleaseMap(stopMap)
-				h.writeSSE("content_block_stop", string(stopData))
-			}
-
-			// FIX: Queue tool call for execution in auto mode
-			h.mu.Lock()
-			h.autoPendingCalls = append(h.autoPendingCalls, call)
-			h.mu.Unlock()
-		}
-
+		// Redundant: handled via standard model.tool-call
 		h.editFilePath = ""
 		h.editNewString = ""
+		return
 
 	case "model.tool-input-end":
 		toolID, _ := msg.Event["id"].(string)

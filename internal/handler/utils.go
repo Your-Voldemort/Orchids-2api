@@ -3,10 +3,25 @@ package handler
 import (
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"orchids-api/internal/prompt"
 )
+
+var envWorkdirRegex = regexp.MustCompile(`Working directory:\s*([^\n\r]+)`)
+
+func extractWorkdirFromSystem(system []prompt.SystemItem) string {
+	for _, item := range system {
+		if item.Type == "text" {
+			matches := envWorkdirRegex.FindStringSubmatch(item.Text)
+			if len(matches) > 1 {
+				return strings.TrimSpace(matches[1])
+			}
+		}
+	}
+	return ""
+}
 
 // mapModel 根据请求的 model 名称映射到实际使用的模型
 func mapModel(requestModel string) string {

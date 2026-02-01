@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -41,7 +42,8 @@ type fsOperation struct {
 	RipgrepParams  map[string]interface{} `json:"ripgrepParameters"`
 }
 
-func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interface{}, onResult func(success bool, data interface{}, errMsg string)) error {
+func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interface{}, onResult func(success bool, data interface{}, errMsg string), overrideWorkdir string) error {
+	start := time.Now()
 	raw, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -53,6 +55,9 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 	}
 
 	respond := func(success bool, data interface{}, errMsg string) error {
+		if c.config.DebugEnabled {
+			log.Printf("[Performance] FS Operation '%s' (path: %s) took %v", op.Operation, op.Path, time.Since(start))
+		}
 		if onResult != nil {
 			onResult(success, data, errMsg)
 		}
@@ -78,7 +83,12 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 	if c.config == nil {
 		return respond(false, nil, "server config unavailable")
 	}
-	baseDir := c.resolveLocalWorkdir()
+	var baseDir string
+	if overrideWorkdir != "" {
+		baseDir = overrideWorkdir
+	} else {
+		baseDir = c.resolveLocalWorkdir()
+	}
 	ignore := c.config.OrchidsFSIgnore
 
 	switch operation {
@@ -428,6 +438,33 @@ func validatePathIgnore(baseDir, target string, ignore []string) error {
 	return nil
 }
 
+func (c *Client) RefreshFSIndexSync() {
+	if c == nil {
+		return
+	}
+	baseDir := c.resolveLocalWorkdir()
+	ignore := c.config.OrchidsFSIgnore
+
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return
+	}
+
+	c.fsIndexMu.Lock()
+	// Always reset the index when syncing to avoid stale entries from previous workdir
+	c.fsIndex = make(map[string][]string)
+	c.fsFileList = nil
+
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !isIgnoredRelPath(e.Name(), ignore) {
+			names = append(names, e.Name())
+		}
+	}
+	c.fsIndex["."] = names
+	c.fsIndexMu.Unlock()
+}
+
 func (c *Client) RefreshFSIndex() {
 	if c == nil {
 		return
@@ -458,6 +495,14 @@ func (c *Client) RefreshFSIndex() {
 			rel = filepath.ToSlash(rel)
 
 			if rel != "." && isIgnoredRelPath(rel, ignore) {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			// Limit depth to 3 levels
+			if rel != "." && strings.Count(rel, "/") >= 3 {
 				if d.IsDir() {
 					return filepath.SkipDir
 				}

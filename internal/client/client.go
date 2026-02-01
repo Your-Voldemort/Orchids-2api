@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"sort"
@@ -58,6 +59,7 @@ type UpstreamRequest struct {
 	NoTools       bool
 	NoThinking    bool
 	ChatSessionID string
+	Workdir       string // Dynamic local workdir override
 }
 
 type TokenResponse struct {
@@ -182,6 +184,11 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		cfg.OrchidsRunAllowlist = base.OrchidsRunAllowlist
 		cfg.OrchidsFSIgnore = base.OrchidsFSIgnore // Critical for performance
 		cfg.AutoRefreshToken = base.AutoRefreshToken
+		cfg.DebugEnabled = base.DebugEnabled
+		cfg.DebugLogSSE = base.DebugLogSSE
+		cfg.MaxRetries = base.MaxRetries
+		cfg.RetryDelay = base.RetryDelay
+		cfg.RequestTimeout = base.RequestTimeout
 	}
 
 	c := &Client{
@@ -196,6 +203,18 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 	c.wsPool = pool.NewWSPool(c.createWSConnection, 5, 20)
 	go c.RefreshFSIndex()
 	return c
+}
+
+func (c *Client) UpdateLocalWorkdir(dir string) {
+	if c.config != nil {
+		c.config.OrchidsLocalWorkdir = dir
+		c.RefreshFSIndexSync()
+		go c.RefreshFSIndex()
+	}
+}
+
+func (c *Client) GetProjectRoot() string {
+	return c.resolveLocalWorkdir()
 }
 
 func (c *Client) GetToken() (string, error) {
@@ -302,6 +321,9 @@ func (c *Client) SendRequest(ctx context.Context, prompt string, chatHistory []i
 
 func (c *Client) SendRequestWithPayload(ctx context.Context, req UpstreamRequest, onMessage func(SSEMessage), logger *debug.Logger) error {
 	mode := strings.ToLower(strings.TrimSpace(c.config.UpstreamMode))
+	if c.config.DebugEnabled {
+		slog.Debug("Sending upstream request", "mode", mode, "url", c.upstreamURL())
+	}
 	if mode == "ws" || mode == "websocket" {
 		err := c.sendRequestWSAIClient(ctx, req, onMessage, logger)
 		if err != nil {
@@ -362,6 +384,7 @@ func (c *Client) sendRequestSSE(ctx context.Context, req UpstreamRequest, onMess
 
 	// 使用 Circuit Breaker 保护上游调用
 	breaker := GetAccountBreaker(c.config.Email)
+	start := time.Now()
 
 	result, err := breaker.Execute(func() (interface{}, error) {
 		httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(buf.Bytes()))
@@ -389,7 +412,13 @@ func (c *Client) sendRequestSSE(ctx context.Context, req UpstreamRequest, onMess
 	})
 
 	if err != nil {
+		if c.config.DebugEnabled {
+			slog.Info("[Performance] Upstream Request Failed", "duration", time.Since(start), "error", err)
+		}
 		return err
+	}
+	if c.config.DebugEnabled {
+		slog.Info("[Performance] Upstream Request Headers Received", "duration", time.Since(start))
 	}
 	resp := result.(*http.Response)
 	defer resp.Body.Close()
@@ -483,8 +512,32 @@ func (c *Client) GetProjectSummary() string {
 		return "Project structure currently unknown (indexing in progress)."
 	}
 
+	rootFiles, ok := c.fsIndex["."]
+	projectType := "Generic"
+	if ok {
+		hasFile := func(name string) bool {
+			for _, f := range rootFiles {
+				if f == name {
+					return true
+				}
+			}
+			return false
+		}
+		if hasFile("go.mod") {
+			projectType = "Go"
+		} else if hasFile("package.json") {
+			projectType = "JavaScript/TypeScript"
+		} else if hasFile("requirements.txt") || hasFile("setup.py") || hasFile("pyproject.toml") {
+			projectType = "Python"
+		} else if hasFile("Cargo.toml") {
+			projectType = "Rust"
+		} else if hasFile("pom.xml") || hasFile("build.gradle") {
+			projectType = "Java/Kotlin"
+		}
+	}
+
 	var sb strings.Builder
-	sb.WriteString("This is a Go project. Directory structure:\n")
+	sb.WriteString(fmt.Sprintf("This is a %s project. Directory structure:\n", projectType))
 
 	// 限制深度和项数以节省 token
 	count := 0

@@ -184,7 +184,7 @@ type SummaryCache interface {
 // 系统预设提示词
 const systemPreset = `<model>Claude</model>
 <rules>
-You are Claude, an AI assistant.
+You are an AI assistant for the user's current project.
 1. Act as a senior engineer. Be concise.
 2. Verify project structure before making assumptions.
 3. If context is unclear, ask or investigate with tools.
@@ -199,6 +199,10 @@ You are Claude, an AI assistant.
    - Only read files directly relevant to current task
    - Use Grep to search instead of reading multiple files
    - Trust previously seen file listings in conversation history
+6. NO DEEP SCANNING:
+   - Forbid "ls -R" or deep recursive "find"
+   - Stay within 2 levels of depth from current directory unless explicitly required
+   - Use "ls path/to/dir" instead of deep globbing
 </rules>
 
 ## Conversation Format
@@ -822,13 +826,21 @@ func summarizeMessagesWithCache(ctx context.Context, opts PromptOptions, message
 		if len(messages) == 0 {
 			return ""
 		}
-		return summarizeMessages(messages, maxTokens)
+		summary := summarizeMessages(messages, maxTokens)
+		if opts.ProjectRoot != "" {
+			summary = filterLogLines(summary, opts.ProjectRoot)
+		}
+		return summary
 	}
 
 	entry, ok := cache.Get(ctx, key)
 	if len(messages) == 0 {
 		if ok && entry.Summary != "" {
-			return trimSummaryToBudget(entry.Summary, maxTokens)
+			summary := trimSummaryToBudget(entry.Summary, maxTokens)
+			if opts.ProjectRoot != "" {
+				summary = filterLogLines(summary, opts.ProjectRoot)
+			}
+			return summary
 		}
 		return ""
 	}
@@ -841,6 +853,9 @@ func summarizeMessagesWithCache(ctx context.Context, opts PromptOptions, message
 					entry.Budget = maxTokens
 					entry.UpdatedAt = time.Now()
 					cache.Put(ctx, key, entry)
+				}
+				if opts.ProjectRoot != "" {
+					return filterLogLines(entry.Summary, opts.ProjectRoot)
 				}
 				return entry.Summary
 			}
@@ -872,6 +887,9 @@ func summarizeMessagesWithCache(ctx context.Context, opts PromptOptions, message
 				Budget:    maxTokens,
 				UpdatedAt: time.Now(),
 			})
+			if opts.ProjectRoot != "" {
+				return filterLogLines(summary, opts.ProjectRoot)
+			}
 			return summary
 		}
 	}
@@ -884,6 +902,9 @@ func summarizeMessagesWithCache(ctx context.Context, opts PromptOptions, message
 		Budget:    maxTokens,
 		UpdatedAt: time.Now(),
 	})
+	if opts.ProjectRoot != "" {
+		return filterLogLines(summary, opts.ProjectRoot)
+	}
 	return summary
 }
 
@@ -1286,6 +1307,12 @@ func summarizeMessagesRecursive(messages []Message, maxTokens int) string {
 		// For simplicity, we just use the simple line builder for small enough chunks
 		lines := buildSummaryLines(messages, maxTokens) // Reuse existing logic which formats well
 		return joinLines(lines)
+	}
+
+	// Base case 2: If we only have one message and it's still too large,
+	// use the standard summarization which includes truncation.
+	if len(messages) == 1 {
+		return summarizeMessages(messages, maxTokens)
 	}
 
 	// Recursive step: Split into two halves

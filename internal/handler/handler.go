@@ -7,11 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"log/slog"
 	"net/http"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"orchids-api/internal/client"
@@ -31,6 +31,8 @@ type Handler struct {
 	summaryCache prompt.SummaryCache
 	summaryStats *summarycache.Stats
 	summaryLog   bool
+
+	sessionWorkdirs sync.Map // Map conversationKey -> string (workdir)
 }
 
 type UpstreamClient interface {
@@ -135,12 +137,48 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	if cacheStrategy != "" && cacheStrategy != "none" {
 		applyCacheStrategy(&req, cacheStrategy)
 	}
-	if len(req.Messages) > 1 {
-		before := len(req.Messages)
-		req.Messages = dedupeConsecutiveMessages(req.Messages)
-		if len(req.Messages) != before {
-			slog.Debug("Deduped consecutive messages", "before", before, "after", len(req.Messages))
+
+	// Debug: log all headers
+	for k, v := range r.Header {
+		slog.Debug("Incoming header", "key", k, "value", v)
+	}
+
+	// Check for dynamic workdir header EARLY
+	dynamicWorkdir := r.Header.Get("X-Orchids-Workdir")
+	if dynamicWorkdir == "" {
+		dynamicWorkdir = r.Header.Get("X-Project-Root") // Try alternative
+	}
+	if dynamicWorkdir == "" {
+		dynamicWorkdir = r.Header.Get("X-Working-Dir") // Try another alternative
+	}
+
+	// FALLBACK: Check system prompt for <env>Working directory: ...</env>
+	if dynamicWorkdir == "" {
+		dynamicWorkdir = extractWorkdirFromSystem(req.System)
+		if dynamicWorkdir != "" {
+			slog.Info("Using workdir from system prompt env block", "workdir", dynamicWorkdir)
 		}
+	}
+
+	conversationKey := conversationKeyForRequest(r, req)
+
+	// FINAL FALLBACK: Check session persistence
+	if dynamicWorkdir == "" {
+		if val, ok := h.sessionWorkdirs.Load(conversationKey); ok {
+			dynamicWorkdir = val.(string)
+			slog.Info("Recovered workdir from session", "workdir", dynamicWorkdir, "session", conversationKey)
+		}
+	}
+
+	// Persist for future turns in this session
+	if dynamicWorkdir != "" {
+		h.sessionWorkdirs.Store(conversationKey, dynamicWorkdir)
+	}
+
+	effectiveWorkdir := h.config.OrchidsLocalWorkdir
+	if dynamicWorkdir != "" {
+		effectiveWorkdir = dynamicWorkdir
+		slog.Info("Using dynamic workdir", "workdir", dynamicWorkdir)
 	}
 
 	// 选择账号
@@ -166,10 +204,16 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			apiClient = client.NewFromAccount(account, h.config)
+			if c, ok := apiClient.(*client.Client); ok && effectiveWorkdir != "" {
+				c.UpdateLocalWorkdir(effectiveWorkdir)
+			}
 			currentAccount = account
 			return nil
 		} else if h.client != nil {
 			apiClient = h.client
+			if c, ok := apiClient.(*client.Client); ok && effectiveWorkdir != "" {
+				c.UpdateLocalWorkdir(effectiveWorkdir)
+			}
 			currentAccount = nil
 			return nil
 		}
@@ -186,7 +230,6 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		defer h.loadBalancer.ReleaseConnection(currentAccount.ID)
 	}
 
-	conversationKey := conversationKeyForRequest(r, req)
 	var hitsBefore, missesBefore uint64
 	if h.summaryStats != nil && h.summaryLog {
 		hitsBefore, missesBefore = h.summaryStats.Snapshot()
@@ -223,6 +266,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	// 构建 prompt（V2 Markdown 格式）
 	startBuild := time.Now()
+
 	opts := prompt.PromptOptions{
 		Context:          r.Context(),
 		ConversationID:   conversationKey,
@@ -230,7 +274,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		SummaryMaxTokens: h.config.ContextSummaryMaxTokens,
 		KeepTurns:        h.config.ContextKeepTurns,
 		SummaryCache:     h.summaryCache,
-		ProjectRoot:      h.config.OrchidsLocalWorkdir,
+		ProjectRoot:      effectiveWorkdir,
 	}
 
 	if c, ok := apiClient.(*client.Client); ok {
@@ -247,7 +291,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}, opts)
 	slog.Debug("Prompt build completed", "duration", time.Since(startBuild))
 	if h.config.DebugEnabled {
-		log.Printf("[Performance] BuildPromptV2WithOptions took %v", time.Since(startBuild))
+		slog.Info("[Performance] BuildPromptV2WithOptions", "duration", time.Since(startBuild))
 		if opts.ProjectContext != "" {
 			slog.Debug("Project context injected", "context", opts.ProjectContext)
 		}
@@ -448,6 +492,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			upstreamReq := client.UpstreamRequest{
 				Prompt:        builtPrompt,
 				ChatHistory:   chatHistory,
+				Workdir:       dynamicWorkdir,
 				Model:         mappedModel,
 				Messages:      upstreamMessages,
 				System:        []prompt.SystemItem(req.System),

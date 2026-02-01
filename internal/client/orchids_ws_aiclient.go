@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -34,6 +35,7 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	startPool := time.Now()
 
 	// Get connection from pool (or create new if pool unavailable)
 	var conn *websocket.Conn
@@ -112,6 +114,12 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		defer conn.Close()
 	}
 
+	if c.config.DebugEnabled {
+		slog.Info("[Performance] WS connection acquired", "duration", time.Since(startPool))
+	}
+
+	startWrite := time.Now()
+
 	wsPayload, err := c.buildWSRequestAIClient(req)
 	if err != nil {
 		returnToPool = false
@@ -132,6 +140,13 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		return fmt.Errorf("ws write failed: %w", err)
 	}
 
+	if c.config.DebugEnabled {
+		slog.Info("[Performance] WS WriteJSON completed", "duration", time.Since(startWrite))
+	}
+
+	startFirstToken := time.Now()
+	firstReceived := false
+
 	var (
 		preferCodingAgent bool
 		textStarted       bool
@@ -139,9 +154,6 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		lastTextDelta     string
 		finishSent        bool
 		sawToolCall       bool
-		editFilePath      string
-		editOldString     string
-		editNewString     string
 		fsWG              sync.WaitGroup
 		hasFSOps          bool
 	)
@@ -196,12 +208,22 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 			continue
 		}
 
+		if !firstReceived && c.config.DebugEnabled {
+			firstReceived = true
+			slog.Info("[Performance] WS First response received (TTFT)", "duration", time.Since(startFirstToken))
+		}
+
 		msgType, _ := msg["type"].(string)
 		if logger != nil {
 			logger.LogUpstreamSSE(msgType, string(data))
 		}
 
 		if msgType == "connected" {
+			continue
+		}
+
+		if msgType == "coding_agent.start" || msgType == "coding_agent.initializing" {
+			preferCodingAgent = true
 			continue
 		}
 
@@ -297,7 +319,7 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 							},
 						})
 					}
-				}); err != nil {
+				}, req.Workdir); err != nil {
 					// Error handled inside respond or logged via debug
 				}
 			}(msg)
@@ -305,35 +327,7 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		}
 
 		if msgType == "coding_agent.todo_write.started" {
-			data, _ := msg["data"].(map[string]interface{})
-			input := map[string]interface{}{}
-			if data != nil {
-				if todos, ok := data["todos"]; ok {
-					if todoList, ok := todos.([]interface{}); ok {
-						for _, t := range todoList {
-							if todoItem, ok := t.(map[string]interface{}); ok {
-								if _, hasActiveForm := todoItem["activeForm"]; !hasActiveForm {
-									todoItem["activeForm"] = "default"
-								}
-							}
-						}
-					}
-					input["todos"] = todos
-				}
-			}
-			inputJSON, err := json.Marshal(input)
-			if err != nil {
-				inputJSON = []byte("{}")
-			}
-			onMessage(SSEMessage{
-				Type: "model.tool-call",
-				Event: map[string]interface{}{
-					"toolCallId": "toolu_todo_" + randomSuffix(8),
-					"toolName":   "TodoWrite",
-					"input":      string(inputJSON),
-				},
-			})
-			sawToolCall = true
+			// Redundant: standard model.tool-call events are preferred.
 			continue
 		}
 
@@ -342,77 +336,15 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		}
 
 		if msgType == "coding_agent.Edit.edit.started" {
-			if data, ok := msg["data"].(map[string]interface{}); ok {
-				if v, ok := data["file_path"].(string); ok && v != "" {
-					editFilePath = v
-				}
-			}
-			editOldString = ""
-			editNewString = ""
 			continue
 		}
 
 		if msgType == "coding_agent.Edit.edit.chunk" {
-			if data, ok := msg["data"].(map[string]interface{}); ok {
-				if v, ok := data["text"].(string); ok && v != "" {
-					editNewString += v
-				}
-			}
 			continue
 		}
 
 		if msgType == "coding_agent.edit_file.completed" || msgType == "coding_agent.Edit.edit.completed" {
-			var data map[string]interface{}
-			if raw, ok := msg["data"].(map[string]interface{}); ok {
-				data = raw
-			}
-			filePath := editFilePath
-			oldString := editOldString
-			newString := editNewString
-			if data != nil {
-				if v, ok := data["file_path"].(string); ok && v != "" {
-					filePath = v
-				}
-				if v, ok := data["old_string"].(string); ok && v != "" {
-					oldString = v
-				}
-				if v, ok := data["new_string"].(string); ok && v != "" {
-					newString = v
-				}
-				if oldString == "" {
-					if v, ok := data["old_code"].(string); ok && v != "" {
-						oldString = truncateSnippet(v, 120)
-					}
-				}
-				if newString == "" {
-					if v, ok := data["new_code"].(string); ok && v != "" {
-						newString = truncateSnippet(v, 120)
-					}
-				}
-			}
-			if strings.TrimSpace(filePath) != "" {
-				input := map[string]interface{}{
-					"file_path":  filePath,
-					"old_string": oldString,
-					"new_string": newString,
-				}
-				inputJSON, err := json.Marshal(input)
-				if err != nil {
-					inputJSON = []byte("{}")
-				}
-				onMessage(SSEMessage{
-					Type: "model.tool-call",
-					Event: map[string]interface{}{
-						"toolCallId": "toolu_edit_" + randomSuffix(8),
-						"toolName":   "Edit",
-						"input":      string(inputJSON),
-					},
-				})
-				sawToolCall = true
-			}
-			editFilePath = ""
-			editOldString = ""
-			editNewString = ""
+			// Redundant: standard model.tool-call events are preferred.
 			continue
 		}
 
@@ -457,14 +389,21 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 		}
 
 		if msgType == "model" {
-			if preferCodingAgent {
-				continue
-			}
 			event, ok := msg["event"].(map[string]interface{})
 			if !ok {
 				continue
 			}
 			eventType, _ := event["type"].(string)
+
+			if preferCodingAgent {
+				// Suppress only duplicate text/thinking segments to avoid redundancy
+				// while allowing tool-calls, finish, and tokens usage to pass through.
+				if eventType == "text-start" || eventType == "text-delta" || eventType == "text-end" ||
+					eventType == "reasoning-start" || eventType == "reasoning-delta" || eventType == "reasoning-end" {
+					continue
+				}
+			}
+
 			if eventType == "tool-call" {
 				sawToolCall = true
 			}
