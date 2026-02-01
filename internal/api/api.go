@@ -15,9 +15,11 @@ import (
 
 	"orchids-api/internal/auth"
 	"orchids-api/internal/clerk"
+	"orchids-api/internal/config"
 	"orchids-api/internal/model"
 	"orchids-api/internal/prompt"
 	"orchids-api/internal/store"
+	"orchids-api/internal/warp"
 )
 
 type API struct {
@@ -186,7 +188,10 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if acc.ClientCookie != "" {
+		if strings.TrimSpace(acc.AccountType) == "" {
+			acc.AccountType = "orchids"
+		}
+		if acc.ClientCookie != "" && !strings.EqualFold(acc.AccountType, "warp") {
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)
 			if err != nil {
 				http.Error(w, "Invalid client cookie: "+err.Error(), http.StatusBadRequest)
@@ -205,11 +210,7 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if strings.TrimSpace(acc.AccountType) == "" {
-			acc.AccountType = "orchids"
-		}
-
-		if acc.ClientCookie != "" && acc.SessionID == "" {
+		if acc.ClientCookie != "" && acc.SessionID == "" && !strings.EqualFold(acc.AccountType, "warp") {
 			info, err := clerk.FetchAccountInfo(acc.ClientCookie)
 			if err != nil {
 				slog.Warn("Failed to fetch account info, saving without session data", "error", err)
@@ -257,17 +258,31 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
-			info, err := clerk.FetchAccountInfo(acc.ClientCookie)
-			if err != nil {
-				http.Error(w, "Failed to refresh account: "+err.Error(), http.StatusBadRequest)
-				return
+			if strings.EqualFold(acc.AccountType, "warp") {
+				var cfg *config.Config
+				if raw, ok := a.config.(*config.Config); ok {
+					cfg = raw
+				}
+				warpClient := warp.NewFromAccount(acc, cfg)
+				jwt, err := warpClient.RefreshAccount(r.Context())
+				if err != nil {
+					http.Error(w, "Failed to refresh warp account: "+err.Error(), http.StatusBadRequest)
+					return
+				}
+				acc.Token = jwt
+			} else {
+				info, err := clerk.FetchAccountInfo(acc.ClientCookie)
+				if err != nil {
+					http.Error(w, "Failed to refresh account: "+err.Error(), http.StatusBadRequest)
+					return
+				}
+				acc.SessionID = info.SessionID
+				acc.ClientUat = info.ClientUat
+				acc.ProjectID = info.ProjectID
+				acc.UserID = info.UserID
+				acc.Email = info.Email
+				acc.Token = info.JWT // Update Token/JWT
 			}
-			acc.SessionID = info.SessionID
-			acc.ClientUat = info.ClientUat
-			acc.ProjectID = info.ProjectID
-			acc.UserID = info.UserID
-			acc.Email = info.Email
-			acc.Token = info.JWT // Update Token/JWT
 
 			if err := a.store.UpdateAccount(r.Context(), acc); err != nil {
 				http.Error(w, "Failed to save refreshed account: "+err.Error(), http.StatusInternalServerError)
@@ -296,7 +311,13 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		acc.ID = id
-		if acc.ClientCookie != "" {
+		if strings.TrimSpace(acc.AccountType) == "" {
+			acc.AccountType = existing.AccountType
+		}
+		if strings.TrimSpace(acc.AccountType) == "" {
+			acc.AccountType = "orchids"
+		}
+		if acc.ClientCookie != "" && !strings.EqualFold(acc.AccountType, "warp") {
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)
 			if err != nil {
 				http.Error(w, "Invalid client cookie: "+err.Error(), http.StatusBadRequest)
@@ -316,12 +337,6 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if strings.TrimSpace(acc.AccountType) == "" {
-			acc.AccountType = existing.AccountType
-			if strings.TrimSpace(acc.AccountType) == "" {
-				acc.AccountType = "orchids"
-			}
-		}
 		if acc.SessionID == "" {
 			acc.SessionID = existing.SessionID
 		}

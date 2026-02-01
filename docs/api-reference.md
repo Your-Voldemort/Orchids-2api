@@ -4,8 +4,10 @@
 
 | 端点 | 方法 | 描述 | 认证 |
 |------|------|------|------|
-| `/v1/messages` | POST | Claude API 代理端点 | 无 |
-| `/v1/messages/count_tokens` | POST | 估算输入 Token | 无 |
+| `/orchids/v1/messages` | POST | Orchids Claude API 代理端点 | 无 |
+| `/orchids/v1/messages/count_tokens` | POST | Orchids 估算输入 Token | 无 |
+| `/warp/v1/messages` | POST | Warp Claude API 代理端点 | 无 |
+| `/warp/v1/messages/count_tokens` | POST | Warp 估算输入 Token | 无 |
 | `/api/accounts` | GET | 获取所有账号列表 | Basic Auth |
 | `/api/accounts` | POST | 创建新账号 | Basic Auth |
 | `/api/accounts/{id}` | GET | 获取单个账号 | Basic Auth |
@@ -33,7 +35,7 @@
   3. 生成 JWT Token
   4. 作为 Authorization Header 发送到上游
 
-## /v1/messages 端点
+## /orchids/v1/messages 端点
 
 ### 请求格式
 
@@ -65,11 +67,19 @@
 | `claude-opus-4-5-*` | `claude-opus-4.5` |
 | `claude-haiku-4-5-*` | `gemini-3-flash` |
 
-## /v1/messages/count_tokens 端点
+## /orchids/v1/messages/count_tokens 端点
 
 ### 请求格式
 
-与 `/v1/messages` 相同（支持 `messages` / `system` / `tools` / `model`）。
+与 `/orchids/v1/messages` 相同（支持 `messages` / `system` / `tools` / `model`）。
+
+## /warp/v1/messages 端点
+
+格式与 `/orchids/v1/messages` 相同。
+
+## /warp/v1/messages/count_tokens 端点
+
+与 `/warp/v1/messages` 相同（支持 `messages` / `system` / `tools` / `model`）。
 
 ### 响应格式
 

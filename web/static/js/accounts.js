@@ -21,6 +21,10 @@ async function loadAccounts() {
     renderPlatformTabs();
     renderAccounts();
     updateStats();
+    const autoCheckEnabled = localStorage.getItem("autoCheckEnabled") === "true";
+    if (!autoCheckEnabled) {
+      autoRefreshWarpAccounts();
+    }
   } catch (err) {
     console.error("Failed to load accounts:", err);
     showToast("加载账号失败", "error");
@@ -41,7 +45,8 @@ function normalizeAccountType(acc) {
 function renderPlatformTabs() {
   const container = document.getElementById("platformFilters");
   if (!container) return;
-  const types = new Set(accounts.map(normalizeAccountType));
+  const defaultTypes = ["orchids", "warp"];
+  const types = new Set([...defaultTypes, ...accounts.map(normalizeAccountType)]);
   const sorted = Array.from(types).sort();
   const tabs = [...sorted];
 
@@ -74,7 +79,12 @@ function statusBadge(acc) {
   if (!acc.enabled) {
     return { text: '禁用', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: '账号已禁用' };
   }
-  if (!acc.session_id && !acc.session_cookie) {
+  const type = normalizeAccountType(acc);
+  if (type === 'warp') {
+    if (!acc.client_cookie) {
+      return { text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少 Refresh Token' };
+    }
+  } else if (!acc.session_id && !acc.session_cookie) {
     return { text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少会话信息' };
   }
   return { text: '正常', color: '#34d399', bg: 'rgba(52, 211, 153, 0.16)', tip: '状态正常' };
@@ -111,6 +121,16 @@ async function checkAllAccounts() {
   }
   showToast("账号检测完成", "success");
   autoCheckRunning = false;
+}
+
+async function autoRefreshWarpAccounts() {
+  if (autoCheckRunning) return;
+  const warpAccounts = accounts.filter(acc => normalizeAccountType(acc) === 'warp');
+  if (!warpAccounts.length) return;
+  for (const acc of warpAccounts) {
+    if (acc.token) continue;
+    await checkAccount(acc.id, true);
+  }
 }
 
 // Toggle auto check
@@ -199,13 +219,13 @@ function renderAccounts() {
 
   const rows = pageItems.map(acc => {
     const badge = statusBadge(acc);
-    const tokenDisplay = acc.token || (acc.session_id ? acc.session_id.substring(0, 30) + '...' : '-');
+    const tokenDisplay = formatTokenDisplay(acc);
     return `
       <tr>
         <td><input type="checkbox" class="row-checkbox" data-id="${acc.id}" onchange="updateSelectedCount()"></td>
         <td style="color: #64748b; font-size: 0.9rem;">${acc.id}</td>
         <td>
-          <span class="token-text" title="${escapeHtml(acc.token || '-')}" style="font-family: monospace; color: #94a3b8;">${escapeHtml(tokenDisplay)}</span>
+          <span class="token-text" title="${escapeHtml(tokenDisplay)}" style="font-family: monospace; color: #94a3b8;">${escapeHtml(tokenDisplay)}</span>
         </td>
         <td><span class="tag tag-free">${acc.agent_mode || 'auto'}</span></td>
         <td>
@@ -224,7 +244,6 @@ function renderAccounts() {
         </td>
         <td style="font-size: 0.9rem; color: #e2e8f0; font-weight: 500;">${acc.request_count || 0}</td>
         <td style="font-size: 0.8rem; color: #64748b;">${acc.last_used_at && !acc.last_used_at.startsWith('0001') ? formatTime(acc.last_used_at) : '-'}</td>
-        <td style="color: #64748b; font-size: 0.9rem;">${acc.reset_date || '-'}</td>
         <td style="text-align: right;">
           <div style="display: flex; justify-content: flex-end; gap: 12px;">
             <i class="action-icon" onclick="editAccount(${acc.id})" title="编辑">✏️</i>
@@ -249,7 +268,6 @@ function renderAccounts() {
             <th>状态</th>
             <th>调用</th>
             <th>最后调用</th>
-            <th>重置日期</th>
             <th style="text-align: right;">操作</th>
           </tr>
         </thead>
@@ -270,7 +288,7 @@ function renderPagination(current, total) {
   if (!container) return;
 
   let html = '';
-  
+
   // First & Prev
   html += `<button class="btn btn-outline" style="padding: 4px 10px;" onclick="goToPage(1)" ${current === 1 ? 'disabled' : ''}>首页</button>`;
   html += `<button class="btn btn-outline" style="padding: 4px 10px;" onclick="goToPage(${current - 1})" ${current === 1 ? 'disabled' : ''}>上一页</button>`;
@@ -339,8 +357,28 @@ function updateStats() {
   const totalUsage = accounts.reduce((sum, acc) => sum + (acc.usage_current || 0), 0);
   const totalLimit = accounts.reduce((sum, acc) => sum + (acc.usage_total || 550), 0);
 
-  // Update sidebar footer if possible (might not work if outside frame, but okay)
-  // ...
+  // Update sidebar footer
+  const footerTotal = document.getElementById("footerTotal");
+  if (footerTotal) footerTotal.textContent = total;
+
+  const footerNormal = document.getElementById("footerNormal");
+  if (footerNormal) footerNormal.textContent = enabled;
+
+  const footerAbnormal = document.getElementById("footerAbnormal");
+  if (footerAbnormal) footerAbnormal.textContent = abnormal;
+
+  const footerUsage = document.getElementById("footerUsageText");
+  const footerProgress = document.getElementById("usageProgress");
+  if (footerUsage && footerProgress) {
+    footerUsage.textContent = `${Math.floor(totalUsage)}/${totalLimit}`;
+    const pct = totalLimit > 0 ? (totalUsage / totalLimit) * 100 : 0;
+    footerProgress.style.width = `${Math.min(100, Math.max(1, pct))}%`; // Min 1% visibility
+
+    // Color logic
+    if (pct > 90) footerProgress.style.background = "#fb7185";
+    else if (pct > 70) footerProgress.style.background = "#f59e0b";
+    else footerProgress.style.background = "#3b82f6";
+  }
 }
 
 // Update selected count
@@ -464,6 +502,21 @@ function escapeHtml(text) {
   const div = document.createElement("div");
   div.textContent = text;
   return div.innerHTML;
+}
+
+function formatTokenDisplay(acc) {
+  const type = normalizeAccountType(acc);
+  const token = acc.token;
+  if (token) {
+    return token.length > 30 ? token.substring(0, 30) + '...' : token;
+  }
+  if (type === 'warp' && acc.client_cookie) {
+    return acc.client_cookie.length > 30 ? acc.client_cookie.substring(0, 30) + '...' : acc.client_cookie;
+  }
+  if (acc.session_id) {
+    return acc.session_id.substring(0, 30) + '...';
+  }
+  return '-';
 }
 
 // Format time

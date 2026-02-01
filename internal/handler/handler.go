@@ -22,6 +22,7 @@ import (
 	"orchids-api/internal/store"
 	"orchids-api/internal/summarycache"
 	"orchids-api/internal/tiktoken"
+	"orchids-api/internal/warp"
 )
 
 type Handler struct {
@@ -143,6 +144,8 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Incoming header", "key", k, "value", v)
 	}
 
+	forcedChannel := channelFromPath(r.URL.Path)
+
 	// Check for dynamic workdir header EARLY
 	dynamicWorkdir := r.Header.Get("X-Orchids-Workdir")
 	if dynamicWorkdir == "" {
@@ -189,7 +192,10 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	selectAccount := func() error {
 		if h.loadBalancer != nil {
-			targetChannel := h.loadBalancer.GetModelChannel(r.Context(), req.Model)
+			targetChannel := forcedChannel
+			if targetChannel == "" {
+				targetChannel = h.loadBalancer.GetModelChannel(r.Context(), req.Model)
+			}
 			if targetChannel != "" {
 				slog.Info("Model recognition", "model", req.Model, "channel", targetChannel)
 			}
@@ -203,7 +209,11 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				}
 				return err
 			}
-			apiClient = client.NewFromAccount(account, h.config)
+			if strings.EqualFold(account.AccountType, "warp") {
+				apiClient = warp.NewFromAccount(account, h.config)
+			} else {
+				apiClient = client.NewFromAccount(account, h.config)
+			}
 			if c, ok := apiClient.(*client.Client); ok && effectiveWorkdir != "" {
 				c.UpdateLocalWorkdir(effectiveWorkdir)
 			}
@@ -310,6 +320,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	// 映射模型
 	mappedModel := mapModel(req.Model)
+	if currentAccount != nil && strings.EqualFold(currentAccount.AccountType, "warp") {
+		mappedModel = req.Model
+	}
 	slog.Info("Model mapping", "original", req.Model, "mapped", mappedModel)
 
 	isStream := req.Stream

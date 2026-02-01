@@ -27,6 +27,40 @@ var orchidsAIClientModels = []string{
 
 const orchidsAIClientDefaultModel = "claude-sonnet-4-5"
 
+// Orchids Event Types
+const (
+	EventConnected          = "connected"
+	EventCodingAgentStart   = "coding_agent.start"
+	EventCodingAgentInit    = "coding_agent.initializing"
+	EventCodingAgentTokens  = "coding_agent.tokens_used"
+	EventResponseDone       = "response_done"
+	EventCodingAgentEnd     = "coding_agent.end"
+	EventComplete           = "complete"
+	EventFS                 = "fs_operation"
+	EventTodoWriteStart     = "coding_agent.todo_write.started"
+	EventRunItemStream      = "run_item_stream_event"
+	EventToolCallOutput     = "tool_call_output_item"
+	EventEditStart          = "coding_agent.Edit.edit.started"
+	EventEditChunk          = "coding_agent.Edit.edit.chunk"
+	EventEditFileCompleted  = "coding_agent.edit_file.completed"
+	EventEditCompleted      = "coding_agent.Edit.edit.completed"
+	EventReasoningChunk     = "coding_agent.reasoning.chunk"
+	EventReasoningCompleted = "coding_agent.reasoning.completed"
+	EventOutputTextDelta    = "output_text_delta"
+	EventResponseChunk      = "coding_agent.response.chunk"
+	EventModel              = "model"
+)
+
+type requestState struct {
+	preferCodingAgent bool
+	textStarted       bool
+	reasoningStarted  bool
+	lastTextDelta     string
+	finishSent        bool
+	sawToolCall       bool
+	hasFSOps          bool
+}
+
 func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest, onMessage func(SSEMessage), logger *debug.Logger) error {
 	parentCtx := ctx
 	timeout := orchidsWSRequestTimeout
@@ -147,16 +181,8 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 	startFirstToken := time.Now()
 	firstReceived := false
 
-	var (
-		preferCodingAgent bool
-		textStarted       bool
-		reasoningStarted  bool
-		lastTextDelta     string
-		finishSent        bool
-		sawToolCall       bool
-		fsWG              sync.WaitGroup
-		hasFSOps          bool
-	)
+	var state requestState
+	var fsWG sync.WaitGroup
 
 	// Start Keep-Alive Ping Loop
 	go func() {
@@ -213,226 +239,21 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 			slog.Info("[Performance] WS First response received (TTFT)", "duration", time.Since(startFirstToken))
 		}
 
-		msgType, _ := msg["type"].(string)
-		if logger != nil {
-			logger.LogUpstreamSSE(msgType, string(data))
-		}
-
-		if msgType == "connected" {
-			continue
-		}
-
-		if msgType == "coding_agent.start" || msgType == "coding_agent.initializing" {
-			preferCodingAgent = true
-			continue
-		}
-
-		if msgType == "coding_agent.tokens_used" {
-			data, _ := msg["data"].(map[string]interface{})
-			if data == nil {
-				continue
-			}
-			event := map[string]interface{}{
-				"type": "tokens-used",
-			}
-			if v, ok := data["input_tokens"]; ok {
-				event["inputTokens"] = v
-			} else if v, ok := data["inputTokens"]; ok {
-				event["inputTokens"] = v
-			}
-			if v, ok := data["output_tokens"]; ok {
-				event["outputTokens"] = v
-			} else if v, ok := data["outputTokens"]; ok {
-				event["outputTokens"] = v
-			}
-			onMessage(SSEMessage{Type: "model", Event: event})
-			continue
-		}
-
-		if msgType == "response_done" || msgType == "coding_agent.end" || msgType == "complete" {
-			if msgType == "response_done" {
-				if usage, ok := msg["response"].(map[string]interface{}); ok {
-					if u, ok := usage["usage"].(map[string]interface{}); ok {
-						event := map[string]interface{}{
-							"type": "tokens-used",
-						}
-						if v, ok := u["inputTokens"]; ok {
-							event["inputTokens"] = v
-						}
-						if v, ok := u["outputTokens"]; ok {
-							event["outputTokens"] = v
-						}
-						onMessage(SSEMessage{Type: "model", Event: event})
-					}
-				}
-				toolCalls := extractToolCallsFromResponse(msg)
-				if len(toolCalls) > 0 {
-					for _, call := range toolCalls {
-						onMessage(SSEMessage{
-							Type: "model.tool-call",
-							Event: map[string]interface{}{
-								"toolCallId": call.id,
-								"toolName":   call.name,
-								"input":      call.input,
-							},
-						})
-						sawToolCall = true
-					}
-					if !finishSent {
-						onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"finishReason": "tool-calls", "type": "finish"}})
-						finishSent = true
-					}
-					break
-				}
-			}
-			if textStarted {
-				onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "text-end", "id": "0"}})
-			}
-			if !finishSent {
-				finishReason := "stop"
-				if sawToolCall {
-					finishReason = "tool-calls"
-				}
-				onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "finish", "finishReason": finishReason}})
-				finishSent = true
-			}
+		shouldBreak := c.handleOrchidsMessage(msg, data, &state, onMessage, logger, conn, &fsWG, req.Workdir)
+		if shouldBreak {
 			break
-		}
-
-		if msgType == "fs_operation" {
-			// Notify handler for visibility
-			onMessage(SSEMessage{Type: "fs_operation", Event: msg})
-			// Execute file system operations in parallel to avoid blocking the message loop
-			hasFSOps = true
-			fsWG.Add(1)
-			go func(m map[string]interface{}) {
-				defer fsWG.Done()
-				if err := c.handleFSOperation(conn, m, func(success bool, data interface{}, errMsg string) {
-					if onMessage != nil {
-						onMessage(SSEMessage{
-							Type: "fs_operation_result",
-							Event: map[string]interface{}{
-								"success": success,
-								"data":    data,
-								"error":   errMsg,
-								"op":      m,
-							},
-						})
-					}
-				}, req.Workdir); err != nil {
-					// Error handled inside respond or logged via debug
-				}
-			}(msg)
-			continue
-		}
-
-		if msgType == "coding_agent.todo_write.started" {
-			// Redundant: standard model.tool-call events are preferred.
-			continue
-		}
-
-		if msgType == "run_item_stream_event" || msgType == "tool_call_output_item" {
-			continue
-		}
-
-		if msgType == "coding_agent.Edit.edit.started" {
-			continue
-		}
-
-		if msgType == "coding_agent.Edit.edit.chunk" {
-			continue
-		}
-
-		if msgType == "coding_agent.edit_file.completed" || msgType == "coding_agent.Edit.edit.completed" {
-			// Redundant: standard model.tool-call events are preferred.
-			continue
-		}
-
-		if msgType == "coding_agent.reasoning.chunk" {
-			preferCodingAgent = true
-			text := extractOrchidsText(msg)
-			if text == "" {
-				continue
-			}
-			if !reasoningStarted {
-				reasoningStarted = true
-				onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "reasoning-start", "id": "0"}})
-			}
-			onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "reasoning-delta", "id": "0", "delta": text}})
-			continue
-		}
-
-		if msgType == "coding_agent.reasoning.completed" {
-			preferCodingAgent = true
-			if reasoningStarted {
-				onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "reasoning-end", "id": "0"}})
-			}
-			continue
-		}
-
-		if msgType == "output_text_delta" || msgType == "coding_agent.response.chunk" {
-			preferCodingAgent = true
-			text := extractOrchidsText(msg)
-			if text == "" {
-				continue
-			}
-			if text == lastTextDelta {
-				continue
-			}
-			lastTextDelta = text
-			if !textStarted {
-				textStarted = true
-				onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "text-start", "id": "0"}})
-			}
-			onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "text-delta", "id": "0", "delta": text}})
-			continue
-		}
-
-		if msgType == "model" {
-			event, ok := msg["event"].(map[string]interface{})
-			if !ok {
-				continue
-			}
-			eventType, _ := event["type"].(string)
-
-			if preferCodingAgent {
-				// Suppress only duplicate text/thinking segments to avoid redundancy
-				// while allowing tool-calls, finish, and tokens usage to pass through.
-				if eventType == "text-start" || eventType == "text-delta" || eventType == "text-end" ||
-					eventType == "reasoning-start" || eventType == "reasoning-delta" || eventType == "reasoning-end" {
-					continue
-				}
-			}
-
-			if eventType == "tool-call" {
-				sawToolCall = true
-			}
-			onMessage(SSEMessage{Type: "model", Event: event, Raw: msg})
-			if eventType == "finish" {
-				finishSent = true
-				if reason, ok := event["finishReason"].(string); ok {
-					if textStarted {
-						onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "text-end", "id": "0"}})
-					}
-					if reason == "tool-calls" {
-						break
-					}
-					break
-				}
-			}
-			continue
 		}
 	}
 
-	if !finishSent {
+	if !state.finishSent {
 		finishReason := "stop"
-		if sawToolCall {
+		if state.sawToolCall {
 			finishReason = "tool-calls"
 		}
 		onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "finish", "finishReason": finishReason}})
 	}
 
-	if hasFSOps {
+	if state.hasFSOps {
 		fsDone := make(chan struct{})
 		go func() {
 			fsWG.Wait()
@@ -446,6 +267,233 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req UpstreamRequest,
 	}
 
 	return nil
+}
+
+func (c *Client) handleOrchidsMessage(
+	msg map[string]interface{},
+	rawData []byte,
+	state *requestState,
+	onMessage func(SSEMessage),
+	logger *debug.Logger,
+	conn *websocket.Conn,
+	fsWG *sync.WaitGroup,
+	workdir string,
+) bool {
+	msgType, _ := msg["type"].(string)
+	if logger != nil {
+		logger.LogUpstreamSSE(msgType, string(rawData))
+	}
+
+	switch msgType {
+	case EventConnected:
+		return false
+
+	case EventCodingAgentStart, EventCodingAgentInit:
+		state.preferCodingAgent = true
+		return false
+
+	case EventCodingAgentTokens:
+		c.handleTokensEvent(msg, onMessage)
+		return false
+
+	case EventResponseDone, EventCodingAgentEnd, EventComplete:
+		return c.handleCompletionEvent(msgType, msg, state, onMessage)
+
+	case EventFS:
+		c.dispatchFSOperation(msg, onMessage, conn, fsWG, workdir)
+		state.hasFSOps = true
+		return false
+
+	case EventReasoningChunk:
+		state.preferCodingAgent = true
+		text := extractOrchidsText(msg)
+		if text == "" {
+			return false
+		}
+		if !state.reasoningStarted {
+			state.reasoningStarted = true
+			onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "reasoning-start", "id": "0"}})
+		}
+		onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "reasoning-delta", "id": "0", "delta": text}})
+		return false
+
+	case EventReasoningCompleted:
+		state.preferCodingAgent = true
+		if state.reasoningStarted {
+			onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "reasoning-end", "id": "0"}})
+			state.reasoningStarted = false // Reset for safety, though likely end of turn
+		}
+		return false
+
+	case EventOutputTextDelta, EventResponseChunk:
+		state.preferCodingAgent = true
+		text := extractOrchidsText(msg)
+		if text == "" {
+			return false
+		}
+		if text == state.lastTextDelta {
+			return false
+		}
+		state.lastTextDelta = text
+		if !state.textStarted {
+			state.textStarted = true
+			onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "text-start", "id": "0"}})
+		}
+		onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "text-delta", "id": "0", "delta": text}})
+		return false
+
+	case EventModel:
+		return c.handleModelEvent(msg, state, onMessage)
+
+	// Suppressed events
+	case EventTodoWriteStart, EventRunItemStream, EventToolCallOutput, EventEditStart, EventEditChunk, EventEditFileCompleted, EventEditCompleted:
+		return false
+	}
+
+	return false
+}
+
+func (c *Client) handleTokensEvent(msg map[string]interface{}, onMessage func(SSEMessage)) {
+	data, _ := msg["data"].(map[string]interface{})
+	if data == nil {
+		return
+	}
+	event := map[string]interface{}{"type": "tokens-used"}
+	if v, ok := data["input_tokens"]; ok {
+		event["inputTokens"] = v
+	} else if v, ok := data["inputTokens"]; ok {
+		event["inputTokens"] = v
+	}
+	if v, ok := data["output_tokens"]; ok {
+		event["outputTokens"] = v
+	} else if v, ok := data["outputTokens"]; ok {
+		event["outputTokens"] = v
+	}
+	onMessage(SSEMessage{Type: "model", Event: event})
+}
+
+func (c *Client) handleCompletionEvent(
+	msgType string,
+	msg map[string]interface{},
+	state *requestState,
+	onMessage func(SSEMessage),
+) bool {
+	if msgType == EventResponseDone {
+		// Handle usage
+		if usage, ok := msg["response"].(map[string]interface{}); ok {
+			if u, ok := usage["usage"].(map[string]interface{}); ok {
+				event := map[string]interface{}{"type": "tokens-used"}
+				if v, ok := u["inputTokens"]; ok {
+					event["inputTokens"] = v
+				}
+				if v, ok := u["outputTokens"]; ok {
+					event["outputTokens"] = v
+				}
+				onMessage(SSEMessage{Type: "model", Event: event})
+			}
+		}
+		// Handle tool calls
+		toolCalls := extractToolCallsFromResponse(msg)
+		if len(toolCalls) > 0 {
+			for _, call := range toolCalls {
+				onMessage(SSEMessage{
+					Type: "model.tool-call",
+					Event: map[string]interface{}{
+						"toolCallId": call.id,
+						"toolName":   call.name,
+						"input":      call.input,
+					},
+				})
+				state.sawToolCall = true
+			}
+			if !state.finishSent {
+				onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"finishReason": "tool-calls", "type": "finish"}})
+				state.finishSent = true
+			}
+			return true // Break loop
+		}
+	}
+
+	if state.textStarted {
+		onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "text-end", "id": "0"}})
+	}
+	if !state.finishSent {
+		finishReason := "stop"
+		if state.sawToolCall {
+			finishReason = "tool-calls"
+		}
+		onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "finish", "finishReason": finishReason}})
+		state.finishSent = true
+	}
+	return true // Break loop
+}
+
+func (c *Client) dispatchFSOperation(
+	msg map[string]interface{},
+	onMessage func(SSEMessage),
+	conn *websocket.Conn,
+	wg *sync.WaitGroup,
+	workdir string,
+) {
+	onMessage(SSEMessage{Type: "fs_operation", Event: msg})
+	wg.Add(1)
+	go func(m map[string]interface{}) {
+		defer wg.Done()
+		if err := c.handleFSOperation(conn, m, func(success bool, data interface{}, errMsg string) {
+			if onMessage != nil {
+				onMessage(SSEMessage{
+					Type: "fs_operation_result",
+					Event: map[string]interface{}{
+						"success": success,
+						"data":    data,
+						"error":   errMsg,
+						"op":      m,
+					},
+				})
+			}
+		}, workdir); err != nil {
+			// Error handled inside respond or logged via debug
+		}
+	}(msg)
+}
+
+func (c *Client) handleModelEvent(
+	msg map[string]interface{},
+	state *requestState,
+	onMessage func(SSEMessage),
+) bool {
+	event, ok := msg["event"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	eventType, _ := event["type"].(string)
+
+	if state.preferCodingAgent {
+		// Suppress only duplicate text/thinking segments to avoid redundancy
+		// while allowing tool-calls, finish, and tokens usage to pass through.
+		if eventType == "text-start" || eventType == "text-delta" || eventType == "text-end" ||
+			eventType == "reasoning-start" || eventType == "reasoning-delta" || eventType == "reasoning-end" {
+			return false
+		}
+	}
+
+	if eventType == "tool-call" {
+		state.sawToolCall = true
+	}
+	onMessage(SSEMessage{Type: "model", Event: event, Raw: msg})
+	if eventType == "finish" {
+		state.finishSent = true
+		if reason, ok := event["finishReason"].(string); ok {
+			if state.textStarted {
+				onMessage(SSEMessage{Type: "model", Event: map[string]interface{}{"type": "text-end", "id": "0"}})
+			}
+			if reason == "tool-calls" {
+				return true
+			}
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) buildWSURLAIClient(token string) string {

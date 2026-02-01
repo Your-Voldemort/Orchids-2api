@@ -23,6 +23,16 @@ func extractWorkdirFromSystem(system []prompt.SystemItem) string {
 	return ""
 }
 
+func channelFromPath(path string) string {
+	if strings.HasPrefix(path, "/orchids/") {
+		return "orchids"
+	}
+	if strings.HasPrefix(path, "/warp/") {
+		return "warp"
+	}
+	return ""
+}
+
 // mapModel 根据请求的 model 名称映射到实际使用的模型
 func mapModel(requestModel string) string {
 	lowerModel := strings.ToLower(requestModel)

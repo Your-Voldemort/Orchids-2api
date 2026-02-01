@@ -78,8 +78,14 @@ func (lb *LoadBalancer) GetNextAccountExcludingByChannel(ctx context.Context, ex
 		if excludeSet[acc.ID] {
 			continue
 		}
-		if channel != "" && !strings.EqualFold(acc.AgentMode, channel) {
-			continue
+		if channel != "" {
+			accType := acc.AccountType
+			if strings.TrimSpace(accType) == "" {
+				accType = "orchids"
+			}
+			if !strings.EqualFold(accType, channel) && !strings.EqualFold(acc.AgentMode, channel) {
+				continue
+			}
 		}
 		filtered = append(filtered, acc)
 	}

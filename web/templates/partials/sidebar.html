@@ -5,22 +5,22 @@
   </div>
   <ul class="sidebar-menu">
     <li class="sidebar-item">
-      <a href="#" class="sidebar-link {{if eq .ActiveTab "accounts"}}active{{end}}" onclick="switchTab('accounts')">
+      <a href="#" class="sidebar-link {{if eq .ActiveTab " accounts"}}active{{end}}" onclick="switchTab('accounts')">
         <span>👤</span> 账号管理
       </a>
     </li>
     <li class="sidebar-item">
-      <a href="#" class="sidebar-link {{if eq .ActiveTab "keys"}}active{{end}}" onclick="switchTab('keys')">
+      <a href="#" class="sidebar-link {{if eq .ActiveTab " keys"}}active{{end}}" onclick="switchTab('keys')">
         <span>⚙️</span> 配置管理
       </a>
     </li>
     <li class="sidebar-item">
-      <a href="#" class="sidebar-link {{if eq .ActiveTab "models"}}active{{end}}" onclick="switchTab('models')">
+      <a href="#" class="sidebar-link {{if eq .ActiveTab " models"}}active{{end}}" onclick="switchTab('models')">
         <span>📁</span> 模型管理
       </a>
     </li>
     <li class="sidebar-item">
-      <a href="#" class="sidebar-link {{if eq .ActiveTab "tutorial"}}active{{end}}" onclick="switchTab('tutorial')">
+      <a href="#" class="sidebar-link {{if eq .ActiveTab " tutorial"}}active{{end}}" onclick="switchTab('tutorial')">
         <span>📖</span> 使用教程
       </a>
     </li>
@@ -41,20 +41,14 @@
       </div>
     </div>
     <div style="font-size: 0.8rem; color: rgba(255,255,255,0.4);">
-      今日用量 <span style="float: right;">4/10000</span>
+      今日用量 <span style="float: right;" id="footerUsageText">4/10000</span>
       <div style="height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; margin: 8px 0;">
         <div id="usageProgress" style="width: 1%; background: #3b82f6; height: 100%; border-radius: 2px;"></div>
       </div>
     </div>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; font-size: 0.75rem; color: rgba(255,255,255,0.3);">
-      <span>授权到期</span>
-      <span id="expiryDate">2026/02/24</span>
-    </div>
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.75rem; color: rgba(255,255,255,0.3);">
-      <span>GitHub</span>
-      <span>v2.4.5</span>
-    </div>
-    <button class="btn" style="width: 100%; margin-top: 16px; background: rgba(255,255,255,0.05); color: white; justify-content: center;" onclick="logout()">
+    <button class="btn"
+      style="width: 100%; margin-top: 16px; background: rgba(255,255,255,0.05); color: white; justify-content: center;"
+      onclick="logout()">
       🚪 退出登录
     </button>
   </div>

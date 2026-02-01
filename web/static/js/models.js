@@ -24,15 +24,13 @@ function renderChannelTabs() {
   const container = document.getElementById("modelPlatformFilters");
   if (!container) return;
 
-  const channels = new Set(models.map(m => m.channel));
+  const defaultChannels = ["Orchids", "Warp"];
+  const channels = new Set([...defaultChannels, ...models.map(m => m.channel)]);
   const sorted = Array.from(channels).sort();
   const tabs = [...sorted];
 
   if (currentModelChannel === '' || !tabs.includes(currentModelChannel)) {
-    if (currentModelChannel !== '' && tabs.length > 0) {
-      currentModelChannel = tabs[0];
-    }
-    if (currentModelChannel === '' && tabs.length > 0) currentModelChannel = tabs[0];
+    currentModelChannel = tabs.length > 0 ? tabs[0] : '';
   }
 
   container.innerHTML = tabs.map(channel => {

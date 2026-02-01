@@ -57,6 +57,7 @@ type Config struct {
 	OrchidsRunAllowlist     []string `json:"orchids_run_allowlist"`
 	OrchidsFSIgnore         []string `json:"orchids_fs_ignore"`
 	OrchidsCredsPath        string   `json:"orchids_creds_path"`
+	WarpDisableTools        *bool    `json:"warp_disable_tools"`
 
 	// New fields for UI
 	AdminToken           string `json:"admin_token"`
@@ -227,6 +228,10 @@ func applyDefaults(cfg *Config) {
 		if cwd, err := os.Getwd(); err == nil {
 			cfg.OrchidsLocalWorkdir = cwd
 		}
+	}
+	if cfg.WarpDisableTools == nil {
+		v := true
+		cfg.WarpDisableTools = &v
 	}
 
 	// New defaults

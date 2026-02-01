@@ -135,6 +135,17 @@ func (s *Store) seedModels() error {
 		{ID: "9", Channel: "Orchids", ModelID: "claude-sonnet-4-20250514", Name: "Claude Sonnet 4", Status: true, IsDefault: false, SortOrder: 3},
 		{ID: "43", Channel: "Orchids", ModelID: "claude-opus-4-5-thinking", Name: "Claude Opus 4.5 Thinking", Status: true, IsDefault: false, SortOrder: 3},
 		{ID: "10", Channel: "Orchids", ModelID: "claude-3-7-sonnet-20250219", Name: "Claude 3.7 Sonnet", Status: true, IsDefault: false, SortOrder: 4},
+		{ID: "60", Channel: "Warp", ModelID: "auto", Name: "Warp Auto", Status: true, IsDefault: true, SortOrder: 0},
+		{ID: "61", Channel: "Warp", ModelID: "auto-efficient", Name: "Warp Auto Efficient", Status: true, IsDefault: false, SortOrder: 1},
+		{ID: "62", Channel: "Warp", ModelID: "auto-genius", Name: "Warp Auto Genius", Status: true, IsDefault: false, SortOrder: 2},
+		{ID: "63", Channel: "Warp", ModelID: "claude-4-5-sonnet", Name: "Claude 4.5 Sonnet (Warp)", Status: true, IsDefault: false, SortOrder: 3},
+		{ID: "64", Channel: "Warp", ModelID: "claude-4-5-opus", Name: "Claude 4.5 Opus (Warp)", Status: true, IsDefault: false, SortOrder: 4},
+		{ID: "65", Channel: "Warp", ModelID: "gpt-5", Name: "GPT-5 (Warp)", Status: true, IsDefault: false, SortOrder: 5},
+		{ID: "66", Channel: "Warp", ModelID: "gpt-4o", Name: "GPT-4o (Warp)", Status: true, IsDefault: false, SortOrder: 6},
+		{ID: "67", Channel: "Warp", ModelID: "o3", Name: "o3 (Warp)", Status: true, IsDefault: false, SortOrder: 7},
+		{ID: "68", Channel: "Warp", ModelID: "o4-mini", Name: "o4-mini (Warp)", Status: true, IsDefault: false, SortOrder: 8},
+		{ID: "69", Channel: "Warp", ModelID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro (Warp)", Status: true, IsDefault: false, SortOrder: 9},
+		{ID: "70", Channel: "Warp", ModelID: "warp-basic", Name: "Warp Basic", Status: true, IsDefault: false, SortOrder: 10},
 	}
 
 	for _, m := range models {

@@ -207,6 +207,10 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 
 func (c *Client) UpdateLocalWorkdir(dir string) {
 	if c.config != nil {
+		dir = strings.TrimSpace(dir)
+		if dir == "" || dir == c.config.OrchidsLocalWorkdir {
+			return
+		}
 		c.config.OrchidsLocalWorkdir = dir
 		c.RefreshFSIndexSync()
 		go c.RefreshFSIndex()

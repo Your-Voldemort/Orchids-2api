@@ -9,7 +9,7 @@ Orchids-2api/
 │       └── main.go              # 应用入口点
 ├── internal/                     # 核心业务逻辑
 │   ├── api/api.go               # 账号管理 REST API
-│   ├── handler/handler.go       # 主请求处理器 (/v1/messages)
+│   ├── handler/handler.go       # 主请求处理器 (/orchids/v1/messages, /warp/v1/messages)
 │   ├── loadbalancer/loadbalancer.go  # 加权负载均衡
 │   ├── store/store.go           # Redis 账号/配置存储层
 │   ├── config/config.go         # 配置管理
@@ -81,7 +81,7 @@ https://orchids-server.calmstone-6964e08a.westeurope.azurecontainerapps.io/agent
 ```
 客户端请求 (Claude API 格式)
     ↓
-POST /v1/messages (Handler)
+POST /orchids/v1/messages / /warp/v1/messages (Handler)
     ↓
 解析请求 → 提取 model, messages, tools
     ↓

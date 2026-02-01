@@ -123,8 +123,16 @@ func main() {
 	mux := http.NewServeMux()
 
 	limiter := middleware.NewConcurrencyLimiter(cfg.ConcurrencyLimit, time.Duration(cfg.ConcurrencyTimeout)*time.Second)
-	mux.HandleFunc("/v1/messages", limiter.Limit(h.HandleMessages))
-	mux.HandleFunc("/v1/messages/count_tokens", limiter.Limit(h.HandleCountTokens))
+	mux.HandleFunc("/orchids/v1/messages", limiter.Limit(h.HandleMessages))
+	mux.HandleFunc("/orchids/v1/messages/count_tokens", limiter.Limit(h.HandleCountTokens))
+	mux.HandleFunc("/warp/v1/messages", limiter.Limit(h.HandleMessages))
+	mux.HandleFunc("/warp/v1/messages/count_tokens", limiter.Limit(h.HandleCountTokens))
+
+	// Public Model Routes (Orchids & Warp separate channels)
+	mux.HandleFunc("/orchids/v1/models", h.HandleModels)
+	mux.HandleFunc("/orchids/v1/models/", h.HandleModelByID)
+	mux.HandleFunc("/warp/v1/models", h.HandleModels)
+	mux.HandleFunc("/warp/v1/models/", h.HandleModelByID)
 
 	// Public routes
 	mux.HandleFunc("/api/login", apiHandler.HandleLogin)

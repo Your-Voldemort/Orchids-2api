@@ -316,8 +316,6 @@ func (h *streamHandler) resetRoundState() {
 
 func (h *streamHandler) shouldEmitToolCalls(stopReason string) bool {
 	switch h.toolCallMode {
-	case "proxy":
-		return true
 	case "auto":
 		return stopReason == "tool_use"
 	case "internal":
@@ -728,26 +726,10 @@ func (h *streamHandler) handleToolCall(call toolCall) {
 	h.mu.Lock()
 	h.toolCallCount++
 	h.mu.Unlock()
-	if h.toolCallMode != "proxy" {
-		h.mu.Lock()
-		h.pendingToolCalls = append(h.pendingToolCalls, call)
-		h.mu.Unlock()
-		return
-	}
-
-	if !h.isStream {
-		h.emitToolCallNonStream(call)
-		return
-	}
-
-	idx := -1
+	// Default pending behavior (proxy mode removed)
 	h.mu.Lock()
-	if value, exists := h.toolBlocks[call.id]; exists {
-		idx = value
-		delete(h.toolBlocks, call.id)
-	}
+	h.pendingToolCalls = append(h.pendingToolCalls, call)
 	h.mu.Unlock()
-	h.emitToolCallStream(call, idx, h.writeSSE)
 }
 
 func (h *streamHandler) handleMessage(msg client.SSEMessage) {
