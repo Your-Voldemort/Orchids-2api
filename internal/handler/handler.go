@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -215,6 +217,8 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	if c, ok := apiClient.(*client.Client); ok {
 		opts.ProjectContext = c.GetProjectSummary()
 	}
+
+	slog.Info("Starting prompt build...", "conversation_id", conversationKey)
 	builtPrompt := prompt.BuildPromptV2WithOptions(prompt.ClaudeAPIRequest{
 		Model:    req.Model,
 		Messages: req.Messages,
@@ -222,6 +226,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		Tools:    effectiveTools,
 		Stream:   req.Stream,
 	}, opts)
+	slog.Info("Prompt build completed", "duration", time.Since(startBuild))
 	if h.config.DebugEnabled {
 		log.Printf("[Performance] BuildPromptV2WithOptions took %v", time.Since(startBuild))
 		if opts.ProjectContext != "" {
@@ -412,6 +417,8 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer close(done)
 		turnCount := 1
+		chatSessionID := "chat_" + randomSessionID()
+
 		for {
 			slog.Info("Starting turn", "turn", turnCount, "mode", toolCallMode)
 			sh.internalNeedsFollowup = false // Reset per retry/turn
@@ -424,14 +431,15 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			retriesRemaining := maxRetries
 
 			upstreamReq := client.UpstreamRequest{
-				Prompt:      builtPrompt,
-				ChatHistory: chatHistory,
-				Model:       mappedModel,
-				Messages:    upstreamMessages,
-				System:      []prompt.SystemItem(req.System),
-				Tools:       effectiveTools,
-				NoTools:     gateNoTools,
-				NoThinking:  suggestionMode,
+				Prompt:        builtPrompt,
+				ChatHistory:   chatHistory,
+				Model:         mappedModel,
+				Messages:      upstreamMessages,
+				System:        []prompt.SystemItem(req.System),
+				Tools:         effectiveTools,
+				NoTools:       gateNoTools,
+				NoThinking:    suggestionMode,
+				ChatSessionID: chatSessionID,
 			}
 			for {
 				sh.resetRoundState() // Ensure fresh state indicators for each attempt
@@ -501,6 +509,41 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 					var assistantHistoryBlocks []map[string]interface{}
 					var userHistoryBlocks []map[string]interface{}
 
+					// 1. Add text/thinking blocks from the current turn
+					for _, block := range sh.contentBlocks {
+						blockType, _ := block["type"].(string)
+						if blockType == "text" {
+							text, _ := block["text"].(string)
+							if text != "" {
+								assistantBlocks = append(assistantBlocks, prompt.ContentBlock{
+									Type: "text",
+									Text: text,
+								})
+								assistantHistoryBlocks = append(assistantHistoryBlocks, map[string]interface{}{
+									"type": "text",
+									"text": text,
+								})
+							}
+						} else if blockType == "thinking" {
+							// Check if we need to include thinking blocks in history
+							// Usually we don't for Anthropic API unless explicitly requested,
+							// but for "chat history" it might be needed if the model relies on it.
+							// For now, let's include it if allowed.
+							thinking, _ := block["thinking"].(string)
+							if thinking != "" {
+								assistantBlocks = append(assistantBlocks, prompt.ContentBlock{
+									Type:     "thinking",
+									Thinking: thinking,
+								})
+								assistantHistoryBlocks = append(assistantHistoryBlocks, map[string]interface{}{
+									"type":     "thinking",
+									"thinking": thinking,
+								})
+							}
+						}
+					}
+
+					// 2. Add tool use and results
 					for _, result := range sh.internalToolResults {
 						assistantBlocks = append(assistantBlocks, prompt.ContentBlock{
 							Type:  "tool_use",
@@ -631,4 +674,13 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			}
 		}(currentAccount.ID, sh.inputTokens, sh.outputTokens)
 	}
+}
+
+func randomSessionID() string {
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to time-based if crypto/rand fails (unlikely)
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }

@@ -831,16 +831,23 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		h.closeActiveBlock()
 
 	case "fs_operation":
+		slog.Info("DEBUG: fs_operation received", "event_keys", len(msg.Event), "operation", msg.Event["operation"], "path", msg.Event["path"])
 		if !h.isStream {
 			return
 		}
-		data, ok := msg.Event["data"].(map[string]interface{})
-		if !ok {
-			return
-		}
-		opType, _ := data["type"].(string)
-		opPath, _ := data["path"].(string)
+
+		opType, _ := msg.Event["operation"].(string)
+		opPath, _ := msg.Event["path"].(string)
+
+		// Fallback to Event["data"] if legacy format
 		if opType == "" {
+			if data, ok := msg.Event["data"].(map[string]interface{}); ok {
+				opType, _ = data["type"].(string)
+				opPath, _ = data["path"].(string)
+			}
+		}
+
+		if opType == "" || opType == "list" || opType == "read" || opType == "search" || opType == "ripgrep" {
 			return
 		}
 		feedback := fmt.Sprintf("\n[Feedback: %s %s...]\n", opType, opPath)
@@ -863,11 +870,12 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 		errMsg, _ := msg.Event["error"].(string)
 		op, _ := msg.Event["op"].(map[string]interface{})
 
-		opID, _ := op["id"].(string)
+		_ = op["id"]
 		opName, _ := op["operation"].(string)
 
 		// Map orchids operation back to Claude tool name if possible
-		mappedName := client.DefaultToolMapper.FromOrchids(opName)
+		// mappedName := client.DefaultToolMapper.FromOrchids(opName)
+		_ = client.DefaultToolMapper.FromOrchids(opName)
 
 		output := ""
 		if !success {
@@ -886,18 +894,22 @@ func (h *streamHandler) handleMessage(msg client.SSEMessage) {
 			}
 		}
 
-		h.mu.Lock()
-		h.internalToolResults = append(h.internalToolResults, safeToolResult{
-			call: toolCall{
-				id:   opID,
-				name: mappedName,
-			},
-			input:   op,
-			output:  output,
-			isError: !success,
-		})
-		h.internalNeedsFollowup = true
-		h.mu.Unlock()
+		/*
+			// FIX: Do not treat fs_operation as a tool call requiring follow-up.
+			// The upstream agent handles this inline via WebSocket.
+			h.mu.Lock()
+			h.internalToolResults = append(h.internalToolResults, safeToolResult{
+				call: toolCall{
+					id:   opID,
+					name: mappedName,
+				},
+				input:   op,
+				output:  output,
+				isError: !success,
+			})
+			// h.internalNeedsFollowup = true
+			h.mu.Unlock()
+		*/
 
 	case "model.tool-input-start":
 		h.closeActiveBlock() // Tool input starts a separate block mechanism

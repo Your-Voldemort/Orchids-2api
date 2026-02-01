@@ -46,14 +46,15 @@ type Client struct {
 }
 
 type UpstreamRequest struct {
-	Prompt      string
-	ChatHistory []interface{}
-	Model       string
-	Messages    []prompt.Message
-	System      []prompt.SystemItem
-	Tools       []interface{}
-	NoTools     bool
-	NoThinking  bool
+	Prompt        string
+	ChatHistory   []interface{}
+	Model         string
+	Messages      []prompt.Message
+	System        []prompt.SystemItem
+	Tools         []interface{}
+	NoTools       bool
+	NoThinking    bool
+	ChatSessionID string
 }
 
 type TokenResponse struct {
@@ -176,16 +177,19 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		cfg.OrchidsLocalWorkdir = base.OrchidsLocalWorkdir
 		cfg.OrchidsAllowRunCommand = base.OrchidsAllowRunCommand
 		cfg.OrchidsRunAllowlist = base.OrchidsRunAllowlist
+		cfg.OrchidsFSIgnore = base.OrchidsFSIgnore // Critical for performance
 		cfg.AutoRefreshToken = base.AutoRefreshToken
 	}
+
 	c := &Client{
 		config:     cfg,
 		account:    acc,
 		httpClient: defaultHTTPClient,
-		authHandle: NewOrchidsAuth(cfg.OrchidsCredsPath),
-		fsCache:    perf.NewTTLCache(60 * time.Second), // Increased from 10s to 60s for better caching
+		// Reuse existing auth handle if possible, or new one - actually NewFromAccount implies using provided account creds
+		// but we might need authHandle for token refresh? For now let's leave authHandle nil as account is provided.
+		authHandle: NewOrchidsAuth(base.OrchidsCredsPath),
+		fsCache:    perf.NewTTLCache(60 * time.Second),
 	}
-	// Initialize connection pool
 	c.wsPool = pool.NewWSPool(c.createWSConnection, 2, 5)
 	go c.RefreshFSIndex()
 	return c
@@ -455,6 +459,9 @@ func (c *Client) sendRequestSSE(ctx context.Context, req UpstreamRequest, onMess
 
 					if event, ok := msg["event"].(map[string]interface{}); ok {
 						sseMsg.Event = event
+					} else {
+						// For flat events like fs_operation, the event itself is the data map
+						sseMsg.Event = msg
 					}
 
 					onMessage(sseMsg)

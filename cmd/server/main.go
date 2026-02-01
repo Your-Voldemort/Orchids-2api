@@ -33,18 +33,23 @@ import (
 )
 
 func main() {
-	// 初始化结构化日志
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	slog.SetDefault(logger)
-
 	configPath := flag.String("config", "", "Path to config.json/config.yaml")
 	flag.Parse()
 
 	cfg, resolvedCfgPath, err := config.Load(*configPath)
 	if err != nil {
-		slog.Error("Failed to load config", "error", err)
+		slog.New(slog.NewJSONHandler(os.Stdout, nil)).Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
+
+	// 根据配置初始化日志级别
+	var level slog.Level = slog.LevelInfo
+	if cfg.DebugEnabled {
+		level = slog.LevelDebug
+	}
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
+	slog.SetDefault(logger)
 
 	// 启动时清理所有调试日志
 	if cfg.DebugEnabled {

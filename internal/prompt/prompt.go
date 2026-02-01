@@ -44,9 +44,10 @@ type ContentBlock struct {
 	URL    string       `json:"url,omitempty"`
 
 	// tool_use 字段
-	ID    string      `json:"id,omitempty"`
-	Name  string      `json:"name,omitempty"`
-	Input interface{} `json:"input,omitempty"`
+	ID       string      `json:"id,omitempty"`
+	Name     string      `json:"name,omitempty"`
+	Input    interface{} `json:"input,omitempty"`
+	Thinking string      `json:"thinking,omitempty"`
 
 	// tool_result 字段
 	ToolUseID    string        `json:"tool_use_id,omitempty"`

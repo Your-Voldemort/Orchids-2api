@@ -513,9 +513,14 @@ func (c *Client) buildWSRequestAIClient(req UpstreamRequest) (*orchidsWSRequest,
 
 	agentMode := normalizeAIClientModel(req.Model)
 
+	chatSessionID := req.ChatSessionID
+	if chatSessionID == "" {
+		chatSessionID = "chat_" + randomSuffix(12)
+	}
+
 	payload := map[string]interface{}{
 		"projectId":      nil,
-		"chatSessionId":  "chat_" + randomSuffix(12),
+		"chatSessionId":  chatSessionID,
 		"prompt":         promptText,
 		"agentMode":      agentMode,
 		"mode":           "agent",
