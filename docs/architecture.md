@@ -102,7 +102,8 @@ https://orchids-server.calmstone-6964e08a.westeurope.azurecontainerapps.io/agent
 
 **Clerk API**: `https://clerk.orchids.app/v1/client`
 
-- 从 ClientCookie 获取账号信息
+- Orchids 账号从 ClientCookie 获取账号信息
+- Warp 账号使用 refresh_token 刷新 JWT
 - 生成 JWT Token 用于上游认证
 - 提取 SessionID、UserID、Email
 
@@ -148,7 +149,8 @@ type Account struct {
     ID           int64     // 主键
     Name         string    // 账号名称
     SessionID    string    // Clerk 会话 ID
-    ClientCookie string    // 认证 Cookie (JWT)
+    ClientCookie string    // Orchids 认证 Cookie (JWT)
+    RefreshToken string    // Warp refresh_token
     ClientUat    string    // 客户端 UAT 时间戳
     ProjectID    string    // 项目 UUID
     UserID       string    // 用户 ID

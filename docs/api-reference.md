@@ -30,10 +30,11 @@
 
 - **类型**: Bearer Token (JWT)
 - **流程**:
-  1. 使用账号的 ClientCookie 调用 Clerk API
-  2. 获取 SessionID
-  3. 生成 JWT Token
-  4. 作为 Authorization Header 发送到上游
+  1. Orchids 账号使用 ClientCookie 调用 Clerk API
+  2. Warp 账号使用 refresh_token 刷新 JWT
+  3. 获取 SessionID
+  4. 生成 JWT Token
+  5. 作为 Authorization Header 发送到上游
 
 ## /orchids/v1/messages 端点
 

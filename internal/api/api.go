@@ -32,6 +32,33 @@ type API struct {
 	configPath   string      // Path to config.json
 }
 
+func normalizeWarpTokenInput(acc *store.Account) {
+	if acc == nil || !strings.EqualFold(acc.AccountType, "warp") {
+		return
+	}
+	if acc.RefreshToken == "" && acc.ClientCookie != "" {
+		acc.RefreshToken = acc.ClientCookie
+	}
+	// Warp 只使用 refresh_token，清理 client_cookie 避免混用
+	acc.ClientCookie = ""
+	acc.SessionCookie = ""
+}
+
+func normalizeWarpTokenOutput(acc *store.Account) *store.Account {
+	if acc == nil {
+		return nil
+	}
+	copyAcc := *acc
+	if strings.EqualFold(copyAcc.AccountType, "warp") {
+		if copyAcc.RefreshToken == "" && copyAcc.ClientCookie != "" {
+			copyAcc.RefreshToken = copyAcc.ClientCookie
+		}
+		copyAcc.ClientCookie = ""
+		copyAcc.SessionCookie = ""
+	}
+	return &copyAcc
+}
+
 type ExportData struct {
 	Version  int             `json:"version"`
 	ExportAt time.Time       `json:"export_at"`
@@ -180,7 +207,11 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 		if accounts == nil {
 			accounts = []*store.Account{}
 		}
-		json.NewEncoder(w).Encode(accounts)
+		normalized := make([]*store.Account, 0, len(accounts))
+		for _, acc := range accounts {
+			normalized = append(normalized, normalizeWarpTokenOutput(acc))
+		}
+		json.NewEncoder(w).Encode(normalized)
 
 	case http.MethodPost:
 		var acc store.Account
@@ -191,7 +222,9 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(acc.AccountType) == "" {
 			acc.AccountType = "orchids"
 		}
-		if acc.ClientCookie != "" && !strings.EqualFold(acc.AccountType, "warp") {
+		if strings.EqualFold(acc.AccountType, "warp") {
+			normalizeWarpTokenInput(&acc)
+		} else if acc.ClientCookie != "" {
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)
 			if err != nil {
 				http.Error(w, "Invalid client cookie: "+err.Error(), http.StatusBadRequest)
@@ -230,7 +263,7 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(acc)
+		json.NewEncoder(w).Encode(normalizeWarpTokenOutput(&acc))
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -284,11 +317,16 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				acc.Token = info.JWT // Update Token/JWT
 			}
 
+			// 刷新成功后清理账号状态
+			acc.StatusCode = ""
+			acc.LastAttempt = time.Time{}
+			acc.QuotaResetAt = time.Time{}
+
 			if err := a.store.UpdateAccount(r.Context(), acc); err != nil {
 				http.Error(w, "Failed to save refreshed account: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
-			json.NewEncoder(w).Encode(acc)
+			json.NewEncoder(w).Encode(normalizeWarpTokenOutput(acc))
 			return
 		}
 		acc, err := a.store.GetAccount(r.Context(), id)
@@ -296,7 +334,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		json.NewEncoder(w).Encode(acc)
+		json.NewEncoder(w).Encode(normalizeWarpTokenOutput(acc))
 
 	case http.MethodPut:
 		existing, err := a.store.GetAccount(r.Context(), id)
@@ -317,7 +355,9 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(acc.AccountType) == "" {
 			acc.AccountType = "orchids"
 		}
-		if acc.ClientCookie != "" && !strings.EqualFold(acc.AccountType, "warp") {
+		if strings.EqualFold(acc.AccountType, "warp") {
+			normalizeWarpTokenInput(&acc)
+		} else if acc.ClientCookie != "" {
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)
 			if err != nil {
 				http.Error(w, "Invalid client cookie: "+err.Error(), http.StatusBadRequest)
@@ -360,7 +400,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(acc)
+		json.NewEncoder(w).Encode(normalizeWarpTokenOutput(&acc))
 
 	case http.MethodDelete:
 		if err := a.store.DeleteAccount(r.Context(), id); err != nil {
@@ -392,7 +432,7 @@ func (a *API) HandleExport(w http.ResponseWriter, r *http.Request) {
 		Accounts: make([]store.Account, len(accounts)),
 	}
 	for i, acc := range accounts {
-		exportData.Accounts[i] = *acc
+		exportData.Accounts[i] = *normalizeWarpTokenOutput(acc)
 		exportData.Accounts[i].ID = 0
 		exportData.Accounts[i].RequestCount = 0
 	}
@@ -419,7 +459,12 @@ func (a *API) HandleImport(w http.ResponseWriter, r *http.Request) {
 	for _, acc := range exportData.Accounts {
 		acc.ID = 0
 		acc.RequestCount = 0
-		if acc.ClientCookie != "" {
+		if strings.TrimSpace(acc.AccountType) == "" {
+			acc.AccountType = "orchids"
+		}
+		if strings.EqualFold(acc.AccountType, "warp") {
+			normalizeWarpTokenInput(&acc)
+		} else if acc.ClientCookie != "" {
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)
 			if err != nil {
 				slog.Warn("Invalid client cookie in import", "name", acc.Name, "error", err)
@@ -438,9 +483,6 @@ func (a *API) HandleImport(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-		}
-		if strings.TrimSpace(acc.AccountType) == "" {
-			acc.AccountType = "orchids"
 		}
 		if err := a.store.CreateAccount(r.Context(), &acc); err != nil {
 			slog.Warn("Failed to import account", "name", acc.Name, "error", err)

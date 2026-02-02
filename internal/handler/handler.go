@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
+	"orchids-api/internal/adapter"
 	"orchids-api/internal/config"
-	"orchids-api/internal/orchids"
 	"orchids-api/internal/debug"
 	"orchids-api/internal/loadbalancer"
+	"orchids-api/internal/orchids"
 	"orchids-api/internal/prompt"
-	"orchids-api/internal/store"
 	"orchids-api/internal/summarycache"
 	"orchids-api/internal/tokencache"
 	"orchids-api/internal/util"
@@ -142,90 +142,35 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	forcedChannel := channelFromPath(r.URL.Path)
+	effectiveWorkdir := h.resolveWorkdir(r, req)
 
-	// Check for dynamic workdir header EARLY
-	dynamicWorkdir := r.Header.Get("X-Orchids-Workdir")
-	if dynamicWorkdir == "" {
-		dynamicWorkdir = r.Header.Get("X-Project-Root") // Try alternative
-	}
-	if dynamicWorkdir == "" {
-		dynamicWorkdir = r.Header.Get("X-Working-Dir") // Try another alternative
-	}
-
-	// FALLBACK: Check system prompt for <env>Working directory: ...</env>
-	if dynamicWorkdir == "" {
-		dynamicWorkdir = extractWorkdirFromSystem(req.System)
-		if dynamicWorkdir != "" {
-			slog.Info("Using workdir from system prompt env block", "workdir", dynamicWorkdir)
-		}
-	}
-
+	// Context and Conversation Key
 	conversationKey := conversationKeyForRequest(r, req)
 
-	// FINAL FALLBACK: Check session persistence
-	if dynamicWorkdir == "" {
-		if val, ok := h.sessionWorkdirs.Load(conversationKey); ok {
-			dynamicWorkdir = val.(string)
-			slog.Info("Recovered workdir from session", "workdir", dynamicWorkdir, "session", conversationKey)
-		}
-	}
-
-	// Persist for future turns in this session
-	if dynamicWorkdir != "" {
-		h.sessionWorkdirs.Store(conversationKey, dynamicWorkdir)
-	}
-
-	effectiveWorkdir := ""
-	if dynamicWorkdir != "" {
-		effectiveWorkdir = dynamicWorkdir
-		slog.Info("Using dynamic workdir", "workdir", dynamicWorkdir)
-	}
-
-	// 选择账号
-	var apiClient UpstreamClient
-	var currentAccount *store.Account
-	var failedAccountIDs []int64
+	// 选择账号 (Initial Selection)
+	failedAccountIDs := []int64{}
 	failedAccountSet := make(map[int64]struct{})
 
-	selectAccount := func() error {
-		if h.loadBalancer != nil {
-			targetChannel := forcedChannel
-			if targetChannel == "" {
-				targetChannel = h.loadBalancer.GetModelChannel(r.Context(), req.Model)
-			}
-			if targetChannel != "" {
-				slog.Info("Model recognition", "model", req.Model, "channel", targetChannel)
-			}
-			account, err := h.loadBalancer.GetNextAccountExcludingByChannel(r.Context(), failedAccountIDs, targetChannel)
-			if err != nil {
-				if h.client != nil {
-					apiClient = h.client
-					currentAccount = nil
-					slog.Info("Load balancer: no available accounts for channel, using default config", "channel", targetChannel)
-					return nil
-				}
-				return err
-			}
-			if strings.EqualFold(account.AccountType, "warp") {
-				apiClient = warp.NewFromAccount(account, h.config)
-			} else {
-				apiClient = orchids.NewFromAccount(account, h.config)
-			}
-
-			currentAccount = account
-			return nil
-		} else if h.client != nil {
-			apiClient = h.client
-
-			currentAccount = nil
-			return nil
-		}
-		return errors.New("no client configured")
-	}
-
-	if err := selectAccount(); err != nil {
+	apiClient, currentAccount, err := h.selectAccount(r.Context(), req.Model, forcedChannel, failedAccountIDs)
+	if err != nil {
 		h.writeErrorResponse(w, "overloaded_error", err.Error(), http.StatusServiceUnavailable)
 		return
+	}
+
+	isWarpRequest := strings.EqualFold(forcedChannel, "warp")
+	if currentAccount != nil && strings.EqualFold(currentAccount.AccountType, "warp") {
+		isWarpRequest = true
+	}
+	if isWarpRequest {
+		trimmed, droppedHistory, droppedToolResults := trimWarpMessages(req.Messages, h.config.WarpMaxHistoryMessages, h.config.WarpMaxToolResults)
+		if droppedHistory > 0 || droppedToolResults > 0 {
+			logWarpTrim(droppedHistory, droppedToolResults)
+		}
+		req.Messages = trimmed
+	}
+	if sanitized, changed := sanitizeSystemItems(req.System, isWarpRequest, h.config); changed {
+		req.System = sanitized
+		slog.Info("系统提示已移除 cc_entrypoint", "mode", h.config.OrchidsCCEntrypointMode, "warp", isWarpRequest)
 	}
 
 	if currentAccount != nil && h.loadBalancer != nil {
@@ -303,8 +248,6 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// ... rest of code
-
 	if h.summaryStats != nil && h.summaryLog {
 		hitsAfter, missesAfter := h.summaryStats.Snapshot()
 		hitDelta := hitsAfter - hitsBefore
@@ -341,18 +284,21 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	// msgID is now managed by streamHandler
 
 	allowedTools := map[string]string{}
-	var allowedIndex []toolNameInfo
-	for _, t := range effectiveTools {
-		if tm, ok := t.(map[string]interface{}); ok {
-			if name, ok := tm["name"].(string); ok {
-				name = strings.TrimSpace(name)
-				if name != "" {
-					allowedTools[strings.ToLower(name)] = name
+	// Pre-allocation optimization
+	if len(effectiveTools) > 0 {
+		allowedTools = make(map[string]string, len(effectiveTools))
+		for _, t := range effectiveTools {
+			if tm, ok := t.(map[string]interface{}); ok {
+				if name, ok := tm["name"].(string); ok {
+					name = strings.TrimSpace(name)
+					if name != "" {
+						allowedTools[strings.ToLower(name)] = name
+					}
 				}
 			}
 		}
 	}
-	allowedIndex = buildToolNameIndex(effectiveTools, allowedTools)
+	allowedIndex := buildToolNameIndex(effectiveTools, allowedTools)
 	hasToolList := len(allowedTools) > 0
 	resolveToolName := func(name string) (string, bool) {
 		name = strings.TrimSpace(name)
@@ -377,45 +323,15 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	if name, ok := resolveToolName("bash"); ok {
 		allowBashName = name
 	}
-	if (toolCallMode == "internal" || toolCallMode == "auto") && allowBashName != "" && shouldPreflightTools(userText) {
-		preflight := []string{
-			"pwd",
-			"find . -maxdepth 2 -not -path '*/.*'",
-			"ls -la",
-		}
-		for i, cmd := range preflight {
-			call := toolCall{
-				id:    fmt.Sprintf("internal_tool_%d", i+1),
-				name:  allowBashName,
-				input: fmt.Sprintf(`{"command":%q,"description":"internal preflight"}`, cmd),
-			}
-			result := executeSafeTool(call)
-			preflightResults = append(preflightResults, result)
-			chatHistory = append(chatHistory, map[string]interface{}{
-				"role": "assistant",
-				"content": []map[string]interface{}{
-					{
-						"type":  "tool_use",
-						"id":    result.call.id,
-						"name":  result.call.name,
-						"input": result.input,
-					},
-				},
-			})
-			chatHistory = append(chatHistory, map[string]interface{}{
-				"role": "user",
-				"content": []map[string]interface{}{
-					{
-						"type":        "tool_result",
-						"tool_use_id": result.call.id,
-						"content":     result.output,
-						"is_error":    result.isError,
-					},
-				},
-			})
-		}
-		shouldLocalFallback = len(preflightResults) > 0
-	}
+	// executePreflightTools now handles parallel execution and result construction
+	preflightResults, preflightHistory := h.executePreflightTools(toolCallMode, allowBashName, userText)
+	shouldLocalFallback = len(preflightResults) > 0
+
+	// Pre-allocate charHistory
+	chatHistory = make([]interface{}, 0, 10+len(preflightHistory))
+	chatHistory = append(chatHistory, preflightHistory...)
+
+	upstreamMessages = append([]prompt.Message(nil), req.Messages...) // Copied
 
 	localContext := formatLocalToolResults(preflightResults)
 	if localContext != "" {
@@ -432,10 +348,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	inputTokens := h.estimateInputTokens(r.Context(), req.Model, builtPrompt)
 
 	// Detect Response Format (Anthropic vs OpenAI)
-	responseFormat := "anthropic"
-	if strings.Contains(r.URL.Path, "/chat/completions") {
-		responseFormat = "openai"
-	}
+	responseFormat := adapter.DetectResponseFormat(r.URL.Path)
 
 	sh := newStreamHandler(
 		h.config, w, logger, toolCallMode, suppressThinking, allowedTools, allowedIndex, preflightResults, shouldLocalFallback, isStream, responseFormat,
@@ -488,6 +401,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
+	// Main execution loop
 	run := func() {
 		turnCount := 1
 		followupCount := 0
@@ -507,7 +421,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			upstreamReq := orchids.UpstreamRequest{
 				Prompt:        builtPrompt,
 				ChatHistory:   chatHistory,
-				Workdir:       dynamicWorkdir,
+				Workdir:       effectiveWorkdir,
 				Model:         mappedModel,
 				Messages:      upstreamMessages,
 				System:        []prompt.SystemItem(req.System),
@@ -519,11 +433,37 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			for {
 				sh.resetRoundState() // Ensure fresh state indicators for each attempt
 				var err error
+				slog.Debug("Calling Upstream Client...", "attempt", maxRetries-retriesRemaining+1)
+
 				if sender, ok := apiClient.(UpstreamPayloadClient); ok {
-					err = sender.SendRequestWithPayload(r.Context(), upstreamReq, sh.handleMessage, logger)
+					warpBatches := [][]prompt.Message{upstreamMessages}
+					if isWarpRequest && h.config.WarpSplitToolResults {
+						if _, isWarp := apiClient.(*warp.Client); isWarp {
+							batches, total := splitWarpToolResults(upstreamMessages, 1)
+							if len(batches) > 1 {
+								slog.Info("Warp 工具结果分批发送", "total_tool_results", total, "batches", len(batches))
+							}
+							warpBatches = batches
+						}
+					}
+					noopHandler := func(orchids.SSEMessage) {}
+					for i, batch := range warpBatches {
+						batchReq := upstreamReq
+						batchReq.Messages = batch
+						isLast := i == len(warpBatches)-1
+						if isLast {
+							err = sender.SendRequestWithPayload(r.Context(), batchReq, sh.handleMessage, logger)
+						} else {
+							err = sender.SendRequestWithPayload(r.Context(), batchReq, noopHandler, nil)
+						}
+						if err != nil {
+							break
+						}
+					}
 				} else {
 					err = apiClient.SendRequest(r.Context(), builtPrompt, chatHistory, mappedModel, sh.handleMessage, logger)
 				}
+				slog.Debug("Upstream Client Returned", "error", err)
 
 				if err == nil {
 					break
@@ -533,18 +473,14 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 				// Check for non-retriable errors
 				errStr := err.Error()
+				if currentAccount != nil && h.loadBalancer != nil && h.loadBalancer.Store != nil {
+					if status := classifyAccountStatus(errStr); status != "" {
+						markAccountStatus(context.Background(), h.loadBalancer.Store, currentAccount, status)
+					}
+				}
 				isAuthError := strings.Contains(errStr, "401") || strings.Contains(errStr, "403") || strings.Contains(errStr, "404") || strings.Contains(errStr, "Signed out") || strings.Contains(errStr, "signed_out")
 				if isAuthError || strings.Contains(errStr, "Input is too long") || strings.Contains(errStr, "400") {
 					slog.Error("Aborting retries for non-retriable error", "error", err)
-
-					// Disable the account if it's an authentication, forbidden, or not found error
-					if (strings.Contains(errStr, "403") || strings.Contains(errStr, "401") || strings.Contains(errStr, "404")) && currentAccount != nil && h.loadBalancer != nil && h.loadBalancer.Store != nil {
-						slog.Warn("Disabling account due to critical error", "account_id", currentAccount.ID, "account_name", currentAccount.Name, "error", err)
-						currentAccount.Enabled = false
-						if updateErr := h.loadBalancer.Store.UpdateAccount(context.Background(), currentAccount); updateErr != nil {
-							slog.Error("Failed to disable account in store", "account_id", currentAccount.ID, "error", updateErr)
-						}
-					}
 
 					// Inject error message to client for better visibility
 					if isAuthError {
@@ -554,6 +490,8 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 						} else if strings.Contains(errStr, "403") {
 							errorMsg = "Access Forbidden (403): Your account might be flagged or blocked by Warp's firewall. Try re-enabling it in the Admin UI."
 						}
+
+						slog.Info("Injecting auth error to client", "error_msg", errorMsg, "is_stream", sh.isStream)
 						idx := sh.ensureBlock("text")
 
 						// For stream, send delta immediately
@@ -567,9 +505,11 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 								},
 							}
 							deltaData, _ := json.Marshal(deltaMap)
+							slog.Debug("Sending error delta via SSE", "data", string(deltaData))
 							sh.writeSSE("content_block_delta", string(deltaData))
 						} else {
 							// For non-stream, ensureBlock has initialized the builder, we append to it
+							slog.Debug("Appending error to text builder")
 							if builder, ok := sh.textBlockBuilders[idx]; ok {
 								builder.WriteString(errorMsg)
 							}
@@ -597,13 +537,18 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 						failedAccountSet[currentAccount.ID] = struct{}{}
 						failedAccountIDs = append(failedAccountIDs, currentAccount.ID)
 					}
-					slog.Warn("Account request failed, switching account", "account", currentAccount.Name, "failed_count", len(failedAccountIDs))
-					if retryErr := selectAccount(); retryErr == nil {
+					slog.Warn("Account request failed, switching account", "account", currentAccount.Name, "unsuccessful_attempts", len(failedAccountIDs))
+
+					// Retry account selection
+					var retryErr error
+					apiClient, currentAccount, retryErr = h.selectAccount(r.Context(), req.Model, forcedChannel, failedAccountIDs)
+					if retryErr == nil {
 						if currentAccount != nil {
 							slog.Debug("Switched to account", "account", currentAccount.Name)
 						} else {
 							slog.Debug("Switched to default upstream config")
 						}
+						// Don't restart loop, just continue to next iteration
 					} else {
 						slog.Error("No more accounts available", "error", retryErr)
 						sh.finishResponse("end_turn")
@@ -786,34 +731,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	}
 
-	// 2.5 同步 Warp 刷新令牌（如有变更）
-	if currentAccount != nil && strings.EqualFold(currentAccount.AccountType, "warp") {
-		if h.loadBalancer != nil && h.loadBalancer.Store != nil {
-			if warpClient, ok := apiClient.(*warp.Client); ok {
-				if warpClient.SyncAccountState() {
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					defer cancel()
-					if err := h.loadBalancer.Store.UpdateAccount(ctx, currentAccount); err != nil {
-						slog.Warn("同步 Warp 账号令牌失败", "account", currentAccount.Name, "error", err)
-					}
-				}
-			}
-		}
-	}
-
-	// 3. Update account usage
-	if currentAccount != nil && h.loadBalancer != nil {
-		go func(accountID int64, inputTokens, outputTokens int) {
-			usage := float64(inputTokens + outputTokens)
-			if usage > 0 {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if err := h.loadBalancer.Store.IncrementUsage(ctx, accountID, usage); err != nil {
-					slog.Error("Failed to update account usage", "account_id", accountID, "error", err)
-				}
-			}
-		}(currentAccount.ID, sh.inputTokens, sh.outputTokens)
-	}
+	// Sync state and update stats using helpers
+	h.syncWarpState(currentAccount, apiClient)
+	h.updateAccountStats(currentAccount, sh.inputTokens, sh.outputTokens)
 }
 
 func randomSessionID() string {
@@ -824,5 +744,3 @@ func randomSessionID() string {
 	}
 	return hex.EncodeToString(b)
 }
-
-

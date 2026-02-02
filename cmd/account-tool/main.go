@@ -18,6 +18,7 @@ type Account struct {
 	Token        string `json:"token"`
 	SessionID    string `json:"session_id"`
 	ClientCookie string `json:"client_cookie,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 	Enabled      bool   `json:"enabled"`
 }
 
@@ -77,6 +78,12 @@ func main() {
 	for _, acc := range accounts {
 		if strings.TrimSpace(acc.AccountType) == "" {
 			acc.AccountType = "warp" // Default to warp for this use case
+		}
+		if strings.EqualFold(acc.AccountType, "warp") {
+			if acc.RefreshToken == "" && acc.ClientCookie != "" {
+				acc.RefreshToken = acc.ClientCookie
+			}
+			acc.ClientCookie = ""
 		}
 		
 		fmt.Printf("Importing account: %s (%s)...\n", acc.Name, acc.AccountType)

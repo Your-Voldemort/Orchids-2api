@@ -41,6 +41,31 @@ function normalizeAccountType(acc) {
   return (acc.account_type || 'orchids').toLowerCase();
 }
 
+function getAccountToken(acc) {
+  if (!acc) return '';
+  const type = normalizeAccountType(acc);
+  if (type === 'warp') {
+    return acc.refresh_token || acc.client_cookie || '';
+  }
+  return acc.client_cookie || '';
+}
+
+function applyTokenLabels(type) {
+  const label = document.getElementById("tokenLabel");
+  const input = document.getElementById("clientCookie");
+  const hint = document.getElementById("tokenHint");
+  if (!label || !input || !hint) return;
+  if (type === 'warp') {
+    label.textContent = "Refresh Token";
+    input.placeholder = "粘贴 refresh_token";
+    hint.textContent = "Warp 只需要 refresh_token";
+  } else {
+    label.textContent = "Client Cookie / JWT";
+    input.placeholder = "粘贴 Clerk Cookie 或 JWT";
+    hint.textContent = "支持完整 Cookie（含 __session）或纯 JWT；运行时自动获取";
+  }
+}
+
 // Render platform filter tabs
 function renderPlatformTabs() {
   const container = document.getElementById("platformFilters");
@@ -81,7 +106,7 @@ function statusBadge(acc) {
   }
   const type = normalizeAccountType(acc);
   if (type === 'warp') {
-    if (!acc.client_cookie) {
+    if (!getAccountToken(acc)) {
       return { text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少 Refresh Token' };
     }
   } else if (!acc.session_id && !acc.session_cookie) {
@@ -410,7 +435,7 @@ function openModal(account = null) {
     title.textContent = "编辑账号";
     document.getElementById("accountId").value = account.id;
     document.getElementById("accountType").value = account.account_type || "orchids";
-    document.getElementById("clientCookie").value = account.client_cookie || '';
+    document.getElementById("clientCookie").value = getAccountToken(account);
     document.getElementById("agentMode").value = account.agent_mode || 'claude-opus-4.5';
     document.getElementById("weight").value = account.weight || 1;
     document.getElementById("enabled").checked = account.enabled;
@@ -423,6 +448,7 @@ function openModal(account = null) {
     document.getElementById("accountType").value = "orchids";
     document.getElementById("enabled").checked = true;
   }
+  applyTokenLabels(document.getElementById("accountType").value);
   modal.classList.add("active");
   modal.style.display = "flex";
 }
@@ -438,13 +464,19 @@ function closeModal() {
 async function saveAccount(e) {
   e.preventDefault();
   const id = document.getElementById("accountId").value;
+  const type = document.getElementById("accountType").value;
+  const token = document.getElementById("clientCookie").value;
   const data = {
-    account_type: document.getElementById("accountType").value,
-    client_cookie: document.getElementById("clientCookie").value,
+    account_type: type,
     agent_mode: document.getElementById("agentMode").value,
     weight: parseInt(document.getElementById("weight").value) || 1,
     enabled: document.getElementById("enabled").checked,
   };
+  if (type === 'warp') {
+    data.refresh_token = token;
+  } else {
+    data.client_cookie = token;
+  }
 
   try {
     const url = id ? `/api/accounts/${id}` : "/api/accounts";
@@ -508,10 +540,18 @@ function formatTokenDisplay(acc) {
   const type = normalizeAccountType(acc);
   const token = acc.token;
   if (token) {
-    return token.length > 30 ? token.substring(0, 30) + '...' : token;
+    if (token.length > 30) {
+      if (type === 'warp') {
+        // Warp tokens (JWTs) have long common prefixes, so show more of the end
+        return token.substring(0, 10) + '...' + token.substring(token.length - 10);
+      }
+      return token.substring(0, 30) + '...';
+    }
+    return token;
   }
-  if (type === 'warp' && acc.client_cookie) {
-    return acc.client_cookie.length > 30 ? acc.client_cookie.substring(0, 30) + '...' : acc.client_cookie;
+  if (type === 'warp' && getAccountToken(acc)) {
+    const rt = getAccountToken(acc);
+    return rt.length > 30 ? rt.substring(0, 10) + '...' + rt.substring(rt.length - 10) : rt;
   }
   if (acc.session_id) {
     return acc.session_id.substring(0, 30) + '...';
@@ -558,6 +598,11 @@ async function importAccounts(event) {
 // Load accounts on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadAccounts();
+  const typeSelect = document.getElementById("accountType");
+  if (typeSelect) {
+    typeSelect.addEventListener("change", () => applyTokenLabels(typeSelect.value));
+    applyTokenLabels(typeSelect.value);
+  }
 
   // Restore auto check setting
   const autoCheckEnabled = localStorage.getItem("autoCheckEnabled") === "true";

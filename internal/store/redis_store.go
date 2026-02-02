@@ -130,6 +130,7 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 	}
 	updated.SessionID = acc.SessionID
 	updated.ClientCookie = acc.ClientCookie
+	updated.RefreshToken = acc.RefreshToken
 	if acc.SessionCookie == "" {
 		updated.SessionCookie = existing.SessionCookie
 	} else {
@@ -147,6 +148,9 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 	updated.UsageCurrent = acc.UsageCurrent
 	updated.UsageTotal = acc.UsageTotal
 	updated.ResetDate = acc.ResetDate
+	updated.StatusCode = acc.StatusCode
+	updated.LastAttempt = acc.LastAttempt
+	updated.QuotaResetAt = acc.QuotaResetAt
 	updated.UpdatedAt = time.Now()
 
 	data, err := json.Marshal(&updated)
@@ -271,6 +275,49 @@ func (s *redisStore) IncrementUsage(ctx context.Context, id int64, usage float64
 	}
 
 	return s.client.Set(ctx, s.accountsKey(id), data, 0).Err()
+}
+
+func (s *redisStore) IncrementAccountStats(ctx context.Context, id int64, usage float64, count int64) error {
+	if s == nil || s.client == nil {
+		return fmt.Errorf("redis store not configured")
+	}
+	if id == 0 {
+		return nil
+	}
+	if usage <= 0 && count <= 0 {
+		return nil
+	}
+
+	script := redis.NewScript(`
+		local key = KEYS[1]
+		local usage = tonumber(ARGV[1])
+		local count = tonumber(ARGV[2])
+		local now_str = ARGV[3]
+		
+		local val = redis.call("GET", key)
+		if not val then return redis.error_reply("account not found") end
+		
+		local acc = cjson.decode(val)
+		acc.usage_current = (acc.usage_current or 0) + usage
+		acc.usage_total = (acc.usage_total or 0) + usage
+		acc.request_count = (acc.request_count or 0) + count
+		acc.last_used_at = now_str
+		acc.updated_at = now_str
+		
+		local new_val = cjson.encode(acc)
+		redis.call("SET", key, new_val)
+		return "OK"
+	`)
+
+	nowStr := time.Now().Format(time.RFC3339Nano)
+	keys := []string{s.accountsKey(id)}
+	args := []interface{}{usage, count, nowStr}
+
+	err := script.Run(ctx, s.client, keys, args...).Err()
+	if err != nil && err != redis.Nil {
+		return err
+	}
+	return nil
 }
 
 func (s *redisStore) getAccount(ctx context.Context, id int64) (*Account, error) {

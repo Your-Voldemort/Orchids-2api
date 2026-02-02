@@ -31,7 +31,10 @@ type Client struct {
 func NewFromAccount(acc *store.Account, cfg *config.Config) *Client {
 	refresh := ""
 	if acc != nil {
-		refresh = strings.TrimSpace(acc.ClientCookie)
+		refresh = strings.TrimSpace(acc.RefreshToken)
+		if refresh == "" {
+			refresh = strings.TrimSpace(acc.ClientCookie)
+		}
 	}
 	sess := getSession(acc.ID, refresh)
 
@@ -387,12 +390,6 @@ func (c *Client) RefreshAccount(ctx context.Context) (string, error) {
 	if err := c.session.refreshTokenRequest(ctx, c.httpClient, cid); err != nil {
 		return "", err
 	}
-	if c.account != nil {
-		newRefresh := c.session.currentRefreshToken()
-		if newRefresh != "" {
-			c.account.ClientCookie = newRefresh
-		}
-	}
 	jwt := c.session.currentJWT()
 	if jwt == "" {
 		return "", fmt.Errorf("warp jwt missing")
@@ -400,18 +397,13 @@ func (c *Client) RefreshAccount(ctx context.Context) (string, error) {
 	return jwt, nil
 }
 
-// SyncAccountState 同步内存会话中的刷新令牌与 JWT 到账号信息，返回是否有变更。
+// SyncAccountState 同步内存会话中的 JWT 到账号信息，返回是否有变更。
 func (c *Client) SyncAccountState() bool {
 	if c == nil || c.session == nil || c.account == nil {
 		return false
 	}
 	changed := false
 	jwt := strings.TrimSpace(c.session.currentJWT())
-	refresh := strings.TrimSpace(c.session.currentRefreshToken())
-	if refresh != "" && refresh != c.account.ClientCookie {
-		c.account.ClientCookie = refresh
-		changed = true
-	}
 	if jwt != "" && jwt != c.account.Token {
 		c.account.Token = jwt
 		changed = true

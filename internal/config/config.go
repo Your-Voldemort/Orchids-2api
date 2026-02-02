@@ -54,8 +54,12 @@ type Config struct {
 	OrchidsImpl             string   `json:"orchids_impl"`
 	OrchidsAllowRunCommand  bool     `json:"orchids_allow_run_command"`
 	OrchidsRunAllowlist     []string `json:"orchids_run_allowlist"`
+	OrchidsCCEntrypointMode string   `json:"orchids_cc_entrypoint_mode"`
 	OrchidsFSIgnore  []string `json:"orchids_fs_ignore"`
 	WarpDisableTools *bool    `json:"warp_disable_tools"`
+	WarpMaxToolResults      int     `json:"warp_max_tool_results"`
+	WarpMaxHistoryMessages  int     `json:"warp_max_history_messages"`
+	WarpSplitToolResults    bool    `json:"warp_split_tool_results"`
 
 	// New fields for UI
 	AdminToken           string `json:"admin_token"`
@@ -63,6 +67,7 @@ type Config struct {
 	RetryDelay           int    `json:"retry_delay"`
 	AccountSwitchCount   int    `json:"account_switch_count"`
 	RequestTimeout       int    `json:"request_timeout"`
+	Retry429Interval     int    `json:"retry_429_interval"`
 	TokenRefreshInterval int    `json:"token_refresh_interval"`
 	AutoRefreshToken     bool   `json:"auto_refresh_token"`
 	AutoRefreshUsage     bool   `json:"auto_refresh_usage"`
@@ -73,6 +78,7 @@ type Config struct {
 	LoadBalancerCacheTTL int    `json:"load_balancer_cache_ttl"`
 	ConcurrencyLimit     int    `json:"concurrency_limit"`
 	ConcurrencyTimeout   int    `json:"concurrency_timeout"`
+	AdaptiveTimeout      bool   `json:"adaptive_timeout"`
 
 	// Proxy Configuration
 	ProxyHTTP   string   `json:"proxy_http"`
@@ -216,6 +222,9 @@ func applyDefaults(cfg *Config) {
 	if len(cfg.OrchidsRunAllowlist) == 0 {
 		cfg.OrchidsRunAllowlist = []string{"pwd", "ls", "find"}
 	}
+	if cfg.OrchidsCCEntrypointMode == "" {
+		cfg.OrchidsCCEntrypointMode = "auto"
+	}
 	if len(cfg.OrchidsFSIgnore) == 0 {
 		cfg.OrchidsFSIgnore = []string{"debug-logs", "data", ".claude"}
 	}
@@ -223,6 +232,12 @@ func applyDefaults(cfg *Config) {
 	if cfg.WarpDisableTools == nil {
 		v := true
 		cfg.WarpDisableTools = &v
+	}
+	if cfg.WarpMaxToolResults == 0 {
+		cfg.WarpMaxToolResults = 10
+	}
+	if cfg.WarpMaxHistoryMessages == 0 {
+		cfg.WarpMaxHistoryMessages = 20
 	}
 
 	// New defaults
@@ -237,6 +252,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.RequestTimeout == 0 {
 		cfg.RequestTimeout = 120
+	}
+	if cfg.Retry429Interval == 0 {
+		cfg.Retry429Interval = 60
 	}
 	if cfg.TokenRefreshInterval == 0 {
 		cfg.TokenRefreshInterval = 30

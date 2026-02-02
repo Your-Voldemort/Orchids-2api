@@ -41,6 +41,7 @@
 | `orchids_local_workdir` |  | 本地工作目录（WS 模式下用于 fs_operation） |
 | `orchids_allow_run_command` | false | 是否允许 Orchids run_command |
 | `orchids_run_allowlist` | ["pwd","ls","find"] | run_command 允许的命令白名单 |
+| `orchids_cc_entrypoint_mode` | auto | 系统提示 cc_entrypoint 处理策略（auto/keep/strip） |
 | `orchids_fs_ignore` | ["debug-logs","data",".claude"] | 忽略的路径段 |
 | `session_id` |  | 默认账号 Session ID（可选） |
 | `client_cookie` |  | 默认账号 Cookie（可选） |
@@ -68,6 +69,7 @@
   "orchids_local_workdir": "/path/to/project",
   "orchids_allow_run_command": false,
   "orchids_run_allowlist": ["pwd","ls","find"],
+  "orchids_cc_entrypoint_mode": "auto",
   "orchids_fs_ignore": ["debug-logs","data",".claude"],
   "summary_cache_mode": "redis",
   "summary_cache_redis_addr": "127.0.0.1:6379"
@@ -89,6 +91,7 @@ orchids_ws_url: "wss://orchids-v2-alpha-108292236521.europe-west1.run.app/agent/
 orchids_local_workdir: "/path/to/project"
 orchids_allow_run_command: false
 orchids_run_allowlist: ["pwd","ls","find"]
+orchids_cc_entrypoint_mode: "auto"
 orchids_fs_ignore: ["debug-logs","data",".claude"]
 summary_cache_mode: "redis"
 summary_cache_redis_addr: "127.0.0.1:6379"

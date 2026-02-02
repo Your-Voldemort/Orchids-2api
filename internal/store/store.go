@@ -16,6 +16,7 @@ type Account struct {
 	AccountType   string    `json:"account_type"`
 	SessionID     string    `json:"session_id"`
 	ClientCookie  string    `json:"client_cookie"`
+	RefreshToken  string    `json:"refresh_token,omitempty"`
 	SessionCookie string    `json:"session_cookie"`
 	ClientUat     string    `json:"client_uat"`
 	ProjectID     string    `json:"project_id"`
@@ -29,6 +30,9 @@ type Account struct {
 	UsageCurrent  float64   `json:"usage_current"`
 	UsageTotal    float64   `json:"usage_total"`
 	ResetDate     string    `json:"reset_date"`
+	StatusCode    string    `json:"status_code"`
+	LastAttempt   time.Time `json:"last_attempt"`
+	QuotaResetAt  time.Time `json:"quota_reset_at"`
 	RequestCount  int64     `json:"request_count"`
 	LastUsedAt    time.Time `json:"last_used_at"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -78,6 +82,7 @@ type accountStore interface {
 	GetEnabledAccounts(ctx context.Context) ([]*Account, error)
 	IncrementRequestCount(ctx context.Context, id int64) error
 	IncrementUsage(ctx context.Context, id int64, usage float64) error
+	IncrementAccountStats(ctx context.Context, id int64, usage float64, count int64) error
 }
 
 type settingsStore interface {
@@ -222,6 +227,13 @@ func (s *Store) IncrementRequestCount(ctx context.Context, id int64) error {
 func (s *Store) IncrementUsage(ctx context.Context, id int64, usage float64) error {
 	if s.accounts != nil {
 		return s.accounts.IncrementUsage(ctx, id, usage)
+	}
+	return fmt.Errorf("store not configured")
+}
+
+func (s *Store) IncrementAccountStats(ctx context.Context, id int64, usage float64, count int64) error {
+	if s.accounts != nil {
+		return s.accounts.IncrementAccountStats(ctx, id, usage, count)
 	}
 	return fmt.Errorf("store not configured")
 }

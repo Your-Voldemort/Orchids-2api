@@ -83,6 +83,7 @@ func main() {
 	}
 
 	lb := loadbalancer.NewWithCacheTTL(s, time.Duration(cfg.LoadBalancerCacheTTL)*time.Second)
+	lb.SetRetry429Interval(time.Duration(cfg.Retry429Interval) * time.Minute)
 	apiHandler := api.New(s, cfg.AdminUser, cfg.AdminPass, cfg, resolvedCfgPath)
 	h := handler.NewWithLoadBalancer(cfg, lb)
 
@@ -129,7 +130,7 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	limiter := middleware.NewConcurrencyLimiter(cfg.ConcurrencyLimit, time.Duration(cfg.ConcurrencyTimeout)*time.Second)
+	limiter := middleware.NewConcurrencyLimiter(cfg.ConcurrencyLimit, time.Duration(cfg.ConcurrencyTimeout)*time.Second, cfg.AdaptiveTimeout)
 	mux.HandleFunc("/orchids/v1/messages", limiter.Limit(h.HandleMessages))
 	mux.HandleFunc("/orchids/v1/messages/count_tokens", limiter.Limit(h.HandleCountTokens))
 	mux.HandleFunc("/warp/v1/messages", limiter.Limit(h.HandleMessages))
@@ -246,10 +247,10 @@ func main() {
 				return
 			}
 			for _, acc := range accounts {
-				if strings.TrimSpace(acc.ClientCookie) == "" {
-					continue
-				}
 				if strings.EqualFold(acc.AccountType, "warp") {
+					if strings.TrimSpace(acc.RefreshToken) == "" && strings.TrimSpace(acc.ClientCookie) == "" {
+						continue
+					}
 					warpClient := warp.NewFromAccount(acc, cfg)
 					jwt, err := warpClient.RefreshAccount(context.Background())
 					if err != nil {
@@ -262,6 +263,9 @@ func main() {
 					if err := s.UpdateAccount(context.Background(), acc); err != nil {
 						slog.Warn("Auto refresh token: update account failed", "account", acc.Name, "type", "warp", "error", err)
 					}
+					continue
+				}
+				if strings.TrimSpace(acc.ClientCookie) == "" {
 					continue
 				}
 				info, err := clerk.FetchAccountInfo(acc.ClientCookie)
@@ -334,7 +338,7 @@ func main() {
 		cancelBackground()
 
 		// Give existing requests time to complete
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30 * time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {

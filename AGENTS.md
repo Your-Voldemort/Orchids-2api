@@ -68,7 +68,7 @@ Client (Claude API format) → Handler → LoadBalancer → PromptBuilder → Cl
 ### Data Storage
 
 Storage is Redis-only (`store_mode: "redis"`). Key entities:
-- **Account**: Contains Clerk credentials (ClientCookie, SessionID), load balancing weight, request counts
+- **Account**: Orchids 使用 ClientCookie/SessionID；Warp 使用 refresh_token；包含负载权重与请求计数
 - **Settings**: Key-value configuration store
 
 ### Configuration
