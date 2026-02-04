@@ -14,6 +14,7 @@ type UpstreamRequest struct {
 	NoThinking    bool
 	ChatSessionID string
 	Workdir       string // Dynamic local workdir override
+	ProjectID     string
 }
 
 // SSEMessage 统一上游 SSE 消息结构（Warp/Orchids 复用）

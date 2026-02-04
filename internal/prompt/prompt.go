@@ -435,7 +435,7 @@ func filterLogLines(text, projectRoot string) string {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[Scanning:") {
 			// Check if line contains project path
-			// We accept if it contains either the full root path OR the base name (e.g. Orchids-2api)
+			// We MUST accept if it contains either the full root path OR the base name (e.g. Orchids-2api)
 			if !strings.Contains(line, projectRoot) && !strings.Contains(line, rootBase) {
 				continue // Skip this line
 			}

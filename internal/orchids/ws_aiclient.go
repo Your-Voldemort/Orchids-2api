@@ -615,15 +615,12 @@ func (c *Client) buildWSRequestAIClient(req upstream.UpstreamRequest) (*orchidsW
 		"attachmentUrls": attachmentUrls,
 		"currentPage":    nil,
 		"email":          "bridge@localhost",
-		"isLocal":        false, // Set to false to prevent upstream auto-scanning
+		"isLocal":        false, // MUST be false to avoid upstream indexing loop
 		"isFixingErrors": false,
 		"fileStructure":  nil,
 		"userId":         defaultUserID(c.config.UserID),
 	}
-	// We no longer send localWorkingDirectory to avoid triggering the crawler
-	// if workingDir != "" {
-	// 	payload["localWorkingDirectory"] = workingDir
-	// }
+	// Do NOT send localWorkingDirectory to avoid triggering the crawler
 	if len(orchidsTools) > 0 {
 		payload["tools"] = orchidsTools
 	}

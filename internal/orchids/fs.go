@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,6 +43,9 @@ type fsOperation struct {
 }
 
 func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interface{}, onResult func(success bool, data interface{}, errMsg string), overrideWorkdir string) error {
+	operation, _ := msg["operation"].(string)
+	path, _ := msg["path"].(string)
+	slog.Debug("Orchids FS request", "op", operation, "path", path, "overrideWorkdir", overrideWorkdir)
 	start := time.Now()
 	raw, err := json.Marshal(msg)
 	if err != nil {
@@ -79,7 +83,7 @@ func (c *Client) handleFSOperation(conn *websocket.Conn, msg map[string]interfac
 		return respond(success, data, errMsg)
 	}
 
-	operation := strings.TrimSpace(op.Operation)
+	operation = strings.ToLower(strings.TrimSpace(operation))
 	if operation == "" {
 		return respond(false, nil, "missing operation")
 	}
