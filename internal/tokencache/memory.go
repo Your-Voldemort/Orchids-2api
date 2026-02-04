@@ -34,10 +34,13 @@ func NewMemoryCache(ttl time.Duration) *MemoryCache {
 	if ttl < 0 {
 		ttl = 0
 	}
-	return &MemoryCache{
+	c := &MemoryCache{
 		ttl:   ttl,
 		items: make(map[string]cacheItem),
 	}
+	// Start background cleanup
+	go c.cleanupLoop()
+	return c
 }
 
 func CacheKey(strategy, model, text string) string {

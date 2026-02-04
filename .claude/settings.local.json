@@ -41,7 +41,8 @@
       "Bash(echo:*)",
       "Bash(printf:*)",
       "Bash(./orchids-server:*)",
-      "Bash(./orchids-api:*)"
+      "Bash(./orchids-api:*)",
+      "Bash(tee:*)"
     ]
   }
 }

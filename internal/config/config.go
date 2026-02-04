@@ -267,7 +267,7 @@ func applyDefaults(cfg *Config) {
 		cfg.AccountSwitchCount = 5
 	}
 	if cfg.RequestTimeout == 0 {
-		cfg.RequestTimeout = 120
+		cfg.RequestTimeout = 600
 	}
 	if cfg.Retry429Interval == 0 {
 		cfg.Retry429Interval = 60

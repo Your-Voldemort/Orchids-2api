@@ -131,7 +131,11 @@ func writeCommandPrefixResponse(w http.ResponseWriter, req ClaudeRequest, prefix
 			"output_tokens": outputTokens,
 		},
 	}
-	_ = json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		if logger != nil {
+			logger.LogOutputSSE("error", fmt.Sprintf("failed to encode response: %v", err))
+		}
+	}
 	if logger != nil {
 		logger.LogSummary(inputTokens, outputTokens, time.Since(startTime), "end_turn")
 	}

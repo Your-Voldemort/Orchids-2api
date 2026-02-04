@@ -84,6 +84,11 @@ func main() {
 				slog.Info("Enforcing lower token refresh interval", "old", cfg.TokenRefreshInterval, "new", 1)
 				cfg.TokenRefreshInterval = 1
 			}
+			// Enforce higher request timeout (legacy default was 120)
+			if cfg.RequestTimeout < 300 {
+				slog.Info("Enforcing higher request timeout", "old", cfg.RequestTimeout, "new", 600)
+				cfg.RequestTimeout = 600
+			}
 		}
 	}
 
@@ -145,6 +150,9 @@ func main() {
 	mux.HandleFunc("/orchids/v1/models/", h.HandleModelByID)
 	mux.HandleFunc("/warp/v1/models", h.HandleModels)
 	mux.HandleFunc("/warp/v1/models/", h.HandleModelByID)
+	// Unified Model Routes (All channels)
+	mux.HandleFunc("/v1/models", h.HandleModels)
+	mux.HandleFunc("/v1/models/", h.HandleModelByID)
 
 	// OpenAI Compatibility - Channel Specific
 	mux.HandleFunc("/orchids/v1/chat/completions", limiter.Limit(h.HandleMessages))
@@ -304,6 +312,11 @@ func main() {
 		}
 
 		go func() {
+			defer func() {
+				if err := recover(); err != nil {
+					slog.Error("Panic in token refresh loop", "error", err)
+				}
+			}()
 			refreshAccounts()
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
@@ -319,6 +332,11 @@ func main() {
 	}
 
 	go func() {
+		defer func() {
+			if err := recover(); err != nil {
+				slog.Error("Panic in auth cleanup loop", "error", err)
+			}
+		}()
 		ticker := time.NewTicker(time.Hour)
 		defer ticker.Stop()
 		for {

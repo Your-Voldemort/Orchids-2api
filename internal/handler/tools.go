@@ -25,21 +25,13 @@ func fixToolInput(inputJSON string) string {
 		if strVal, ok := value.(string); ok {
 			strVal = strings.TrimSpace(strVal)
 
+			// Only try to fix JSON arrays/objects that were passed as strings.
+			// Do NOT auto-convert "true", "123", etc. as this breaks string arguments.
 			if (strings.HasPrefix(strVal, "[") && strings.HasSuffix(strVal, "]")) ||
 				(strings.HasPrefix(strVal, "{") && strings.HasSuffix(strVal, "}")) {
 				var parsed interface{}
 				if err := json.Unmarshal([]byte(strVal), &parsed); err == nil {
 					input[key] = parsed
-					fixed = true
-				}
-				continue
-			}
-
-			var scalar interface{}
-			if err := json.Unmarshal([]byte(strVal), &scalar); err == nil {
-				switch scalar.(type) {
-				case float64, bool, nil:
-					input[key] = scalar
 					fixed = true
 				}
 			}

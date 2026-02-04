@@ -60,7 +60,10 @@ func (h *Handler) HandleCountTokens(w http.ResponseWriter, r *http.Request) {
 	inputTokens := h.estimateInputTokens(r.Context(), req.Model, builtPrompt)
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]int{
+	if err := json.NewEncoder(w).Encode(map[string]int{
 		"input_tokens": inputTokens,
-	})
+	}); err != nil {
+		// Log error but we can't do much else since headers are written
+		_ = err
+	}
 }

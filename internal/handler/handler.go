@@ -264,13 +264,15 @@ func (h *Handler) writeDuplicateResponse(w http.ResponseWriter, req ClaudeReques
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"type":     "duplicate_request",
 		"deduped":  true,
 		"message":  "duplicate request suppressed",
 		"model":    req.Model,
 		"streamed": false,
-	})
+	}); err != nil {
+		slog.Error("Failed to write duplicate response", "error", err)
+	}
 }
 
 func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
@@ -820,14 +822,12 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			}
 			if ((toolCallMode == "internal" || toolCallMode == "auto") && sh.internalNeedsFollowup) || (sh.internalNeedsFollowup && len(sh.internalToolResults) > 0) {
 				if toolCallMode == "internal" || toolCallMode == "auto" {
-					// Disable max followups limit
-					/*
-						if followupCount >= h.config.MaxToolFollowups {
-							slog.Warn("Tool follow-up limit reached", "turn", turnCount, "max_followups", h.config.MaxToolFollowups)
-							sh.finishResponse("end_turn")
-							return
-						}
-					*/
+					// Enforce max followups limit (prevent infinite loop)
+					if followupCount >= 30 {
+						slog.Warn("Tool follow-up limit reached", "turn", turnCount, "max_followups", 30)
+						sh.finishResponse("end_turn")
+						return
+					}
 					followupCount++
 				}
 				slog.Debug("Turn completed, follow-up required", "turn", turnCount)
