@@ -273,7 +273,7 @@ func applyDefaults(cfg *Config) {
 		cfg.Retry429Interval = 60
 	}
 	if cfg.TokenRefreshInterval == 0 {
-		cfg.TokenRefreshInterval = 30
+		cfg.TokenRefreshInterval = 1
 	}
 	if cfg.CacheTTL == 0 {
 		cfg.CacheTTL = 5

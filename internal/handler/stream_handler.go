@@ -23,6 +23,7 @@ import (
 type streamHandler struct {
 	// Configuration
 	config           *config.Config
+	workdir          string
 	isStream         bool
 	toolCallMode     string
 	suppressThinking bool
@@ -108,6 +109,7 @@ func newStreamHandler(
 	isStream bool,
 	responseFormat adapter.ResponseFormat,
 	toolCacheEnabled bool,
+	workdir string,
 ) *streamHandler {
 	var flusher http.Flusher
 	if isStream {
@@ -123,6 +125,7 @@ func newStreamHandler(
 
 	h := &streamHandler{
 		config:              cfg,
+		workdir:             workdir,
 		w:                   w,
 		flusher:             flusher,
 		isStream:            isStream,
@@ -718,7 +721,8 @@ func (h *streamHandler) processAutoPendingCalls() {
 				}
 			}
 		}
-		res := executeToolCall(call, h.config)
+		slog.Debug("Executing tool", "name", call.name, "workdir", h.workdir)
+		res := executeToolCallWithBaseDir(call, h.config, h.workdir)
 		res.output = normalizeToolResultOutput(res.output)
 		if h.toolCacheEnabled {
 			if mutating {
@@ -991,6 +995,15 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 			eventKey = "model." + evtType
 		}
 	}
+
+	// Instrument: Log detailed error info
+	if strings.HasSuffix(eventKey, ".error") || strings.Contains(eventKey, "error") {
+		if msg.Event != nil {
+			if data, ok := msg.Event["data"]; ok {
+				slog.Warn("SSE Error Payload", "type", eventKey, "data", data)
+			}
+		}
+	}
 	if h.suppressThinking {
 		if strings.HasPrefix(eventKey, "model.reasoning-") ||
 			strings.HasPrefix(eventKey, "coding_agent.reasoning") ||
@@ -1138,27 +1151,9 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 		h.closeActiveBlock()
 
 	case "coding_agent.start", "coding_agent.initializing":
-		idx := h.ensureBlock("thinking") // Trigger/Maintain thinking state
-		if data, ok := msg.Event["data"].(map[string]interface{}); ok {
-			if message, ok := data["message"].(string); ok {
-				if h.lastInitMsg == message {
-					return
-				}
-				h.lastInitMsg = message
-				// Send as thinking delta to keep block open and visible
-				deltaMap := perf.AcquireMap()
-				deltaMap["type"] = "content_block_delta"
-				deltaMap["index"] = idx
-				deltaContent := perf.AcquireMap()
-				deltaContent["type"] = "thinking_delta"
-				deltaContent["thinking"] = fmt.Sprintf("\n[System: %s]\n", message)
-				deltaMap["delta"] = deltaContent
-				deltaData, _ := json.Marshal(deltaMap)
-				perf.ReleaseMap(deltaContent)
-				perf.ReleaseMap(deltaMap)
-				h.writeSSE("content_block_delta", string(deltaData))
-			}
-		}
+		// Suppressed output as per user request
+		_ = h.ensureBlock("thinking")
+		return
 
 	case "fs_operation":
 		// Throttle keep-alives to avoid flooding

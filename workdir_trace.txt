@@ -1,0 +1,7 @@
+{"time":"2026-02-04T22:22:45.014242+08:00","level":"INFO","msg":"sendRequestWSAIClient called","workdir":"","model":"claude-3-5-haiku-20241022"}
+{"time":"2026-02-04T22:22:45.054373+08:00","level":"INFO","msg":"sendRequestWSAIClient called","workdir":"","model":"claude-3-5-haiku-20241022"}
+{"time":"2026-02-04T22:22:53.651245+08:00","level":"INFO","msg":"sendRequestWSAIClient called","workdir":"/Users/dailin/Documents/GitHub/TEST","model":"claude-sonnet-4-5"}
+{"time":"2026-02-04T22:23:11.700623+08:00","level":"INFO","msg":"sendRequestWSAIClient called","workdir":"/Users/dailin/Documents/GitHub/TEST","model":"claude-sonnet-4-5"}
+{"time":"2026-02-04T22:23:51.656344+08:00","level":"INFO","msg":"sendRequestWSAIClient called","workdir":"/Users/dailin/Documents/GitHub/TEST","model":"claude-sonnet-4-5"}
+{"time":"2026-02-04T22:24:07.812995+08:00","level":"INFO","msg":"sendRequestWSAIClient called","workdir":"/Users/dailin/Documents/GitHub/TEST","model":"claude-sonnet-4-5"}
+{"time":"2026-02-04T22:24:40.019538+08:00","level":"INFO","msg":"sendRequestWSAIClient called","workdir":"/Users/dailin/Documents/GitHub/TEST","model":"claude-sonnet-4-5"}

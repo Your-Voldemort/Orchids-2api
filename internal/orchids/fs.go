@@ -1,7 +1,6 @@
 package orchids
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -19,6 +18,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"orchids-api/internal/perf"
 )
 
 const (
@@ -410,6 +411,16 @@ func resolvePath(baseDir, input string) (string, error) {
 		// Allow absolute paths directly
 		return clean, nil
 	}
+	// Fix for common agent error: providing absolute path without leading slash
+	if len(baseDir) > 1 {
+		separator := string(filepath.Separator)
+		if !strings.HasPrefix(clean, separator) {
+			potentialAbs := separator + clean
+			if strings.HasPrefix(potentialAbs, baseDir) {
+				return potentialAbs, nil
+			}
+		}
+	}
 	// Allow relative paths, even if they go outside (e.g. ../)
 	// Just join them with baseDir
 	return filepath.Join(baseDir, clean), nil
@@ -758,7 +769,8 @@ func grepSearch(baseDir, root, pattern string, ignore []string) (string, error) 
 			return nil
 		}
 		defer file.Close()
-		reader := bufio.NewReader(file)
+		reader := perf.AcquireBufioReader(file)
+		defer perf.ReleaseBufioReader(reader)
 		lineNum := 0
 		for {
 			line, err := reader.ReadString('\n')

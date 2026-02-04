@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -16,6 +15,7 @@ import (
 
 	"orchids-api/internal/config"
 	"orchids-api/internal/orchids"
+	"orchids-api/internal/perf"
 )
 
 const (
@@ -405,6 +405,17 @@ func resolveToolPath(baseDir, input string) (string, error) {
 	if filepath.IsAbs(clean) {
 		return clean, nil
 	}
+	// Fix for common agent error: providing absolute path without leading slash
+	// e.g. joining "/app" and "app/foo.go" -> "/app/app/foo.go" (wrong) vs "/app/foo.go" (correct)
+	if len(baseDir) > 1 {
+		separator := string(filepath.Separator)
+		if !strings.HasPrefix(clean, separator) {
+			potentialAbs := separator + clean
+			if strings.HasPrefix(potentialAbs, baseDir) {
+				return potentialAbs, nil
+			}
+		}
+	}
 	return filepath.Join(baseDir, clean), nil
 }
 
@@ -526,7 +537,8 @@ func readFileLines(path string, limit, offset int) (string, error) {
 	}
 	defer file.Close()
 
-	reader := bufio.NewReader(file)
+	reader := perf.AcquireBufioReader(file)
+	defer perf.ReleaseBufioReader(reader)
 	var builder strings.Builder
 	skipped := 0
 	readCount := 0
@@ -709,7 +721,8 @@ func grepSearch(baseDir, root, pattern string, maxResults int, ignore []string) 
 			return nil
 		}
 		defer file.Close()
-		reader := bufio.NewReader(file)
+		reader := perf.AcquireBufioReader(file)
+		defer perf.ReleaseBufioReader(reader)
 		lineNum := 0
 		for {
 			line, err := reader.ReadString('\n')

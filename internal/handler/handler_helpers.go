@@ -96,8 +96,10 @@ func (h *Handler) selectAccount(ctx context.Context, model, forcedChannel string
 }
 
 // executePreflightTools performs parallel preflight checks
-func (h *Handler) executePreflightTools(toolCallMode, allowBashName, userText string) ([]safeToolResult, []interface{}) {
+func (h *Handler) executePreflightTools(toolCallMode, allowBashName, userText, workdir string) ([]safeToolResult, []interface{}) {
+	slog.Debug("executePreflightTools called", "toolCallMode", toolCallMode, "allowBashName", allowBashName, "workdir", workdir, "userTextLen", len(userText))
 	if (toolCallMode == "internal" || toolCallMode == "auto") && allowBashName != "" && shouldPreflightTools(userText) {
+		slog.Info("Running preflight tools", "workdir", workdir)
 		preflight := []string{
 			"pwd",
 			"find . -maxdepth 2 -not -path '*/.*'",
@@ -116,9 +118,10 @@ func (h *Handler) executePreflightTools(toolCallMode, allowBashName, userText st
 					name:  allowBashName,
 					input: fmt.Sprintf(`{"command":%q,"description":"internal preflight"}`, cmd),
 				}
-				result := executeSafeTool(call)
+				result := executeToolCallWithBaseDir(call, h.config, workdir)
 				result.output = normalizeToolResultOutput(result.output)
 				results[i] = result
+				slog.Debug("Preflight result", "cmd", cmd, "isError", result.isError, "outputLen", len(result.output))
 			}(i, cmd)
 		}
 		wg.Wait()
@@ -154,8 +157,10 @@ func (h *Handler) executePreflightTools(toolCallMode, allowBashName, userText st
 				},
 			})
 		}
+		slog.Info("Preflight completed", "resultCount", len(results))
 		return results, chatHistory
 	}
+	slog.Debug("Preflight skipped", "toolCallMode", toolCallMode, "allowBashName", allowBashName)
 	return nil, make([]interface{}, 0)
 }
 

@@ -76,7 +76,7 @@ const duplicateWindow = 2 * time.Second
 const duplicateCleanupWindow = 10 * time.Second
 
 type recentRequest struct {
-	last    time.Time
+	last     time.Time
 	inFlight int
 }
 
@@ -561,7 +561,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		allowBashName = name
 	}
 	// executePreflightTools now handles parallel execution and result construction
-	preflightResults, preflightHistory := h.executePreflightTools(toolCallMode, allowBashName, userText)
+	preflightResults, preflightHistory := h.executePreflightTools(toolCallMode, allowBashName, userText, effectiveWorkdir)
 	shouldLocalFallback = len(preflightResults) > 0
 
 	// Pre-allocate chatHistory
@@ -595,7 +595,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	enableToolCache := isWarpRequest && toolCallMode == "auto"
 	sh := newStreamHandler(
-		h.config, w, logger, toolCallMode, suppressThinking, allowedTools, allowedIndex, preflightResults, shouldLocalFallback, isStream, responseFormat, enableToolCache,
+		h.config, w, logger, toolCallMode, suppressThinking, allowedTools, allowedIndex, preflightResults, shouldLocalFallback, isStream, responseFormat, enableToolCache, effectiveWorkdir,
 	)
 	sh.setUsageTokens(inputTokens, -1) // Correctly initialize input tokens
 	defer sh.release()
@@ -686,7 +686,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				var err error
 				slog.Debug("Calling Upstream Client...", "attempt", maxRetries-retriesRemaining+1)
 
+				slog.Info("Interface check", "type", fmt.Sprintf("%T", apiClient))
 				if sender, ok := apiClient.(UpstreamPayloadClient); ok {
+					slog.Info("Using SendRequestWithPayload")
 					warpBatches := [][]prompt.Message{upstreamMessages}
 					if isWarpRequest && h.config.WarpSplitToolResults {
 						if _, isWarp := apiClient.(*warp.Client); isWarp {
@@ -712,6 +714,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 						}
 					}
 				} else {
+					slog.Warn("Falling back to legacy SendRequest (Workdir lost!)", "type", fmt.Sprintf("%T", apiClient))
 					err = apiClient.SendRequest(r.Context(), builtPrompt, chatHistory, mappedModel, sh.handleMessage, logger)
 				}
 				slog.Debug("Upstream Client Returned", "error", err)

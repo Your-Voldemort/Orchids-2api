@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 )
 
@@ -11,6 +12,8 @@ func (h *Handler) orchidsFSExecutor(op map[string]interface{}, workdir string) (
 		return false, nil, "invalid operation payload"
 	}
 	operation, _ := op["operation"].(string)
+	path, _ := op["path"].(string)
+	slog.Info("orchidsFSExecutor called", "operation", operation, "path", path, "workdir", workdir)
 	operation = strings.ToLower(strings.TrimSpace(operation))
 	if operation == "" {
 		return false, nil, "missing operation"
