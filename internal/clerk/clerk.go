@@ -41,6 +41,10 @@ type AccountInfo struct {
 }
 
 func FetchAccountInfo(clientCookie string) (*AccountInfo, error) {
+	return FetchAccountInfoWithProject(clientCookie, "")
+}
+
+func FetchAccountInfoWithProject(clientCookie string, customProjectID string) (*AccountInfo, error) {
 	url := "https://clerk.orchids.app/v1/client?__clerk_api_version=2025-11-10&_clerk_js_version=5.117.0"
 
 	req, err := http.NewRequest("GET", url, nil)
@@ -80,11 +84,16 @@ func FetchAccountInfo(clientCookie string) (*AccountInfo, error) {
 		return nil, fmt.Errorf("no email address found")
 	}
 
+	projectID := "***REMOVED-ENV-DEFAULT-PROJECT_ID***"
+	if customProjectID != "" {
+		projectID = customProjectID
+	}
+
 	return &AccountInfo{
 		SessionID:    clientResp.Response.LastActiveSessionID,
 		ClientCookie: clientCookie,
 		ClientUat:    fmt.Sprintf("%d", time.Now().Unix()),
-		ProjectID:    "***REMOVED-ENV-DEFAULT-PROJECT_ID***",
+		ProjectID:    projectID,
 		UserID:       session.User.ID,
 		Email:        session.User.EmailAddresses[0].EmailAddress,
 		JWT:          session.LastActiveToken.JWT,
