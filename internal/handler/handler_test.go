@@ -169,7 +169,7 @@ func TestHandleMessages_NonStreamIncludesToolUse(t *testing.T) {
 		config: &config.Config{DebugEnabled: false},
 		client: &fakeClient{
 			events: []upstream.SSEMessage{
-				{Type: "model", Event: map[string]interface{}{"type": "tool-call", "toolCallId": "tool_1", "toolName": "sum", "input": "{\"a\":\"1\"}"}},
+				{Type: "model", Event: map[string]interface{}{"type": "tool-call", "toolCallId": "tool_1", "toolName": "sum", "input": "{\"a\":1}"}},
 				{Type: "model", Event: map[string]interface{}{"type": "finish", "finishReason": "tool-calls"}},
 			},
 		},
@@ -237,7 +237,7 @@ func TestHandleMessages_NonStreamIncludesToolUse(t *testing.T) {
 	})
 
 	expectedInputTokens := tiktoken.EstimateTextTokens(builtPrompt)
-	expectedOutputTokens := tiktoken.EstimateTextTokens("sum") + tiktoken.EstimateTextTokens("{\"a\":\"1\"}")
+	expectedOutputTokens := tiktoken.EstimateTextTokens("sum") + tiktoken.EstimateTextTokens("{\"a\":1}")
 
 	if resp.Usage.InputTokens != expectedInputTokens {
 		t.Fatalf("unexpected input_tokens: %d", resp.Usage.InputTokens)

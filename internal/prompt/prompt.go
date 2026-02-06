@@ -163,7 +163,7 @@ You are an AI assistant for the user's current project.
 ## Conversation Format
 - <turn index="N" role="user|assistant"> marks each turn
 - <tool_use id="..." name="..."> for tool calls
-- <tool_result id="..."> for results
+- <tool_result tool_use_id="..."> for results
 `
 
 // FormatMessagesAsMarkdown 将 Claude messages 转换为结构化的对话历史

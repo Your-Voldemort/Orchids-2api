@@ -441,8 +441,7 @@ func injectLocalContext(promptText string, context string) string {
 		return promptText
 	}
 	section := "<local_context>\n" + context + "\n</local_context>\n\n"
-	marker := "<user_request>"
-	idx := strings.Index(promptText, marker)
+	_, idx := findUserMarker(promptText)
 
 	sb := perf.AcquireStringBuilder()
 	defer perf.ReleaseStringBuilder(sb)
@@ -472,8 +471,7 @@ func injectToolGate(promptText string, message string) string {
 		return promptText
 	}
 	section := "<tool_gate>\n" + message + "\n</tool_gate>\n\n"
-	marker := "<user_request>"
-	idx := strings.Index(promptText, marker)
+	_, idx := findUserMarker(promptText)
 
 	sb := perf.AcquireStringBuilder()
 	defer perf.ReleaseStringBuilder(sb)
@@ -495,6 +493,18 @@ func injectToolGate(promptText string, message string) string {
 	sb.WriteString("\n\n")
 	sb.WriteString(strings.TrimRight(section, "\n"))
 	return strings.Clone(sb.String())
+}
+
+func findUserMarker(promptText string) (string, int) {
+	marker := "<user_request>"
+	if idx := strings.Index(promptText, marker); idx != -1 {
+		return marker, idx
+	}
+	marker = "<user_message>"
+	if idx := strings.Index(promptText, marker); idx != -1 {
+		return marker, idx
+	}
+	return "", -1
 }
 
 func extractPreflightPwd(results []safeToolResult) string {

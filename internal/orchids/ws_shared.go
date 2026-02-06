@@ -128,6 +128,7 @@ func buildLocalAssistantPrompt(systemText string, userText string, model string)
 | Glob | 按模式匹配文件 |
 | Grep | 搜索文件内容 |
 | LS | 列出目录内容 |
+| TodoWrite | 任务列表 |
 
 ## 禁止行为（强制）
 
@@ -157,13 +158,13 @@ func buildLocalAssistantPrompt(systemText string, userText string, model string)
 - 完成任务后简短说明所做更改
 - 遇到问题时明确说明并提供解决方案
 - 对话过长时自动压缩上下文：输出精简摘要后继续；摘要需保留当前需求、关键约束、已确定结论与待办
-</claude_code_local_assistant>
+</claude_code_client_assistant>
 `)
 	b.WriteString("\n<guidelines>\n")
 	b.WriteString("- Respond in the same language the user uses (e.g., Chinese input → Chinese response).\n")
 	b.WriteString("- Focus on the user's actual request without assumptions about their tech stack.\n")
 	b.WriteString("- For coding tasks, support any language or framework the user is working with.\n")
-	b.WriteString("- Use ONLY Claude Code native tools: Read, Write, Edit, Bash, Glob, Grep, LS.\n")
+b.WriteString("- Use ONLY Claude Code native tools: Read, Write, Edit, Bash, Glob, Grep, LS (List), TodoWrite.\n")
 	b.WriteString("- All tool calls execute LOCALLY on user's machine.\n")
 	b.WriteString("</guidelines>\n\n")
 

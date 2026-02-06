@@ -108,6 +108,23 @@ func (l *Logger) LogUpstreamRequest(url string, headers map[string]string, body 
 	l.writeJSON("3_upstream_request.json", data)
 }
 
+// LogUpstreamHTTPError 记录上游 HTTP 错误（请求失败或返回非 200）
+func (l *Logger) LogUpstreamHTTPError(url string, status int, body string, err error) {
+	if !l.enabled {
+		return
+	}
+	payload := map[string]interface{}{
+		"url":        url,
+		"status":     status,
+		"body":       body,
+		"elapsed_ms": time.Since(l.startTime).Milliseconds(),
+	}
+	if err != nil {
+		payload["error"] = err.Error()
+	}
+	l.writeJSON("3_upstream_http_error.json", payload)
+}
+
 // LogUpstreamSSE 记录 4. 上游返回的原始 SSE（追加写入）
 func (l *Logger) LogUpstreamSSE(eventType string, data string) {
 	if !l.enabled || !l.sseEnabled {
