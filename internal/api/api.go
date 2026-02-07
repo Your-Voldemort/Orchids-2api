@@ -284,9 +284,30 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	isRefresh := len(parts) > 1 && parts[1] == "refresh"
+	isUsage := len(parts) > 1 && parts[1] == "usage"
 
 	switch r.Method {
 	case http.MethodGet:
+		if isUsage {
+			acc, err := a.store.GetAccount(r.Context(), id)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"account_id":     acc.ID,
+				"name":           acc.Name,
+				"account_type":   acc.AccountType,
+				"subscription":   acc.Subscription,
+				"usage_current":  acc.UsageCurrent,
+				"usage_limit":    acc.UsageLimit,
+				"usage_daily":    acc.UsageDaily,
+				"usage_total":    acc.UsageTotal,
+				"quota_reset_at": acc.QuotaResetAt,
+				"reset_date":     acc.ResetDate,
+			})
+			return
+		}
 		if isRefresh {
 			acc, err := a.store.GetAccount(r.Context(), id)
 			if err != nil {

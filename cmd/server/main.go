@@ -279,6 +279,33 @@ func main() {
 					if jwt != "" {
 						acc.Token = jwt
 					}
+
+					// Sync Warp usage quota via GraphQL
+					limitCtx, limitCancel := context.WithTimeout(context.Background(), 15*time.Second)
+					limitInfo, bonuses, limitErr := warpClient.GetRequestLimitInfo(limitCtx)
+					limitCancel()
+					if limitErr != nil {
+						slog.Warn("Warp usage sync failed", "account", acc.Name, "error", limitErr)
+					} else if limitInfo != nil {
+						if limitInfo.IsUnlimited {
+							acc.Subscription = "unlimited"
+						} else {
+							acc.Subscription = "free"
+						}
+						totalLimit := float64(limitInfo.RequestLimit)
+						for _, bg := range bonuses {
+							totalLimit += float64(bg.RequestCreditsRemaining)
+						}
+						acc.UsageLimit = totalLimit
+						acc.UsageCurrent = float64(limitInfo.RequestsUsedSinceLastRefresh)
+						if limitInfo.NextRefreshTime != "" {
+							if t, err := time.Parse(time.RFC3339, limitInfo.NextRefreshTime); err == nil {
+								acc.QuotaResetAt = t
+							}
+						}
+						slog.Debug("Warp usage synced", "account", acc.Name, "limit", acc.UsageLimit, "used", acc.UsageCurrent, "subscription", acc.Subscription)
+					}
+
 					if err := s.UpdateAccount(context.Background(), acc); err != nil {
 						slog.Warn("Auto refresh token: update account failed", "account", acc.Name, "type", "warp", "error", err)
 					}
@@ -431,6 +458,78 @@ func main() {
 			}
 		}
 
+		syncWarpModels := func() {
+			accounts, err := s.GetEnabledAccounts(context.Background())
+			if err != nil {
+				slog.Warn("Warp 模型同步: 获取账号失败", "error", err)
+				return
+			}
+			// 找到第一个可用的 Warp 账号
+			var warpAcc *store.Account
+			for _, acc := range accounts {
+				if strings.EqualFold(acc.AccountType, "warp") && strings.TrimSpace(acc.Token) != "" {
+					warpAcc = acc
+					break
+				}
+			}
+			if warpAcc == nil {
+				slog.Debug("Warp 模型同步: 无可用 Warp 账号")
+				return
+			}
+
+			warpClient := warp.NewFromAccount(warpAcc, cfg)
+			fetchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+
+			choices, err := warpClient.GetFeatureModelChoices(fetchCtx)
+			if err != nil {
+				slog.Warn("Warp 模型同步: 获取失败", "error", err)
+				return
+			}
+
+			// Collect all unique models from all categories
+			seen := make(map[string]bool)
+			added := 0
+			categories := []*warp.FeatureModelCategory{choices.AgentMode, choices.Planning, choices.Coding, choices.CliAgent}
+			for _, cat := range categories {
+				if cat == nil {
+					continue
+				}
+				for _, choice := range cat.Choices {
+					modelID := strings.TrimSpace(choice.ID)
+					if modelID == "" || seen[modelID] {
+						continue
+					}
+					seen[modelID] = true
+					// Check if model already exists
+					if _, err := s.GetModelByModelID(context.Background(), modelID); err == nil {
+						continue
+					}
+					displayName := choice.DisplayName
+					if displayName == "" {
+						displayName = modelID
+					}
+					newModel := &store.Model{
+						Channel: "Warp",
+						ModelID: modelID,
+						Name:    displayName + " (Warp)",
+						Status:  true,
+					}
+					if err := s.CreateModel(context.Background(), newModel); err != nil {
+						slog.Warn("Warp 模型同步: 创建模型失败", "model_id", modelID, "error", err)
+						continue
+					}
+					added++
+					slog.Info("Warp 模型同步: 新增模型", "model_id", modelID, "name", displayName)
+				}
+			}
+			if added > 0 {
+				slog.Info("Warp 模型同步完成", "added", added)
+			} else {
+				slog.Debug("Warp 模型同步完成，无新增")
+			}
+		}
+
 		// 启动时延迟 10 秒执行，等待 token 刷新完成
 		select {
 		case <-ctx.Done():
@@ -438,6 +537,7 @@ func main() {
 		case <-time.After(10 * time.Second):
 		}
 		syncModels()
+		syncWarpModels()
 
 		ticker := time.NewTicker(30 * time.Minute)
 		defer ticker.Stop()
@@ -447,6 +547,7 @@ func main() {
 				return
 			case <-ticker.C:
 				syncModels()
+				syncWarpModels()
 			}
 		}
 	}()
