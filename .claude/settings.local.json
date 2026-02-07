@@ -42,7 +42,8 @@
       "Bash(printf:*)",
       "Bash(./orchids-server:*)",
       "Bash(./orchids-api:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "mcp__sequential-thinking__sequentialthinking"
     ]
   }
 }

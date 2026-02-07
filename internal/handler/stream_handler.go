@@ -936,11 +936,11 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 		slog.Debug("Incoming SSE", "type", msg.Type)
 	}
 	h.mu.Lock()
-	if h.hasReturn {
-		h.mu.Unlock()
+	done := h.hasReturn
+	h.mu.Unlock()
+	if done {
 		return
 	}
-	h.mu.Unlock()
 
 	eventKey := msg.Type
 	if msg.Type == "model" && msg.Event != nil {
@@ -1467,8 +1467,7 @@ func mapFSOperationToToolCall(op map[string]interface{}) (toolCall, interface{},
 	}
 	opType := strings.ToLower(strings.TrimSpace(opString(op, "operation", "op", "type")))
 	if opType == "" {
-		call := toolCall{id: opID, name: "fs_operation", input: stringifyToolInput(op)}
-		return call, op, true
+		return toolCall{}, nil, false
 	}
 
 	toolName := ""
@@ -1562,12 +1561,12 @@ func mapFSOperationToToolCall(op map[string]interface{}) (toolCall, interface{},
 			input["content"] = content
 		}
 	default:
-		toolName = opType
-		input = op
+		// 未知操作类型，不转发给客户端
+		return toolCall{}, nil, false
 	}
 
 	if toolName == "" {
-		toolName = "fs_operation"
+		return toolCall{}, nil, false
 	}
 	if len(input) == 0 {
 		input = op

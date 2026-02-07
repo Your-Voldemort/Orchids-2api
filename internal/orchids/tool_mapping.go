@@ -86,7 +86,6 @@ func NewToolMapper() *ToolMapper {
 	tm.addMapping("web_fetch", "WebFetch")
 	tm.addMapping("webfetch", "WebFetch")
 	tm.addMapping("fetch", "WebFetch")
-	tm.addMapping("search", "WebSearch")
 
 	// MCP 工具
 	tm.addMapping("query-docs", "mcp__context7__query-docs")
