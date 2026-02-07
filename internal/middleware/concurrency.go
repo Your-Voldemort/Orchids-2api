@@ -124,32 +124,24 @@ func (cl *ConcurrencyLimiter) GetP95() int64 {
 	cl.mu.RLock()
 	defer cl.mu.RUnlock()
 
-	// Copy to sort
-	sorted := make([]int64, len(cl.latencyWindow))
-	copy(sorted, cl.latencyWindow)
-
-	// Remove zeros to avoid skewing empty window
-	valid := 0
-	for _, v := range sorted {
+	// Filter out zeros (uninitialized slots) to avoid skewing the result
+	valid := make([]int64, 0, len(cl.latencyWindow))
+	for _, v := range cl.latencyWindow {
 		if v > 0 {
-			valid++
+			valid = append(valid, v)
 		}
 	}
-	if valid < 10 {
+	if len(valid) < 10 {
 		return 0 // Not enough data
 	}
 
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+	sort.Slice(valid, func(i, j int) bool { return valid[i] < valid[j] })
 
-	// P95 index in sorted array (including zeros, but zeros are at start)
-	// We want P95 of NON-ZERO values ideally, or update logic correctly.
-	// Simple approach: sort all, pick 95th percentile.
-
-	idx := int(float64(len(sorted)) * 0.95)
-	if idx >= len(sorted) {
-		idx = len(sorted) - 1
+	idx := int(float64(len(valid)) * 0.95)
+	if idx >= len(valid) {
+		idx = len(valid) - 1
 	}
-	return sorted[idx]
+	return valid[idx]
 }
 
 // Stats returns current limiter statistics.

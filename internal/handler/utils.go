@@ -41,36 +41,58 @@ func mapModel(requestModel string) string {
 	isThinking := strings.Contains(lower, "thinking")
 
 	switch {
-	// opus 系列
+	// opus-4-6 / opus-4.6 / 4-6-opus 系列 (Orchids 不支持 4.6，降级到 4.5)
+	case strings.Contains(lower, "opus-4-6") || strings.Contains(lower, "opus-4.6") || strings.Contains(lower, "4-6-opus"):
+		if isThinking {
+			return "claude-opus-4-5-thinking"
+		}
+		return "claude-opus-4-5"
+
+	// opus-4-5 / opus-4.5 / 4-5-opus 系列
+	case strings.Contains(lower, "opus-4-5") || strings.Contains(lower, "opus-4.5") || strings.Contains(lower, "4-5-opus"):
+		if isThinking {
+			return "claude-opus-4-5-thinking"
+		}
+		return "claude-opus-4-5"
+
+	// opus 通配
 	case strings.Contains(lower, "opus"):
 		if isThinking {
 			return "claude-opus-4-5-thinking"
 		}
 		return "claude-opus-4-5"
 
-	// sonnet-3-7 / sonnet-3.7 系列
+	// sonnet-3-7 / sonnet-3.7 / 3-7-sonnet 系列
 	case strings.Contains(lower, "sonnet-3-7") || strings.Contains(lower, "sonnet-3.7") || strings.Contains(lower, "3-7-sonnet"):
 		return "claude-3-7-sonnet-20250219"
 
-	// sonnet-3-5 / sonnet-3.5 旧版 → 映射到最新 sonnet
+	// sonnet-3-5 / sonnet-3.5 / 3-5-sonnet 旧版 → 映射到最新 sonnet
 	case strings.Contains(lower, "sonnet-3-5") || strings.Contains(lower, "sonnet-3.5") || strings.Contains(lower, "3-5-sonnet"):
 		return "claude-sonnet-4-5"
 
-	// sonnet-4-5 系列
-	case strings.Contains(lower, "sonnet-4-5") || strings.Contains(lower, "sonnet-4.5"):
+	// sonnet-4-5 / sonnet-4.5 / 4-5-sonnet 系列
+	case strings.Contains(lower, "sonnet-4-5") || strings.Contains(lower, "sonnet-4.5") || strings.Contains(lower, "4-5-sonnet"):
 		if isThinking {
 			return "claude-sonnet-4-5-thinking"
 		}
 		return "claude-sonnet-4-5"
 
-	// sonnet-4 (不含 4-5) → claude-sonnet-4-20250514
+	// sonnet-4-20250514 精确匹配
+	case strings.Contains(lower, "sonnet-4-20250514"):
+		return "claude-sonnet-4-20250514"
+
+	// sonnet-4 / sonnet 通配 → claude-sonnet-4-20250514
 	case strings.Contains(lower, "sonnet-4") || strings.Contains(lower, "sonnet"):
 		if isThinking {
 			return "claude-sonnet-4-5-thinking"
 		}
 		return "claude-sonnet-4-20250514"
 
-	// haiku 系列
+	// haiku-4-5 / haiku-4.5 / 4-5-haiku 系列
+	case strings.Contains(lower, "haiku-4-5") || strings.Contains(lower, "haiku-4.5") || strings.Contains(lower, "4-5-haiku"):
+		return "claude-haiku-4-5"
+
+	// haiku 通配
 	case strings.Contains(lower, "haiku"):
 		return "claude-haiku-4-5"
 

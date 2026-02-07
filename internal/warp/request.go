@@ -898,5 +898,35 @@ func normalizeModel(model string) string {
 		return "claude-4-opus"
 	}
 
+	// Gemini 模糊匹配
+	if strings.Contains(model, "gemini-3") || strings.Contains(model, "gemini 3") {
+		return "gemini-3-pro"
+	}
+	if strings.Contains(model, "gemini-2-5") || strings.Contains(model, "gemini-2.5") || strings.Contains(model, "gemini 2.5") {
+		return "gemini-2-5-pro"
+	}
+
+	// GPT-5.1 Codex Max 模糊匹配
+	if strings.Contains(model, "gpt-5-1-codex-max") || strings.Contains(model, "gpt-5.1-codex-max") {
+		return "gpt-5-1-codex-max-low"
+	}
+
+	// Haiku / Sonnet / Opus 通配
+	if strings.Contains(model, "haiku") {
+		return "claude-4-5-haiku"
+	}
+	if strings.Contains(model, "sonnet") {
+		if strings.Contains(model, "thinking") {
+			return "claude-4-5-sonnet-thinking"
+		}
+		return "claude-4-5-sonnet"
+	}
+	if strings.Contains(model, "opus") {
+		if strings.Contains(model, "thinking") {
+			return "claude-4-5-opus-thinking"
+		}
+		return "claude-4-5-opus"
+	}
+
 	return "auto"
 }

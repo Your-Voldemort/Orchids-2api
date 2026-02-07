@@ -36,9 +36,6 @@ Thumbs.db
 
 
 # Config
-config.json
-config.yaml
-config.yml
 
 # Database
 *.db

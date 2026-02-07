@@ -225,25 +225,28 @@ func (s *redisStore) IncrementRequestCount(ctx context.Context, id int64) error 
 		return nil
 	}
 
-	acc, err := s.getAccount(ctx, id)
-	if err == ErrNoRows {
-		return nil
-	}
-	if err != nil {
+	script := redis.NewScript(`
+		local key = KEYS[1]
+		local now_str = ARGV[1]
+
+		local val = redis.call("GET", key)
+		if not val then return nil end
+
+		local acc = cjson.decode(val)
+		acc.request_count = (acc.request_count or 0) + 1
+		acc.last_used_at = now_str
+		acc.updated_at = now_str
+
+		redis.call("SET", key, cjson.encode(acc))
+		return "OK"
+	`)
+
+	nowStr := time.Now().Format(time.RFC3339Nano)
+	err := script.Run(ctx, s.client, []string{s.accountsKey(id)}, nowStr).Err()
+	if err != nil && err != redis.Nil {
 		return err
 	}
-
-	now := time.Now()
-	acc.RequestCount++
-	acc.LastUsedAt = now
-	acc.UpdatedAt = now
-
-	data, err := json.Marshal(acc)
-	if err != nil {
-		return err
-	}
-
-	return s.client.Set(ctx, s.accountsKey(id), data, 0).Err()
+	return nil
 }
 
 func (s *redisStore) IncrementUsage(ctx context.Context, id int64, usage float64) error {
@@ -257,26 +260,30 @@ func (s *redisStore) IncrementUsage(ctx context.Context, id int64, usage float64
 		return nil
 	}
 
-	acc, err := s.getAccount(ctx, id)
-	if err == ErrNoRows {
-		return nil
-	}
-	if err != nil {
+	script := redis.NewScript(`
+		local key = KEYS[1]
+		local usage = tonumber(ARGV[1])
+		local now_str = ARGV[2]
+
+		local val = redis.call("GET", key)
+		if not val then return nil end
+
+		local acc = cjson.decode(val)
+		acc.usage_current = (acc.usage_current or 0) + usage
+		acc.usage_total = (acc.usage_total or 0) + usage
+		acc.last_used_at = now_str
+		acc.updated_at = now_str
+
+		redis.call("SET", key, cjson.encode(acc))
+		return "OK"
+	`)
+
+	nowStr := time.Now().Format(time.RFC3339Nano)
+	err := script.Run(ctx, s.client, []string{s.accountsKey(id)}, usage, nowStr).Err()
+	if err != nil && err != redis.Nil {
 		return err
 	}
-
-	now := time.Now()
-	acc.UsageCurrent += usage
-	acc.UsageTotal += usage
-	acc.LastUsedAt = now
-	acc.UpdatedAt = now
-
-	data, err := json.Marshal(acc)
-	if err != nil {
-		return err
-	}
-
-	return s.client.Set(ctx, s.accountsKey(id), data, 0).Err()
+	return nil
 }
 
 func (s *redisStore) IncrementAccountStats(ctx context.Context, id int64, usage float64, count int64) error {
