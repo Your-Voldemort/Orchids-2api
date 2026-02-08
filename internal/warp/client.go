@@ -226,6 +226,9 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req upstream.Upstre
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		if logger != nil {
+			logger.LogUpstreamHTTPError(aiURL, resp.StatusCode, string(body), nil)
+		}
 		headerLog := make(map[string]string)
 		for k, v := range resp.Header {
 			headerLog[k] = strings.Join(v, ", ")
@@ -246,6 +249,8 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req upstream.Upstre
 
 	bufReader := bufio.NewReader(reader)
 	var dataLines []string
+	dataEventCount := 0
+	parsedEventCount := 0
 	toolCallSeen := false
 	finishSent := false
 	ctxDone := make(chan struct{})
@@ -278,6 +283,7 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req upstream.Upstre
 			}
 			data := strings.Join(dataLines, "")
 			dataLines = nil
+			dataEventCount++
 			if logger != nil {
 				logger.LogUpstreamSSE("warp_data", data)
 			}
@@ -295,6 +301,7 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req upstream.Upstre
 				}
 				continue
 			}
+			parsedEventCount++
 			if parsed.ConversationID != "" {
 				onMessage(upstream.SSEMessage{Type: "model.conversation_id", Event: map[string]interface{}{"id": parsed.ConversationID}})
 			}
@@ -341,6 +348,19 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req upstream.Upstre
 	}
 
 	// Send finish if stream ended without explicit finish event
+	if dataEventCount == 0 {
+		if logger != nil {
+			logger.LogUpstreamSSE("warp_empty_stream", "stream ended without any SSE data events")
+		}
+		return fmt.Errorf("warp stream ended without any SSE data events")
+	}
+	if parsedEventCount == 0 {
+		if logger != nil {
+			logger.LogUpstreamSSE("warp_unparsed_stream", fmt.Sprintf("received %d SSE data events but none parsed", dataEventCount))
+		}
+		return fmt.Errorf("warp stream received %d SSE data events but none parsed", dataEventCount)
+	}
+
 	if !finishSent {
 		if !toolCallSeen {
 			onMessage(upstream.SSEMessage{Type: "model.finish", Event: map[string]interface{}{"finishReason": "end_turn"}})

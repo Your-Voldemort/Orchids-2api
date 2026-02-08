@@ -639,9 +639,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		h.sessionWorkdirsMu.RLock()
 		chatSessionID := h.sessionConvIDs[conversationKey]
 		h.sessionWorkdirsMu.RUnlock()
-		// Warp 请求只使用上游返回的真实 conversationID，不生成随机 ID。
-		// 随机 ID 会导致首次请求 isNew=false + 伪造 task_context，上游无法正确初始化会话。
-		if chatSessionID == "" && !isWarpRequest {
+		if chatSessionID == "" {
 			chatSessionID = "chat_" + randomSessionID()
 		}
 		maxRetries := h.config.MaxRetries

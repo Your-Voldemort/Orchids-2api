@@ -135,42 +135,27 @@ func buildRequestBytes(promptText, model string, messages []prompt.Message, mcpC
 		return nil, fmt.Errorf("empty prompt")
 	}
 
-	// 有 conversationID 时标记为非新对话，让上游延续会话
-	if conversationID != "" {
+	// 有真实上游 conversationID 时标记为非新对话，让上游延续会话。
+	// 本地生成的随机 ID（chat_ 前缀）不应覆盖 isNew，否则首次请求会被错误标记为续接。
+	isUpstreamConvID := conversationID != "" && !strings.HasPrefix(conversationID, "chat_")
+	if isUpstreamConvID {
 		isNew = false
 	}
 
-	// 无历史且无工具结果时用模板构建
-	if len(history) == 0 && len(toolResults) == 0 {
-		reqBytes, err := buildRequestBytesFromTemplate(fullQuery, isNew, disableWarpTools)
-		if err != nil {
-			return nil, err
-		}
-		if conversationID != "" {
-			reqBytes = injectTaskContext(reqBytes, conversationID)
-		}
-		if len(mcpContext) > 0 {
-			reqBytes = append(reqBytes, encodeBytesField(6, mcpContext)...)
-		}
-		return reqBytes, nil
+	// 统一使用模板路径构建请求。历史已由 buildWarpQuery 扁平化到 fullQuery 中。
+	// conversationID 直接传入模板构建，避免事后字节注入破坏 protobuf 结构。
+	var convID string
+	if isUpstreamConvID {
+		convID = conversationID
 	}
-
-	inputContext := buildInputContext(workdir)
-	userQuery := buildUserQuery(fullQuery, isNew, false)
-	input := buildInputWithUserQuery(inputContext, userQuery)
-	settings := buildSettings(model, disableWarpTools)
-
-	req := encoder{}
-	// task_context (field 1): 包含 conversationID 以延续上游会话
-	taskCtx := buildTaskContext(conversationID)
-	req.writeMessage(1, taskCtx)
-	req.writeMessage(2, input)
-	req.writeMessage(3, settings)
+	reqBytes, err := buildRequestBytesFromTemplate(fullQuery, isNew, disableWarpTools, convID)
+	if err != nil {
+		return nil, err
+	}
 	if len(mcpContext) > 0 {
-		req.writeMessage(6, mcpContext)
+		reqBytes = append(reqBytes, encodeBytesField(6, mcpContext)...)
 	}
-
-	return req.bytes(), nil
+	return reqBytes, nil
 }
 
 type parsedWarpMessage struct {
@@ -498,7 +483,7 @@ func formatWarpHistory(history []warpHistoryMessage) []string {
 	return parts
 }
 
-func buildRequestBytesFromTemplate(userText string, isNew bool, disableWarpTools bool) ([]byte, error) {
+func buildRequestBytesFromTemplate(userText string, isNew bool, disableWarpTools bool, conversationID ...string) ([]byte, error) {
 	template := append([]byte(nil), realRequestTemplate...)
 
 	newQueryBytes := []byte(userText)
@@ -543,7 +528,17 @@ func buildRequestBytesFromTemplate(userText string, isNew bool, disableWarpTools
 	}
 	rest := template[settingsStart:]
 
-	result := append([]byte{0x0a, 0x00}, newInputMsg...)
+	// 构建 task_context (field 1)：直接编码而非事后注入，避免字节偏移破坏 protobuf 结构
+	var convID string
+	if len(conversationID) > 0 {
+		convID = conversationID[0]
+	}
+	taskCtx := buildTaskContext(convID)
+	taskCtxField := encoder{}
+	taskCtxField.writeMessage(1, taskCtx)
+
+	result := append([]byte(nil), taskCtxField.bytes()...)
+	result = append(result, newInputMsg...)
 	result = append(result, rest...)
 
 	if disableWarpTools {
@@ -620,23 +615,6 @@ func buildTaskContext(conversationID string) []byte {
 	return ctx.bytes()
 }
 
-// injectTaskContext 替换模板构建的请求中的空 task_context (0a 00) 为包含 conversationID 的 task_context。
-func injectTaskContext(data []byte, conversationID string) []byte {
-	if conversationID == "" || len(data) < 2 {
-		return data
-	}
-	// 模板开头是 0a 00 (field 1, length 0 = empty task_context)
-	if data[0] != 0x0a || data[1] != 0x00 {
-		return data
-	}
-	taskCtx := buildTaskContext(conversationID)
-	e := encoder{}
-	e.writeMessage(1, taskCtx)
-	result := append([]byte(nil), e.bytes()...)
-	result = append(result, data[2:]...)
-	return result
-}
-
 func buildInputContext(workdir string) []byte {
 	pwd := strings.TrimSpace(workdir)
 	home := ""
@@ -683,10 +661,17 @@ func buildUserQuery(prompt string, isNew bool, includeAttachments bool) []byte {
 }
 
 func buildInputWithUserQuery(contextBytes, userQueryBytes []byte) []byte {
-	// 对齐 Python：使用 Input.user_query (field 2)
+	// 使用 Input.user_inputs (field 6) 而非 user_query (field 2)，与模板路径保持一致。
+	// 结构: Input { context(1), user_inputs(6) { UserInput(1) { user_query(1) { ... } } } }
+	userInput := encoder{}
+	userInput.writeMessage(1, userQueryBytes) // UserInput.user_query
+
+	userInputs := encoder{}
+	userInputs.writeMessage(1, userInput.bytes()) // repeated UserInput
+
 	input := encoder{}
-	input.writeMessage(1, contextBytes)
-	input.writeMessage(2, userQueryBytes)
+	input.writeMessage(1, contextBytes)    // Input.context
+	input.writeMessage(6, userInputs.bytes()) // Input.user_inputs
 	return input.bytes()
 }
 
