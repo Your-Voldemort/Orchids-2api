@@ -79,7 +79,21 @@
       "Bash(python3 -c \"\nimport time\nexp = 1770517708\nnow = int\\(time.time\\(\\)\\)\nprint\\(f''Token exp timestamp: {exp}''\\)\nprint\\(f''Current timestamp:   {now}''\\)\nprint\\(f''Difference \\(seconds\\): {exp - now}''\\)\nif now > exp:\n    print\\(f''Token EXPIRED {now - exp} seconds ago \\({\\(now - exp\\)/60:.1f} minutes\\)''\\)\nelse:\n    print\\(f''Token valid for {exp - now} seconds \\({\\(exp - now\\)/60:.1f} minutes\\)''\\)\n\")",
       "Bash(python3 -c \"\nimport sys, json\ndata = json.load\\(sys.stdin\\)\ndata[''status_code''] = ''''\ndata[''last_attempt''] = ''0001-01-01T00:00:00Z''\nprint\\(json.dumps\\(data\\)\\)\n\")",
       "Bash(redis-cli -n 0 -x set \"orchids:accounts:id:53\")",
-      "Bash(go vet ./...)"
+      "Bash(go vet ./...)",
+      "Bash(redis-cli KEYS \"orchids:*\")",
+      "Bash(redis-cli SMEMBERS \"orchids:accounts:ids\")",
+      "Bash(redis-cli SMEMBERS \"orchids:accounts:enabled\")",
+      "Bash(redis-cli GET \"orchids:settings:config\")",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"\nimport sys, json\nconfig = json.load\\(sys.stdin\\)\n# 清除残留的账号相关字段\nconfig[''session_id''] = ''''\nconfig[''client_cookie''] = ''''\nconfig[''session_cookie''] = ''''\nconfig[''client_uat''] = ''''\nconfig[''user_id''] = ''''\nconfig[''email''] = ''''\nprint\\(json.dumps\\(config\\)\\)\n\")",
+      "Bash(redis-cli -x SET \"orchids:settings:config\")",
+      "Bash(python3 -c \"\nimport sys, json\nconfig = json.load\\(sys.stdin\\)\nfields = [''session_id'', ''client_cookie'', ''session_cookie'', ''client_uat'', ''user_id'', ''email'']\nfor f in fields:\n    print\\(f''{f}: \"\"{config.get\\(f, \"\"\"\"\\)}\"\"''\\)\n\")",
+      "Bash(go install:*)",
+      "Bash(go build:*)",
+      "Bash(golangci-lint:*)",
+      "Bash(/Users/dailin/go/bin/staticcheck ./...)",
+      "Bash(go test ./internal/warp/... ./internal/handler/... -v -count=1)",
+      "Bash(go test ./internal/handler/... ./internal/warp/... -v -count=1)"
     ]
   }
 }

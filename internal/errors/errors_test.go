@@ -124,7 +124,7 @@ func TestWrap(t *testing.T) {
 		cause := errors.New("test error")
 		got := Wrap(cause, ErrInvalidRequest)
 		if got == nil {
-			t.Error("Wrap() returned nil for non-nil error")
+			t.Fatal("Wrap() returned nil for non-nil error")
 		}
 		if got.Cause != cause {
 			t.Errorf("Wrap() cause = %v, want %v", got.Cause, cause)

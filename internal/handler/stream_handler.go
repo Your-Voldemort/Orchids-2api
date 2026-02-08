@@ -80,6 +80,9 @@ type streamHandler struct {
 	// Throttling
 	lastScanTime time.Time
 
+	// Callbacks
+	onConversationID func(string) // 上游返回 conversationID 时回调
+
 	// Logger
 	logger *debug.Logger
 }
@@ -997,6 +1000,13 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 	}
 
 	switch eventKey {
+	case "model.conversation_id":
+		if msg.Event != nil {
+			if id, ok := msg.Event["id"].(string); ok && id != "" && h.onConversationID != nil {
+				h.onConversationID(id)
+			}
+		}
+
 	case "model.reasoning-start":
 		h.pendingThinkingSig = ""
 		if sig := extractThinkingSignature(msg.Event); sig != "" {

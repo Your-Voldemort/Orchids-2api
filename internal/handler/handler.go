@@ -41,6 +41,7 @@ type Handler struct {
 
 	sessionWorkdirsMu sync.RWMutex
 	sessionWorkdirs   map[string]string    // Map conversationKey -> string (workdir)
+	sessionConvIDs    map[string]string    // Map conversationKey -> upstream warp conversationID
 	sessionLastAccess map[string]time.Time // Map conversationKey -> last access time
 	sessionCleanupRun time.Time
 
@@ -142,12 +143,13 @@ func NewWithLoadBalancer(cfg *config.Config, lb *loadbalancer.LoadBalancer) *Han
 	h := &Handler{
 		config:            cfg,
 		loadBalancer:      lb,
-		summaryLog:        cfg.SummaryCacheLog,
 		sessionWorkdirs:   make(map[string]string),
+		sessionConvIDs:    make(map[string]string),
 		sessionLastAccess: make(map[string]time.Time),
 		recentRequests:    make(map[string]*recentRequest),
 	}
 	if cfg != nil {
+		h.summaryLog = cfg.SummaryCacheLog
 		h.client = orchids.New(cfg)
 	}
 	return h
@@ -361,6 +363,10 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	if workdirChanged {
 		slog.Warn("检测到工作目录变化，已清空历史", "prev", prevWorkdir, "next", effectiveWorkdir, "session", conversationKey)
 		req.Messages = resetMessagesForNewWorkdir(req.Messages)
+		// 工作目录变化时清除上游会话ID，强制开启新对话
+		h.sessionWorkdirsMu.Lock()
+		delete(h.sessionConvIDs, conversationKey)
+		h.sessionWorkdirsMu.Unlock()
 	}
 
 	// 选择账号 (Initial Selection)
@@ -575,6 +581,13 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		h.config, w, logger, suppressThinking, allowedTools, allowedIndex, isStream, responseFormat, effectiveWorkdir,
 	)
 	sh.setUsageTokens(inputTokens, -1) // Correctly initialize input tokens
+	// 捕获上游返回的 conversationID，持久化到 session 以便后续请求复用
+	sh.onConversationID = func(id string) {
+		h.sessionWorkdirsMu.Lock()
+		h.sessionConvIDs[conversationKey] = id
+		h.sessionWorkdirsMu.Unlock()
+		slog.Debug("Warp conversationID captured", "key", conversationKey, "id", id)
+	}
 	defer sh.release()
 
 	// 发送 message_start
@@ -622,7 +635,15 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	// Main execution
 	run := func() {
-		chatSessionID := "chat_" + randomSessionID()
+		// 复用上游返回的 conversationID，保持会话连续性
+		h.sessionWorkdirsMu.RLock()
+		chatSessionID := h.sessionConvIDs[conversationKey]
+		h.sessionWorkdirsMu.RUnlock()
+		// Warp 请求只使用上游返回的真实 conversationID，不生成随机 ID。
+		// 随机 ID 会导致首次请求 isNew=false + 伪造 task_context，上游无法正确初始化会话。
+		if chatSessionID == "" && !isWarpRequest {
+			chatSessionID = "chat_" + randomSessionID()
+		}
 		maxRetries := h.config.MaxRetries
 		if maxRetries < 0 {
 			maxRetries = 0

@@ -29,14 +29,14 @@ type Client struct {
 }
 
 func NewFromAccount(acc *store.Account, cfg *config.Config) *Client {
-	refresh := ""
-	if acc != nil {
-		refresh = strings.TrimSpace(acc.RefreshToken)
+	if acc == nil {
+		return &Client{config: cfg}
 	}
+	refresh := strings.TrimSpace(acc.RefreshToken)
 	sess := getSession(acc.ID, refresh)
 
 	// Inject JWT token if available, valid, and session is empty
-	if acc != nil && acc.Token != "" {
+	if acc.Token != "" {
 		if sess.currentJWT() == "" {
 			if exp := jwtExpiry(acc.Token); !exp.IsZero() && time.Now().Add(20*time.Minute).Before(exp) {
 				sess.mu.Lock()

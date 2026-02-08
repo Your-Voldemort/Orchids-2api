@@ -151,6 +151,7 @@ func (h *Handler) cleanupSessionWorkdirsLocked() {
 	for key, lastAccess := range h.sessionLastAccess {
 		if now.Sub(lastAccess) > sessionMaxAge {
 			delete(h.sessionWorkdirs, key)
+			delete(h.sessionConvIDs, key)
 			delete(h.sessionLastAccess, key)
 		}
 	}

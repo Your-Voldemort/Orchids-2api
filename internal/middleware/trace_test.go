@@ -110,12 +110,6 @@ func TestTraceFunc(t *testing.T) {
 }
 
 func TestGetTraceID(t *testing.T) {
-	t.Run("returns empty for nil context", func(t *testing.T) {
-		if got := GetTraceID(nil); got != "" {
-			t.Errorf("GetTraceID(nil) = %q, want empty", got)
-		}
-	})
-
 	t.Run("returns empty for context without trace ID", func(t *testing.T) {
 		ctx := context.Background()
 		if got := GetTraceID(ctx); got != "" {

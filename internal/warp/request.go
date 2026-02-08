@@ -135,11 +135,19 @@ func buildRequestBytes(promptText, model string, messages []prompt.Message, mcpC
 		return nil, fmt.Errorf("empty prompt")
 	}
 
-	// 对齐 Python：无历史且无工具结果时用模板构建
+	// 有 conversationID 时标记为非新对话，让上游延续会话
+	if conversationID != "" {
+		isNew = false
+	}
+
+	// 无历史且无工具结果时用模板构建
 	if len(history) == 0 && len(toolResults) == 0 {
 		reqBytes, err := buildRequestBytesFromTemplate(fullQuery, isNew, disableWarpTools)
 		if err != nil {
 			return nil, err
+		}
+		if conversationID != "" {
+			reqBytes = injectTaskContext(reqBytes, conversationID)
 		}
 		if len(mcpContext) > 0 {
 			reqBytes = append(reqBytes, encodeBytesField(6, mcpContext)...)
@@ -153,15 +161,15 @@ func buildRequestBytes(promptText, model string, messages []prompt.Message, mcpC
 	settings := buildSettings(model, disableWarpTools)
 
 	req := encoder{}
-	// task_context: empty message (field 1, length 0) => 0a 00
-	req.writeMessage(1, []byte{})
+	// task_context (field 1): 包含 conversationID 以延续上游会话
+	taskCtx := buildTaskContext(conversationID)
+	req.writeMessage(1, taskCtx)
 	req.writeMessage(2, input)
 	req.writeMessage(3, settings)
 	if len(mcpContext) > 0 {
 		req.writeMessage(6, mcpContext)
 	}
 
-	_ = conversationID // 对齐 Python：不使用 conversation_id
 	return req.bytes(), nil
 }
 
@@ -452,7 +460,7 @@ func buildWarpQuery(userText string, history []warpHistoryMessage, toolResults [
 		if strings.TrimSpace(userText) != "" {
 			parts = append(parts, "User: "+userText)
 		}
-		return strings.Join(parts, "\n\n"), true
+		return strings.Join(parts, "\n\n"), false // 有历史时不是新对话
 	}
 
 	if strings.TrimSpace(userText) == "" {
@@ -599,6 +607,34 @@ func encodeBytesField(field int, value []byte) []byte {
 	e := encoder{}
 	e.writeBytes(field, value)
 	return e.bytes()
+}
+
+// buildTaskContext 构建 task_context 消息，包含 conversationID 以延续上游会话。
+// task_context field 1 = conversation_id (string)
+func buildTaskContext(conversationID string) []byte {
+	if conversationID == "" {
+		return []byte{}
+	}
+	ctx := encoder{}
+	ctx.writeString(1, conversationID)
+	return ctx.bytes()
+}
+
+// injectTaskContext 替换模板构建的请求中的空 task_context (0a 00) 为包含 conversationID 的 task_context。
+func injectTaskContext(data []byte, conversationID string) []byte {
+	if conversationID == "" || len(data) < 2 {
+		return data
+	}
+	// 模板开头是 0a 00 (field 1, length 0 = empty task_context)
+	if data[0] != 0x0a || data[1] != 0x00 {
+		return data
+	}
+	taskCtx := buildTaskContext(conversationID)
+	e := encoder{}
+	e.writeMessage(1, taskCtx)
+	result := append([]byte(nil), e.bytes()...)
+	result = append(result, data[2:]...)
+	return result
 }
 
 func buildInputContext(workdir string) []byte {
