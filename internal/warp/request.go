@@ -146,7 +146,7 @@ func buildRequestBytes(promptText, model string, messages []prompt.Message, mcpC
 	// 注意：在 task_context 中注入 conversationID 会触发 Warp 400
 	// (invalid AIAgentRequest: cannot parse invalid wire-format data)。
 	// 当前保持空 task_context，依赖历史拼接延续上下文。
-	reqBytes, err := buildRequestBytesFromTemplate(fullQuery, isNew, disableWarpTools)
+	reqBytes, err := buildRequestBytesFromTemplate(fullQuery, isNew, disableWarpTools, workdir)
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +481,7 @@ func formatWarpHistory(history []warpHistoryMessage) []string {
 	return parts
 }
 
-func buildRequestBytesFromTemplate(userText string, isNew bool, disableWarpTools bool) ([]byte, error) {
+func buildRequestBytesFromTemplate(userText string, isNew bool, disableWarpTools bool, workdir string) ([]byte, error) {
 	template := append([]byte(nil), realRequestTemplate...)
 
 	newQueryBytes := []byte(userText)
@@ -514,7 +514,9 @@ func buildRequestBytesFromTemplate(userText string, isNew bool, disableWarpTools
 		userInputsStart = pos
 	}
 
-	contextPart := template[4:userInputsStart]
+	contextEnc := encoder{}
+	contextEnc.writeMessage(1, buildInputContext(workdir))
+	contextPart := contextEnc.bytes()
 	newInputContent := append(append([]byte(nil), contextPart...), userInputsContent...)
 	newInputMsg := append([]byte{0x12}, encodeVarint(len(newInputContent))...)
 	newInputMsg = append(newInputMsg, newInputContent...)
