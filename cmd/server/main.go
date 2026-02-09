@@ -240,8 +240,11 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           mux,
+		Addr: ":" + cfg.Port,
+		Handler: middleware.Chain(
+			middleware.TraceMiddleware,
+			middleware.LoggingMiddleware,
+		)(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       60 * time.Second,
