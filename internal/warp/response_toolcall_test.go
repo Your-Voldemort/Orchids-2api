@@ -96,7 +96,17 @@ func TestParseToolCall_NormalizesRunShellToBash(t *testing.T) {
 	if out.ToolCalls[0].Name != "Bash" {
 		t.Fatalf("expected Bash, got %q", out.ToolCalls[0].Name)
 	}
-	if !strings.Contains(out.ToolCalls[0].Input, "ls -la") {
-		t.Fatalf("expected command in input, got %q", out.ToolCalls[0].Input)
+	var input map[string]interface{}
+	if err := json.Unmarshal([]byte(out.ToolCalls[0].Input), &input); err != nil {
+		t.Fatalf("unmarshal input: %v", err)
+	}
+	if got, _ := input["command"].(string); got != "ls -la" {
+		t.Fatalf("expected command ls -la, got %q", got)
+	}
+	if _, ok := input["is_read_only"]; ok {
+		t.Fatalf("unexpected is_read_only in bash input: %s", out.ToolCalls[0].Input)
+	}
+	if _, ok := input["is_risky"]; ok {
+		t.Fatalf("unexpected is_risky in bash input: %s", out.ToolCalls[0].Input)
 	}
 }

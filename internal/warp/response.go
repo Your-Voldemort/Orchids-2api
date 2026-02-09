@@ -485,6 +485,7 @@ func parseToolCall(data []byte, out *parsedEvent) {
 		return
 	}
 	toolName = orchids.NormalizeToolName(toolName)
+	toolInput = normalizeToolInputForToolName(toolName, toolInput)
 	if orchids.DefaultToolMapper.IsBlocked(toolName) {
 		return
 	}
@@ -509,6 +510,33 @@ func isIncompleteToolCall(toolName, toolInput string) bool {
 		return strings.TrimSpace(command) == ""
 	default:
 		return false
+	}
+}
+
+func normalizeToolInputForToolName(toolName, toolInput string) string {
+	input := strings.TrimSpace(toolInput)
+	if input == "" {
+		return "{}"
+	}
+
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "bash":
+		var payload map[string]interface{}
+		if err := json.Unmarshal([]byte(input), &payload); err != nil {
+			return input
+		}
+		command, _ := payload["command"].(string)
+		if strings.TrimSpace(command) == "" {
+			return "{}"
+		}
+		minimal := map[string]string{"command": command}
+		b, err := json.Marshal(minimal)
+		if err != nil {
+			return "{}"
+		}
+		return string(b)
+	default:
+		return input
 	}
 }
 
