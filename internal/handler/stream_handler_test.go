@@ -10,6 +10,7 @@ import (
 
 	"orchids-api/internal/adapter"
 	"orchids-api/internal/config"
+	"orchids-api/internal/debug"
 	"orchids-api/internal/upstream"
 )
 
@@ -85,7 +86,9 @@ func TestNormalizeIntroKey(t *testing.T) {
 func TestStreamHandler_TextFlow_AnthropicSSE(t *testing.T) {
 	cfg := &config.Config{DebugEnabled: false}
 	rec := newFlushRecorder()
-	sh := newStreamHandler(cfg, rec, nil, false, true, adapter.FormatAnthropic, "")
+	logger := debug.New(false, false)
+	defer logger.Close()
+	sh := newStreamHandler(cfg, rec, logger, false, true, adapter.FormatAnthropic, "")
 	defer sh.release()
 
 	// seed a message_start so the stream resembles real output
@@ -111,7 +114,9 @@ func TestStreamHandler_TextFlow_AnthropicSSE(t *testing.T) {
 func TestStreamHandler_ToolInput_EndEmitsToolUse(t *testing.T) {
 	cfg := &config.Config{DebugEnabled: false}
 	rec := newFlushRecorder()
-	sh := newStreamHandler(cfg, rec, nil, false, true, adapter.FormatAnthropic, "")
+	logger := debug.New(false, false)
+	defer logger.Close()
+	sh := newStreamHandler(cfg, rec, logger, false, true, adapter.FormatAnthropic, "")
 	defer sh.release()
 
 	sh.handleMessage(upstream.SSEMessage{Type: "model", Event: map[string]any{"type": "tool-input-start", "id": "t1", "toolName": "bash"}})
@@ -130,7 +135,9 @@ func TestStreamHandler_ToolInput_EndEmitsToolUse(t *testing.T) {
 func TestStreamHandler_OpenAI_SendsDONEOnStop(t *testing.T) {
 	cfg := &config.Config{DebugEnabled: false}
 	rec := newFlushRecorder()
-	sh := newStreamHandler(cfg, rec, nil, false, true, adapter.FormatOpenAI, "")
+	logger := debug.New(false, false)
+	defer logger.Close()
+	sh := newStreamHandler(cfg, rec, logger, false, true, adapter.FormatOpenAI, "")
 	defer sh.release()
 
 	sh.finishResponse("end_turn")
@@ -143,7 +150,9 @@ func TestStreamHandler_OpenAI_SendsDONEOnStop(t *testing.T) {
 func TestMaskDedupKey_Stable(t *testing.T) {
 	cfg := &config.Config{}
 	rec := newFlushRecorder()
-	sh := newStreamHandler(cfg, rec, nil, false, false, adapter.FormatAnthropic, "")
+	logger := debug.New(false, false)
+	defer logger.Close()
+	sh := newStreamHandler(cfg, rec, logger, false, false, adapter.FormatAnthropic, "")
 	defer sh.release()
 
 	a := sh.maskDedupKey("bash:echo 1")
@@ -172,7 +181,9 @@ func TestExtractThinkingSignature(t *testing.T) {
 func TestStreamHandler_TokensUsed_OverridesEstimation(t *testing.T) {
 	cfg := &config.Config{DebugEnabled: false, OutputTokenMode: "final"}
 	rec := newFlushRecorder()
-	sh := newStreamHandler(cfg, rec, nil, false, false, adapter.FormatAnthropic, "")
+	logger := debug.New(false, false)
+	defer logger.Close()
+	sh := newStreamHandler(cfg, rec, logger, false, false, adapter.FormatAnthropic, "")
 	defer sh.release()
 
 	sh.setUsageTokens(10, -1)
@@ -188,7 +199,9 @@ func TestStreamHandler_TokensUsed_OverridesEstimation(t *testing.T) {
 func TestStreamHandler_KeepAlive_NoPanic(t *testing.T) {
 	cfg := &config.Config{DebugEnabled: false}
 	rec := newFlushRecorder()
-	sh := newStreamHandler(cfg, rec, nil, false, true, adapter.FormatAnthropic, "")
+	logger := debug.New(false, false)
+	defer logger.Close()
+	sh := newStreamHandler(cfg, rec, logger, false, true, adapter.FormatAnthropic, "")
 	defer sh.release()
 
 	// should not write once hasReturn set
@@ -209,7 +222,9 @@ func TestStreamHandler_KeepAlive_NoPanic(t *testing.T) {
 func TestStreamHandler_EventThrottle_fs_operation(t *testing.T) {
 	cfg := &config.Config{DebugEnabled: true}
 	rec := newFlushRecorder()
-	sh := newStreamHandler(cfg, rec, nil, false, true, adapter.FormatAnthropic, "")
+	logger := debug.New(false, false)
+	defer logger.Close()
+	sh := newStreamHandler(cfg, rec, logger, false, true, adapter.FormatAnthropic, "")
 	defer sh.release()
 
 	sh.handleMessage(upstream.SSEMessage{Type: "fs_operation", Event: map[string]any{"operation": "scan"}})
