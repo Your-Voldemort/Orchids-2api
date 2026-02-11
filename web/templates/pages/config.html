@@ -21,7 +21,7 @@
     <div class="content-card">
       <!-- Tabs Navigation -->
       <div id="configTabs" class="platform-tabs"
-        style="padding: 16px 24px 0; border-bottom: 1px solid rgba(148, 163, 184, 0.12);">
+        style="padding: 16px 24px 0; border-bottom: 1px solid var(--border-color);">
         <button class="tab-item active" onclick="switchConfigTab('basic')">基础配置</button>
         <button class="tab-item" onclick="switchConfigTab('auth')">API Key 管理</button>
         <button class="tab-item" onclick="switchConfigTab('proxy')">代理配置</button>
@@ -36,7 +36,7 @@
             <div style="position: relative;">
               <input type="password" id="cfg_admin_pass" class="form-input" placeholder="留空则不修改">
               <span
-                style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #94a3b8;"
+                style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-secondary);"
                 onclick="togglePassword('cfg_admin_pass')">👁️</span>
             </div>
           </div>
@@ -46,8 +46,8 @@
               <input type="password" id="cfg_admin_token" class="form-input" placeholder="用于调用管理接口">
               <div
                 style="position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; gap: 8px;">
-                <span style="cursor: pointer; color: #94a3b8;" onclick="togglePassword('cfg_admin_token')">👁️</span>
-                <span style="cursor: pointer; color: #94a3b8;" onclick="copyFieldValue('cfg_admin_token')">📋</span>
+                <span style="cursor: pointer; color: var(--text-secondary);" onclick="togglePassword('cfg_admin_token')">👁️</span>
+                <span style="cursor: pointer; color: var(--text-secondary);" onclick="copyFieldValue('cfg_admin_token')">📋</span>
               </div>
             </div>
           </div>
@@ -85,7 +85,7 @@
             <label class="toggle">
               <input type="checkbox" id="cfg_auto_refresh_token" onchange="updateSwitchLabel(this, '自动刷新Token')">
               <span class="toggle-slider"></span>
-              <span id="label_cfg_auto_refresh_token" style="margin-left: 12px; font-size: 0.9rem; color: #e2e8f0;">自动刷新
+              <span id="label_cfg_auto_refresh_token" style="margin-left: 12px; font-size: 0.9rem; color: var(--text-main);">自动刷新
                 Token</span>
             </label>
           </div>
@@ -93,7 +93,7 @@
             <label class="toggle">
               <input type="checkbox" id="cfg_output_token_count" onchange="updateSwitchLabel(this, '输出Token计数')">
               <span class="toggle-slider"></span>
-              <span id="label_cfg_output_token_count" style="margin-left: 12px; font-size: 0.9rem; color: #e2e8f0;">输出
+              <span id="label_cfg_output_token_count" style="margin-left: 12px; font-size: 0.9rem; color: var(--text-main);">输出
                 Token 计数</span>
             </label>
           </div>
@@ -101,12 +101,12 @@
 
         <!-- Token Usage Cache Config -->
         <div
-          style="padding: 20px; background: rgba(148, 163, 184, 0.05); border: 1px solid var(--border-color); border-radius: 12px;">
+          style="padding: 20px; background: rgba(139, 146, 168, 0.05); border: 1px solid var(--border-color); border-radius: 12px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <h3 style="font-size: 1rem; color: #e2e8f0; margin: 0;">Token 用量缓存</h3>
+              <h3 style="font-size: 1rem; color: var(--text-main); margin: 0;">Token 用量缓存</h3>
               <span
-                style="font-size: 0.8rem; color: var(--accent-blue); background: rgba(56, 189, 248, 0.1); padding: 2px 6px; border-radius: 4px;">Beta</span>
+                style="font-size: 0.8rem; color: var(--accent-blue); background: rgba(34, 211, 238, 0.1); padding: 2px 6px; border-radius: 4px;">Beta</span>
             </div>
             <label class="toggle">
               <input type="checkbox" id="cfg_cache_token_count"
@@ -130,9 +130,9 @@
               </div>
             </div>
 
-            <div style="padding: 12px; background: rgba(15, 23, 42, 0.5); border-radius: 8px;">
+            <div style="padding: 12px; background: rgba(12, 14, 26, 0.5); border-radius: 8px;">
               <div id="memoryEstTitle"
-                style="font-size: 0.85rem; color: #e2e8f0; margin-bottom: 8px; font-weight: 600;">内存估算</div>
+                style="font-size: 0.85rem; color: var(--text-main); margin-bottom: 8px; font-weight: 600;">内存估算</div>
               <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; text-align: center;">
                 <div
                   style="padding: 8px; background: rgba(52, 211, 153, 0.05); border-radius: 6px; border: 1px solid rgba(52, 211, 153, 0.1);">
@@ -140,7 +140,7 @@
                   <div id="estLow" style="font-weight: bold; color: var(--accent-green);">~1.5MB</div>
                 </div>
                 <div
-                  style="padding: 8px; background: rgba(56, 189, 248, 0.05); border-radius: 6px; border: 1px solid rgba(56, 189, 248, 0.1);">
+                  style="padding: 8px; background: rgba(34, 211, 238, 0.05); border-radius: 6px; border: 1px solid rgba(34, 211, 238, 0.1);">
                   <div style="font-size: 0.75rem; color: var(--text-secondary);">50 QPS</div>
                   <div id="estMid" style="font-weight: bold; color: var(--accent-blue);">~7.5MB</div>
                 </div>
@@ -217,7 +217,7 @@
 
       <!-- Global Save Footer -->
       <div
-        style="padding: 16px 24px; background: rgba(15, 23, 42, 0.95); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
+        style="padding: 16px 24px; background: var(--bg-elevated); border-top: 1px solid var(--border-color); display: flex; justify-content: flex-end;">
         <button class="btn btn-primary" onclick="saveConfiguration()"
           style="padding: 10px 48px; font-weight: 600;">保存配置</button>
       </div>

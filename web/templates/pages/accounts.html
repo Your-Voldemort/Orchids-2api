@@ -29,21 +29,21 @@
       <div class="stat-card">
         <div class="stat-info">
           <span class="label">状态正常</span>
-          <span class="value" style="color: #10b981" id="enabledAccounts">0</span>
+          <span class="value" style="color: var(--accent-green)" id="enabledAccounts">0</span>
         </div>
         <div class="stat-icon normal">✅</div>
       </div>
       <div class="stat-card">
         <div class="stat-info">
           <span class="label">状态异常</span>
-          <span class="value" style="color: #ef4444" id="disabledAccounts">0</span>
+          <span class="value" style="color: var(--accent-red)" id="disabledAccounts">0</span>
         </div>
         <div class="stat-icon abnormal">⚠️</div>
       </div>
       <div class="stat-card">
         <div class="stat-info">
           <span class="label">已选中</span>
-          <span class="value" style="color: #8b5cf6" id="selectedCount">0</span>
+          <span class="value" style="color: var(--accent-purple)" id="selectedCount">0</span>
         </div>
         <div class="stat-icon selected">📋</div>
       </div>
@@ -60,13 +60,13 @@
             <button class="btn btn-outline" onclick="exportAccounts()">📥 导出</button>
             <input type="file" id="importFile" accept=".json" style="display: none" onchange="importAccounts(event)" />
           </div>
-          <div style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 4px;"></div>
+          <div style="width: 1px; height: 24px; background: var(--border-highlight); margin: 0 4px;"></div>
           <div style="display: flex; gap: 8px;">
             <button class="btn btn-outline" id="batchDeleteBtn" disabled onclick="batchDeleteAccounts()">🗑️
               批量删除</button>
             <button class="btn btn-danger-outline" onclick="clearAbnormalAccounts()">🧹 清空异常</button>
           </div>
-          <button class="btn btn-primary" style="background: #3b82f6; border: none; padding: 8px 20px;"
+          <button class="btn btn-primary" style="background: var(--primary); border: none; padding: 8px 20px;"
             onclick="openModal()">+ 添加账号</button>
         </div>
       </div>
@@ -74,7 +74,7 @@
       <div class="content-card">
         <div id="accountsList">
           <div class="empty-state"
-            style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: #94a3b8;">
+            style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 300px; color: var(--text-secondary);">
             <span style="font-size: 3rem; margin-bottom: 16px;">📂</span>
             <p>暂无账号数据</p>
           </div>
