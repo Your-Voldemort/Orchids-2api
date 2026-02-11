@@ -68,7 +68,7 @@ type streamHandler struct {
 	toolCallEmitted    map[string]struct{}
 	currentToolInputID string
 	toolCallCount      int
-	toolCallDedup      map[string]struct{}
+	bashCallDedup      map[string]struct{}
 	introDedup         map[string]struct{}
 
 	// Throttling
@@ -125,7 +125,7 @@ func newStreamHandler(
 		toolInputHadDelta:        make(map[string]bool),
 		toolCallHandled:          make(map[string]bool),
 		toolCallEmitted:          make(map[string]struct{}),
-		toolCallDedup:            make(map[string]struct{}),
+		bashCallDedup:            make(map[string]struct{}),
 		introDedup:               make(map[string]struct{}),
 		msgID:                    fmt.Sprintf("msg_%d", time.Now().UnixMilli()),
 		startTime:                time.Now(),
@@ -326,9 +326,9 @@ func (h *streamHandler) resetRoundState() {
 	clear(h.toolInputHadDelta)
 	clear(h.toolCallHandled)
 	clear(h.toolCallEmitted)
+	clear(h.bashCallDedup)
 	h.currentToolInputID = ""
 	h.toolCallCount = 0
-	clear(h.toolCallDedup)
 	h.outputTokens = 0
 	h.outputBuilder.Reset()
 	h.useUpstreamUsage = false
@@ -714,25 +714,6 @@ func (h *streamHandler) writeSSELocked(event, data string) {
 
 // Event Handlers
 
-func normalizeToolDedupInput(input string) string {
-	input = strings.TrimSpace(input)
-	return input
-}
-
-func hashToolCallKey(name, input string) string {
-	name = strings.ToLower(strings.TrimSpace(name))
-	if name == "" {
-		return ""
-	}
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(name))
-	_, _ = h.Write([]byte{0})
-	if input != "" {
-		_, _ = h.Write([]byte(input))
-	}
-	return fmt.Sprintf("call:%x", h.Sum64())
-}
-
 func (h *streamHandler) emitTextBlock(text string) {
 	if !h.isStream || text == "" {
 		return
@@ -791,23 +772,48 @@ func (h *streamHandler) shouldAcceptToolCall(call toolCall) bool {
 		}
 		return false
 	}
-	inputKey := normalizeToolDedupInput(call.input)
-	callKey := hashToolCallKey(nameKey, inputKey)
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// 同一轮只去重相同输入的调用，允许同名工具不同参数
-	if callKey != "" {
-		if _, ok := h.toolCallDedup[callKey]; ok {
+	if key := bashCommandDedupKey(nameKey, call.input); key != "" {
+		if _, ok := h.bashCallDedup[key]; ok {
 			if h.config != nil && h.config.DebugEnabled {
-				slog.Debug("duplicate tool call suppressed", "tool", call.name)
+				slog.Debug("duplicate bash command suppressed", "tool", call.name)
 			}
 			return false
 		}
-		h.toolCallDedup[callKey] = struct{}{}
+		h.bashCallDedup[key] = struct{}{}
 	}
 	return true
+}
+
+func bashCommandDedupKey(nameKey, input string) string {
+	if nameKey != "bash" {
+		return ""
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(input), &payload); err != nil {
+		return ""
+	}
+	command, _ := payload["command"].(string)
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	return "bash:" + command
+}
+
+func fallbackToolCallID(toolName, input string) string {
+	nameKey := strings.ToLower(strings.TrimSpace(toolName))
+	if nameKey == "" {
+		return ""
+	}
+	normalizedInput := strings.TrimSpace(input)
+	if normalizedInput == "" {
+		normalizedInput = "{}"
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(nameKey))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(normalizedInput))
+	return fmt.Sprintf("tool_anon_%x", h.Sum64())
 }
 
 func hasRequiredToolInput(name, input string) bool {
@@ -1315,10 +1321,10 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 			return
 		}
 		call := toolCall{id: toolID, name: name, input: inputStr}
-		h.toolCallHandled[toolID] = true
 		if !h.shouldAcceptToolCall(call) {
 			return
 		}
+		h.toolCallHandled[toolID] = true
 		if h.isStream {
 			if inputStr != "" {
 				h.addOutputTokens(inputStr)
@@ -1333,7 +1339,10 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 		toolName, _ := msg.Event["toolName"].(string)
 		inputStr, _ := msg.Event["input"].(string)
 		if toolID == "" {
-			return
+			toolID = fallbackToolCallID(toolName, inputStr)
+			if toolID == "" {
+				return
+			}
 		}
 		if h.currentToolInputID != "" && toolID != h.currentToolInputID {
 			return
@@ -1345,10 +1354,10 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 			return
 		}
 		call := toolCall{id: toolID, name: toolName, input: inputStr}
-		h.toolCallHandled[toolID] = true
 		if !h.shouldAcceptToolCall(call) {
 			return
 		}
+		h.toolCallHandled[toolID] = true
 		if h.isStream {
 			h.emitToolUseFromInput(toolID, toolName, inputStr)
 			return

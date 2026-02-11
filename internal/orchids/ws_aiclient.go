@@ -67,6 +67,7 @@ type requestState struct {
 	textStarted       bool
 	reasoningStarted  bool
 	lastTextDelta     string
+	lastTextEvent     string
 	finishSent        bool
 	sawToolCall       bool
 	hasFSOps          bool
@@ -317,6 +318,8 @@ func (c *Client) sendRequestWSAIClient(ctx context.Context, req upstream.Upstrea
 		case <-fsDone:
 		case <-ctx.Done():
 			returnToPool = false
+		case <-time.After(10 * time.Second):
+			slog.Warn("FS operations timed out in WS mode")
 		}
 	}
 
@@ -397,10 +400,13 @@ func (c *Client) handleOrchidsMessage(
 		if text == "" {
 			return false
 		}
-		if text == state.lastTextDelta {
+		// Suppress only cross-channel duplicate chunks (e.g. output_text_delta + response.chunk).
+		// Repeated chunks from the same channel can be legitimate content and must be preserved.
+		if text == state.lastTextDelta && state.lastTextEvent != msgType {
 			return false
 		}
 		state.lastTextDelta = text
+		state.lastTextEvent = msgType
 		if !state.textStarted {
 			state.textStarted = true
 			onMessage(upstream.SSEMessage{Type: "model", Event: map[string]interface{}{"type": "text-start", "id": "0"}})

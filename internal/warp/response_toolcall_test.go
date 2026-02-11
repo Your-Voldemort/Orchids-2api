@@ -115,6 +115,25 @@ func TestParseToolCall_ApplyFileDiffsReplacementBecomesEdit(t *testing.T) {
 	}
 }
 
+func TestParseToolCall_ApplyFileDiffsEmptyIsDropped(t *testing.T) {
+	t.Parallel()
+
+	// Warp may emit an early apply_file_diffs frame without file_diffs/new_files.
+	// This should be treated as incomplete and dropped.
+	emptyApplyFileDiffs := testEncodeMessage()
+	payload := testEncodeMessage(
+		testEncodeStringField(1, "tool_id_edit_empty"),
+		testEncodeBytesField(6, emptyApplyFileDiffs),
+	)
+
+	out := &parsedEvent{}
+	parseToolCall(payload, out)
+
+	if len(out.ToolCalls) != 0 {
+		t.Fatalf("expected no tool calls, got %d: %#v", len(out.ToolCalls), out.ToolCalls)
+	}
+}
+
 func testEncodeMessage(fields ...[]byte) []byte {
 	var out []byte
 	for _, f := range fields {
@@ -245,5 +264,34 @@ func TestParseToolCall_NormalizesRunShellToBash(t *testing.T) {
 	}
 	if _, ok := input["is_risky"]; ok {
 		t.Fatalf("unexpected is_risky in bash input: %s", out.ToolCalls[0].Input)
+	}
+}
+
+func TestParseToolCall_MissingToolID_UsesStableFallbackID(t *testing.T) {
+	t.Parallel()
+
+	// field2 run_shell_command payload(with command), without field1 tool_call_id
+	payload := []byte{
+		0x12, 0x10, 0x0a, 0x06, 'l', 's', ' ', '-', 'l', 'a', 0x10, 0x01, 0x18, 0x00, 0x28, 0x00, 0x30, 0x00,
+	}
+
+	out1 := &parsedEvent{}
+	out2 := &parsedEvent{}
+	parseToolCall(payload, out1)
+	parseToolCall(payload, out2)
+
+	if len(out1.ToolCalls) != 1 || len(out2.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call each, got %d and %d", len(out1.ToolCalls), len(out2.ToolCalls))
+	}
+	id1 := out1.ToolCalls[0].ID
+	id2 := out2.ToolCalls[0].ID
+	if id1 == "" || id2 == "" {
+		t.Fatalf("expected non-empty fallback IDs")
+	}
+	if id1 != id2 {
+		t.Fatalf("expected deterministic fallback ID, got %q and %q", id1, id2)
+	}
+	if !strings.HasPrefix(id1, "warp_anon_") {
+		t.Fatalf("unexpected fallback ID format: %q", id1)
 	}
 }

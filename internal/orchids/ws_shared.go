@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/url"
 	"strings"
@@ -164,7 +165,7 @@ func buildLocalAssistantPrompt(systemText string, userText string, model string,
 	b.WriteString("- Respond in the same language the user uses (e.g., Chinese input → Chinese response).\n")
 	b.WriteString("- Focus on the user's actual request without assumptions about their tech stack.\n")
 	b.WriteString("- For coding tasks, support any language or framework the user is working with.\n")
-b.WriteString("- Use ONLY Claude Code native tools: Read, Write, Edit, Bash, Glob, Grep, TodoWrite.\n")
+	b.WriteString("- Use ONLY Claude Code native tools: Read, Write, Edit, Bash, Glob, Grep, TodoWrite.\n")
 	b.WriteString("- All tool calls execute LOCALLY on user's machine.\n")
 	b.WriteString("</guidelines>\n\n")
 
@@ -689,6 +690,22 @@ type orchidsToolCall struct {
 	input string
 }
 
+func fallbackOrchidsToolCallID(toolName, toolInput string) string {
+	name := strings.ToLower(strings.TrimSpace(toolName))
+	if name == "" {
+		return ""
+	}
+	input := strings.TrimSpace(toolInput)
+	if input == "" {
+		input = "{}"
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(name))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(input))
+	return fmt.Sprintf("orchids_anon_%x", h.Sum64())
+}
+
 func extractToolCallsFromResponse(msg map[string]interface{}) []orchidsToolCall {
 	resp, ok := msg["response"].(map[string]interface{})
 	if !ok {
@@ -710,6 +727,9 @@ func extractToolCallsFromResponse(msg map[string]interface{}) []orchidsToolCall 
 			id, _ := m["callId"].(string)
 			name, _ := m["name"].(string)
 			args, _ := m["arguments"].(string)
+			if id == "" {
+				id = fallbackOrchidsToolCallID(name, args)
+			}
 			if id == "" || name == "" {
 				continue
 			}
@@ -717,13 +737,19 @@ func extractToolCallsFromResponse(msg map[string]interface{}) []orchidsToolCall 
 		} else if typ == "tool_use" {
 			id, _ := m["id"].(string)
 			name, _ := m["name"].(string)
-			if id == "" || name == "" {
+			if name == "" {
 				continue
 			}
 			var inputStr string
 			if inputObj, ok := m["input"]; ok {
 				inputBytes, _ := json.Marshal(inputObj)
 				inputStr = string(inputBytes)
+			}
+			if id == "" {
+				id = fallbackOrchidsToolCallID(name, inputStr)
+			}
+			if id == "" {
+				continue
 			}
 			calls = append(calls, orchidsToolCall{id: id, name: name, input: inputStr})
 		}

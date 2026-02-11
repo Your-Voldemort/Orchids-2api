@@ -47,32 +47,10 @@ func (e *encoder) writeBytes(field int, value []byte) {
 	e.b = append(e.b, value...)
 }
 
-func (e *encoder) writeBool(field int, value bool) {
-	e.writeKey(field, 0)
-	if value {
-		e.writeVarint(1)
-	} else {
-		e.writeVarint(0)
-	}
-}
-
 func (e *encoder) writeMessage(field int, msg []byte) {
 	e.writeKey(field, 2)
 	e.writeVarint(uint64(len(msg)))
 	e.b = append(e.b, msg...)
-}
-
-func (e *encoder) writePackedVarints(field int, values []int) {
-	if len(values) == 0 {
-		return
-	}
-	inner := encoder{}
-	for _, v := range values {
-		inner.writeVarint(uint64(v))
-	}
-	e.writeKey(field, 2)
-	e.writeVarint(uint64(len(inner.b)))
-	e.b = append(e.b, inner.b...)
 }
 
 type warpToolCall struct {
@@ -92,11 +70,6 @@ type warpToolResult struct {
 	ToolCallID string
 	Content    string
 }
-
-const (
-	templateQueryLen        = 9  // "你好呀"
-	templateInputContextLen = 67 // 模板里的 InputContext 长度
-)
 
 var realRequestTemplate = mustDecodeHex("0a00125a0a430a1e0a0d2f55736572732f6c6f66796572120d2f55736572732f6c6f6679657212070a054d61634f531a0a0a037a73681203352e39220c08eeb8d3cb0610908ef0bd0232130a110a0f0a09e4bda0e5a5bde591801a0020011a660a210a0f636c617564652d342d352d6f707573220e636c692d6167656e742d6175746f1001180120013001380140014a1306070c08090f0e000b100a141113120203010d500158016001680170017801800101880101a80101b201070a1406070c0201b801012264121e0a0a656e747279706f696e7412101a0e555345525f494e4954494154454412200a1a69735f6175746f5f726573756d655f61667465725f6572726f721202200012200a1a69735f6175746f64657465637465645f757365725f717565727912022001")
 
@@ -508,15 +481,6 @@ func buildRequestBytesFromTemplate(userText string, isNew bool, disableWarpTools
 	userInputsContent := append([]byte{0x32}, encodeVarint(len(inputsContent))...)
 	userInputsContent = append(userInputsContent, inputsContent...)
 
-	userInputsStart := 4 + 2 + templateInputContextLen
-	if userInputsStart >= len(template) || template[userInputsStart] != 0x32 {
-		pos := findBytes(template, []byte{0x32, 0x13})
-		if pos == -1 {
-			return nil, fmt.Errorf("warp template: user_inputs not found")
-		}
-		userInputsStart = pos
-	}
-
 	contextEnc := encoder{}
 	contextEnc.writeMessage(1, buildInputContext(workdir))
 	contextPart := contextEnc.bytes()
@@ -629,17 +593,6 @@ func encodeBytesField(field int, value []byte) []byte {
 	return e.bytes()
 }
 
-// buildTaskContext 构建 task_context 消息，包含 conversationID 以延续上游会话。
-// task_context field 1 = conversation_id (string)
-func buildTaskContext(conversationID string) []byte {
-	if conversationID == "" {
-		return []byte{}
-	}
-	ctx := encoder{}
-	ctx.writeString(1, conversationID)
-	return ctx.bytes()
-}
-
 func buildInputContext(workdir string) []byte {
 	pwd := strings.TrimSpace(workdir)
 	home := ""
@@ -672,64 +625,6 @@ func buildInputContext(workdir string) []byte {
 	ctx.writeMessage(4, ts.bytes())
 
 	return ctx.bytes()
-}
-
-func buildUserQuery(prompt string, isNew bool, includeAttachments bool) []byte {
-	msg := encoder{}
-	msg.writeString(1, prompt)
-	// referenced_attachments (field 2) - omitted if empty
-	if includeAttachments {
-		msg.writeBytes(3, []byte{})
-	}
-	msg.writeBool(4, isNew) // is_new_conversation
-	return msg.bytes()
-}
-
-func buildInputWithUserQuery(contextBytes, userQueryBytes []byte) []byte {
-	// 使用 Input.user_inputs (field 6) 而非 user_query (field 2)，与模板路径保持一致。
-	// 结构: Input { context(1), user_inputs(6) { UserInput(1) { user_query(1) { ... } } } }
-	userInput := encoder{}
-	userInput.writeMessage(1, userQueryBytes) // UserInput.user_query
-
-	userInputs := encoder{}
-	userInputs.writeMessage(1, userInput.bytes()) // repeated UserInput
-
-	input := encoder{}
-	input.writeMessage(1, contextBytes)       // Input.context
-	input.writeMessage(6, userInputs.bytes()) // Input.user_inputs
-	return input.bytes()
-}
-
-func buildSettings(model string, disableWarpTools bool) []byte {
-	modelName := normalizeModel(model)
-	modelCfg := encoder{}
-	modelCfg.writeString(1, modelName)
-
-	settings := encoder{}
-	settings.writeMessage(1, modelCfg.bytes())
-	settings.writeBool(2, true)
-	settings.writeBool(3, true)
-	settings.writeBool(4, true)
-	settings.writeBool(6, true)
-	settings.writeBool(7, true)
-	settings.writeBool(8, true)
-	settings.writeBool(10, true)
-	settings.writeBool(11, true)
-	settings.writeBool(12, true)
-	settings.writeBool(13, true)
-	settings.writeBool(14, true)
-	settings.writeBool(15, true)
-	settings.writeBool(16, true)
-	settings.writeBool(17, true)
-	settings.writeBool(21, true)
-
-	if !disableWarpTools {
-		settings.writePackedVarints(9, []int{6, 7, 12, 8, 9, 15, 14, 0, 11, 16, 10, 20, 17, 19, 18, 2, 3, 1, 13})
-	}
-	settings.writePackedVarints(22, []int{10, 20, 6, 7, 12, 9, 2, 1})
-	settings.writeBool(23, true)
-
-	return settings.bytes()
 }
 
 func buildMCPContext(tools []interface{}) ([]byte, error) {

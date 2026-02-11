@@ -40,7 +40,6 @@ type Client struct {
 	fsCache    *perf.TTLCache
 	wsPool     *upstream.WSPool
 	wsWriteMu  sync.Mutex // Protects concurrent writes to WebSocket
-	fsExecutor func(op map[string]interface{}, workdir string) (bool, interface{}, string)
 }
 
 type TokenResponse struct {
@@ -135,10 +134,6 @@ func New(cfg *config.Config) *Client {
 	return c
 }
 
-func (c *Client) SetFSExecutor(fn func(op map[string]interface{}, workdir string) (bool, interface{}, string)) {
-	c.fsExecutor = fn
-}
-
 func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 	cfg := &config.Config{
 		SessionID:         acc.SessionID,
@@ -192,11 +187,14 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 }
 
 func (c *Client) GetToken() (string, error) {
-	if c.config != nil && c.config.UpstreamToken != "" {
+	if c == nil || c.config == nil {
+		return "", errors.New("missing config")
+	}
+	if c.config.UpstreamToken != "" {
 		return c.config.UpstreamToken, nil
 	}
 
-	if c.config != nil && c.config.AutoRefreshToken {
+	if c.config.AutoRefreshToken {
 		return c.forceRefreshToken()
 	}
 
@@ -250,6 +248,9 @@ func (c *Client) forceRefreshToken() (string, error) {
 }
 
 func (c *Client) fetchToken() (string, error) {
+	if c == nil || c.config == nil {
+		return "", errors.New("missing config")
+	}
 	sid := strings.TrimSpace(c.config.SessionID)
 	if sid == "" {
 		return "", errors.New("missing orchids session id")
@@ -366,12 +367,21 @@ func (c *Client) SendRequest(ctx context.Context, prompt string, chatHistory []i
 }
 
 func (c *Client) SendRequestWithPayload(ctx context.Context, req upstream.UpstreamRequest, onMessage func(upstream.SSEMessage), logger *debug.Logger) error {
-	mode := strings.ToLower(strings.TrimSpace(c.config.UpstreamMode))
-	timeout := c.config.RequestTimeout
-	if timeout <= 0 {
-		timeout = 120
+	if c == nil {
+		return errors.New("orchids client is nil")
 	}
-	if c.config.DebugEnabled {
+	cfg := c.config
+	mode := ""
+	timeout := 120
+	debugEnabled := false
+	if cfg != nil {
+		mode = strings.ToLower(strings.TrimSpace(cfg.UpstreamMode))
+		if cfg.RequestTimeout > 0 {
+			timeout = cfg.RequestTimeout
+		}
+		debugEnabled = cfg.DebugEnabled
+	}
+	if debugEnabled {
 		slog.Debug("Sending upstream request", "mode", mode, "url", c.upstreamURL(), "timeout", timeout)
 	}
 	if mode == "ws" || mode == "websocket" {
@@ -391,9 +401,14 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req upstream.Upstre
 }
 
 func (c *Client) sendRequestSSE(ctx context.Context, req upstream.UpstreamRequest, onMessage func(upstream.SSEMessage), logger *debug.Logger) error {
+	if c == nil {
+		return errors.New("orchids client is nil")
+	}
+	cfg := c.config
+	debugEnabled := cfg != nil && cfg.DebugEnabled
 	timeout := 120 * time.Second
-	if c.config != nil && c.config.RequestTimeout > 0 {
-		timeout = time.Duration(c.config.RequestTimeout) * time.Second
+	if cfg != nil && cfg.RequestTimeout > 0 {
+		timeout = time.Duration(cfg.RequestTimeout) * time.Second
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -406,23 +421,33 @@ func (c *Client) sendRequestSSE(ctx context.Context, req upstream.UpstreamReques
 
 	payloadMessages := req.Messages
 	payloadSystem := req.System
-	if c.config != nil && strings.EqualFold(strings.TrimSpace(c.config.OrchidsImpl), "aiclient") {
+	if cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.OrchidsImpl), "aiclient") {
 		// AIClient 模式：避免 prompt + messages 双份注入上下文
 		payloadMessages = nil
 		payloadSystem = nil
+	}
+	projectID := ""
+	agentMode := ""
+	email := ""
+	userID := ""
+	if cfg != nil {
+		projectID = cfg.ProjectID
+		agentMode = cfg.AgentMode
+		email = cfg.Email
+		userID = cfg.UserID
 	}
 
 	payload := AgentRequest{
 		Prompt:        req.Prompt,
 		ChatHistory:   req.ChatHistory,
-		ProjectID:     c.config.ProjectID,
+		ProjectID:     projectID,
 		CurrentPage:   map[string]interface{}{},
-		AgentMode:     c.config.AgentMode,
+		AgentMode:     agentMode,
 		Mode:          "agent",
 		GitRepoUrl:    "",
-		Email:         c.config.Email,
+		Email:         email,
 		ChatSessionID: req.ChatSessionID,
-		UserID:        c.config.UserID,
+		UserID:        userID,
 		APIVersion:    2,
 		Model:         req.Model,
 		Messages:      payloadMessages,
@@ -443,7 +468,7 @@ func (c *Client) sendRequestSSE(ctx context.Context, req upstream.UpstreamReques
 	url := c.upstreamURL()
 
 	// 使用 Circuit Breaker 保护上游调用
-	breaker := upstream.GetAccountBreaker(c.config.Email)
+	breaker := upstream.GetAccountBreaker(email)
 	start := time.Now()
 
 	result, err := breaker.Execute(func() (interface{}, error) {
@@ -475,12 +500,12 @@ func (c *Client) sendRequestSSE(ctx context.Context, req upstream.UpstreamReques
 		if logger != nil {
 			logger.LogUpstreamHTTPError(url, 0, "", err)
 		}
-		if c.config.DebugEnabled {
+		if debugEnabled {
 			slog.Info("[Performance] Upstream Request Failed", "duration", time.Since(start), "error", err)
 		}
 		return err
 	}
-	if c.config.DebugEnabled {
+	if debugEnabled {
 		slog.Info("[Performance] Upstream Request Headers Received", "duration", time.Since(start))
 	}
 	resp := result.(*http.Response)

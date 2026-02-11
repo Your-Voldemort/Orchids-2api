@@ -501,14 +501,3 @@ func jwtExpiry(token string) time.Time {
 	}
 	return time.Unix(exp, 0)
 }
-
-func (c *Client) LogSessionState() {
-	if c.session == nil {
-		return
-	}
-	jwt := c.session.currentJWT()
-	if jwt == "" {
-		return
-	}
-	slog.Debug("warp session ready")
-}

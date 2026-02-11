@@ -325,9 +325,12 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("检测到工作目录变化，已清空历史", "prev", prevWorkdir, "next", effectiveWorkdir, "session", conversationKey)
 		req.Messages = resetMessagesForNewWorkdir(req.Messages)
 		// 工作目录变化时清除上游会话ID，强制开启新对话
-		h.sessionWorkdirsMu.Lock()
-		delete(h.sessionConvIDs, conversationKey)
-		h.sessionWorkdirsMu.Unlock()
+		if conversationKey != "" {
+			h.sessionWorkdirsMu.Lock()
+			delete(h.sessionConvIDs, conversationKey)
+			delete(h.sessionLastAccess, conversationKey)
+			h.sessionWorkdirsMu.Unlock()
+		}
 	}
 
 	// 选择账号 (Initial Selection)
@@ -359,22 +362,20 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		isWarpRequest = true
 	}
 	if isWarpRequest {
-		slog.Debug("Checkpoint: trimming messages for warp")
-		trimmed, _, _ := trimMessages(req.Messages, h.config.WarpMaxHistoryMessages, h.config.WarpMaxToolResults, "warp")
-		req.Messages = trimmed
+		// Warp passthrough mode: do not trim history/tool results.
+		slog.Debug("Checkpoint: warp passthrough, skip trim/sanitize")
 	} else {
 		// Orchids: Compress HUGE tool results (>100KB) to prevent upstream 413/Timeout
 		// 100KB limit is generous enough for most code but prevents MB-sized payloads.
 		slog.Debug("Checkpoint: compressing tool results")
 		compressed, _ := compressToolResults(req.Messages, 102400, "orchids")
 		req.Messages = compressed
+		if sanitized, changed := sanitizeSystemItems(req.System, false, h.config); changed {
+			req.System = sanitized
+			slog.Info("系统提示已移除 cc_entrypoint", "mode", h.config.OrchidsCCEntrypointMode, "warp", false)
+		}
 	}
 	slog.Debug("Checkpoint: message processing done")
-
-	if sanitized, changed := sanitizeSystemItems(req.System, isWarpRequest, h.config); changed {
-		req.System = sanitized
-		slog.Info("系统提示已移除 cc_entrypoint", "mode", h.config.OrchidsCCEntrypointMode, "warp", isWarpRequest)
-	}
 
 	// 手动管理连接计数，账号切换时需要释放旧账号、获取新账号
 	trackedAccountID := int64(0)
@@ -527,8 +528,13 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	sh.setUsageTokens(inputTokens, -1) // Correctly initialize input tokens
 	// 捕获上游返回的 conversationID，持久化到 session 以便后续请求复用
 	sh.onConversationID = func(id string) {
+		if conversationKey == "" {
+			return
+		}
 		h.sessionWorkdirsMu.Lock()
 		h.sessionConvIDs[conversationKey] = id
+		h.sessionLastAccess[conversationKey] = time.Now()
+		h.cleanupSessionWorkdirsLocked()
 		h.sessionWorkdirsMu.Unlock()
 		slog.Debug("Warp conversationID captured", "key", conversationKey, "id", id)
 	}
@@ -580,9 +586,14 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	// Main execution
 	run := func() {
 		// 复用上游返回的 conversationID，保持会话连续性
-		h.sessionWorkdirsMu.RLock()
-		chatSessionID := h.sessionConvIDs[conversationKey]
-		h.sessionWorkdirsMu.RUnlock()
+		chatSessionID := ""
+		if conversationKey != "" {
+			h.sessionWorkdirsMu.Lock()
+			chatSessionID = h.sessionConvIDs[conversationKey]
+			h.sessionLastAccess[conversationKey] = time.Now()
+			h.cleanupSessionWorkdirsLocked()
+			h.sessionWorkdirsMu.Unlock()
+		}
 		if chatSessionID == "" {
 			chatSessionID = "chat_" + randomSessionID()
 		}

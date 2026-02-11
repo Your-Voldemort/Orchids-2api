@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"google.golang.org/protobuf/proto"
@@ -487,18 +487,31 @@ func parseToolCall(data []byte, out *parsedEvent) {
 	if toolName == "" {
 		return
 	}
+	toolName = orchids.NormalizeToolName(toolName)
+	toolInput = normalizeToolInputForToolName(toolName, toolInput)
 	if isIncompleteToolCall(toolName, toolInput) {
 		return
 	}
-	toolName = orchids.NormalizeToolName(toolName)
-	toolInput = normalizeToolInputForToolName(toolName, toolInput)
 	if orchids.DefaultToolMapper.IsBlocked(toolName) {
 		return
 	}
 	if toolID == "" {
-		toolID = fmt.Sprintf("warp_%d", time.Now().UnixNano())
+		toolID = fallbackToolCallID(toolName, toolInput)
 	}
 	out.ToolCalls = append(out.ToolCalls, toolCall{ID: toolID, Name: toolName, Input: toolInput})
+}
+
+func fallbackToolCallID(toolName, toolInput string) string {
+	name := strings.ToLower(strings.TrimSpace(toolName))
+	input := strings.TrimSpace(toolInput)
+	if input == "" {
+		input = "{}"
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(name))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(input))
+	return fmt.Sprintf("warp_anon_%x", h.Sum64())
 }
 
 func isIncompleteToolCall(toolName, toolInput string) bool {

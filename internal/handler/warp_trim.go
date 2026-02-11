@@ -14,70 +14,6 @@ type toolResultRef struct {
 	blockIndex int
 }
 
-func trimMessages(messages []prompt.Message, maxHistory, maxToolResults int, channel string) ([]prompt.Message, int, int) {
-	trimmed := cloneMessages(messages)
-	droppedHistory := 0
-	droppedToolResults := 0
-
-	if maxHistory > 0 && len(trimmed) > maxHistory {
-		droppedHistory = len(trimmed) - maxHistory
-		trimmed = trimmed[len(trimmed)-maxHistory:]
-	}
-
-	if maxToolResults > 0 {
-		var kept []prompt.Message
-		remaining := maxToolResults
-		for i := len(trimmed) - 1; i >= 0; i-- {
-			msg := trimmed[i]
-			if msg.Content.Blocks == nil {
-				kept = append(kept, msg)
-				continue
-			}
-
-			blocks := msg.Content.Blocks
-			keepFlags := make([]bool, len(blocks))
-			for j := len(blocks) - 1; j >= 0; j-- {
-				block := blocks[j]
-				if block.Type == "tool_result" {
-					if remaining > 0 {
-						keepFlags[j] = true
-						remaining--
-					} else {
-						droppedToolResults++
-					}
-					continue
-				}
-				keepFlags[j] = true
-			}
-
-			newBlocks := make([]prompt.ContentBlock, 0, len(blocks))
-			for j, keep := range keepFlags {
-				if keep {
-					newBlocks = append(newBlocks, blocks[j])
-				}
-			}
-
-			msg.Content.Blocks = newBlocks
-			if msg.Content.Text == "" && len(newBlocks) == 0 {
-				continue
-			}
-			kept = append(kept, msg)
-		}
-
-		// Reverse back to original order
-		for i, j := 0, len(kept)-1; i < j; i, j = i+1, j-1 {
-			kept[i], kept[j] = kept[j], kept[i]
-		}
-		trimmed = kept
-	}
-
-	if droppedHistory > 0 || droppedToolResults > 0 {
-		logTrim(channel, droppedHistory, droppedToolResults)
-	}
-
-	return trimmed, droppedHistory, droppedToolResults
-}
-
 func splitWarpToolResults(messages []prompt.Message, batchSize int) ([][]prompt.Message, int) {
 	if batchSize <= 0 {
 		return [][]prompt.Message{cloneMessages(messages)}, 0
@@ -163,15 +99,6 @@ func cloneMessages(messages []prompt.Message) []prompt.Message {
 		out[i].Content.Blocks = blocks
 	}
 	return out
-}
-
-func logTrim(channel string, droppedHistory, droppedToolResults int) {
-	if droppedHistory > 0 {
-		slog.Info("History trimmed", "channel", channel, "dropped_messages", droppedHistory)
-	}
-	if droppedToolResults > 0 {
-		slog.Info("Tool results trimmed", "channel", channel, "dropped_tool_results", droppedToolResults)
-	}
 }
 
 func compressToolResults(messages []prompt.Message, maxLen int, channel string) ([]prompt.Message, int) {
