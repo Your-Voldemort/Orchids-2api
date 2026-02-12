@@ -52,7 +52,6 @@ type Config struct {
 	OrchidsAPIBaseURL         string   `json:"orchids_api_base_url"`
 	OrchidsWSURL              string   `json:"orchids_ws_url"`
 	OrchidsAPIVersion         string   `json:"orchids_api_version"`
-	OrchidsImpl               string   `json:"orchids_impl"`
 	OrchidsAllowRunCommand    bool     `json:"orchids_allow_run_command"`
 	OrchidsRunAllowlist       []string `json:"orchids_run_allowlist"`
 	OrchidsCCEntrypointMode   string   `json:"orchids_cc_entrypoint_mode"`
@@ -216,10 +215,7 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.OrchidsAPIVersion == "" {
 		cfg.OrchidsAPIVersion = "2"
 	}
-	// Only AIClient mode is supported.
-	if cfg.OrchidsImpl == "" {
-		cfg.OrchidsImpl = "aiclient"
-	}
+	// Orchids: AIClient-only. Legacy orchids_impl is ignored if present.
 	if len(cfg.OrchidsRunAllowlist) == 0 {
 		cfg.OrchidsRunAllowlist = []string{"pwd", "ls", "find"}
 	}

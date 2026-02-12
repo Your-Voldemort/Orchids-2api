@@ -158,7 +158,6 @@ func NewFromAccount(acc *store.Account, base *config.Config) *Client {
 		cfg.OrchidsAPIBaseURL = base.OrchidsAPIBaseURL
 		cfg.OrchidsWSURL = base.OrchidsWSURL
 		cfg.OrchidsAPIVersion = base.OrchidsAPIVersion
-		cfg.OrchidsImpl = base.OrchidsImpl
 
 		cfg.OrchidsRunAllowlist = base.OrchidsRunAllowlist
 		cfg.OrchidsFSIgnore = base.OrchidsFSIgnore // Critical for performance

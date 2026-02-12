@@ -11,7 +11,6 @@ func TestNewFromAccount_CopiesOrchidsConfig(t *testing.T) {
 	t.Parallel()
 
 	base := &config.Config{
-		OrchidsImpl:               "aiclient",
 		UpstreamMode:              "sse",
 		OrchidsAPIBaseURL:         "https://example.com",
 		OrchidsWSURL:              "wss://example.com/ws",
@@ -29,9 +28,7 @@ func TestNewFromAccount_CopiesOrchidsConfig(t *testing.T) {
 	if client == nil || client.config == nil {
 		t.Fatalf("expected client/config to be initialized")
 	}
-	if client.config.OrchidsImpl != "aiclient" {
-		t.Fatalf("expected orchids_impl to be copied from base config")
-	}
+	// orchids_impl is no longer supported; AIClient-only.
 	if !client.config.SuppressThinking {
 		t.Fatalf("expected suppress_thinking to be copied from base config")
 	}
