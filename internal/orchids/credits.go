@@ -14,8 +14,11 @@ import (
 
 const (
 	orchidsAppURL    = "https://www.orchids.app/"
-	orchidsActionID  = "7f0f26a524bb73a6367d10326b734efb8d9483cbf2"
+	orchidsActionID  = "7f876a6c1a4d682f106ecd67a0f77f2aa2d035257c"
 	orchidsUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
+
+	// Legacy fallback. Real value is fetched dynamically via an RSC GET.
+	defaultNextRouterStateTree = `["",{"children":["__PAGE__",{},null,null]},null,null,true]`
 )
 
 // OrchidsPlanCredits maps plan names to their monthly credit limits.
@@ -37,6 +40,102 @@ type CreditsInfo struct {
 // jsonObjectPattern matches JSON objects in RSC response lines.
 var jsonObjectPattern = regexp.MustCompile(`\{[^{}]*"credits"\s*:\s*\d+[^{}]*\}`)
 
+func fetchDeploymentID(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	// Best-effort: scrape deployment id from public JS.
+	// Vercel uses format: dpl_<alnum>
+	req, err := http.NewRequestWithContext(ctx, "GET", orchidsAppURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", orchidsUserAgent)
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("deployment id html fetch failed: %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	html := string(body)
+	reDpl := regexp.MustCompile(`dpl_[A-Za-z0-9]+`)
+	if dpl := reDpl.FindString(html); dpl != "" {
+		return dpl, nil
+	}
+	return "", fmt.Errorf("deployment id not found")
+}
+
+func fetchNextRouterStateTree(ctx context.Context) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "GET", orchidsAppURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("RSC", "1")
+	req.Header.Set("Next-Router-Prefetch", "1")
+	req.Header.Set("User-Agent", orchidsUserAgent)
+	req.Header.Set("Origin", "https://www.orchids.app")
+	req.Header.Set("Referer", "https://www.orchids.app/")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("rsc prefetch failed: %d %s", resp.StatusCode, string(b))
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	// Response format: 0:{json}\n...
+	lines := strings.SplitN(string(body), "\n", 2)
+	if len(lines) == 0 {
+		return "", fmt.Errorf("empty rsc response")
+	}
+	line := strings.TrimSpace(lines[0])
+	idx := strings.Index(line, ":")
+	if idx < 0 {
+		return "", fmt.Errorf("unexpected rsc line")
+	}
+	payload := strings.TrimSpace(line[idx+1:])
+	var root struct {
+		F []any `json:"f"`
+	}
+	if err := json.Unmarshal([]byte(payload), &root); err != nil {
+		return "", err
+	}
+	// f is like: [ [ [tree], null, [..], true ] ]
+	if len(root.F) == 0 {
+		return "", fmt.Errorf("missing f")
+	}
+	outer, ok := root.F[0].([]any)
+	if !ok || len(outer) == 0 {
+		return "", fmt.Errorf("unexpected f[0]")
+	}
+	inner, ok := outer[0].([]any)
+	if !ok || len(inner) == 0 {
+		return "", fmt.Errorf("unexpected f[0][0]")
+	}
+	// inner[0] is the router state tree
+	treeBytes, err := json.Marshal(inner[0])
+	if err != nil {
+		return "", err
+	}
+	return string(treeBytes), nil
+}
+
 // FetchCredits fetches the user's credits info from Orchids via RSC Server Action.
 // It requires a valid Clerk __session JWT token.
 func FetchCredits(ctx context.Context, sessionJWT string) (*CreditsInfo, error) {
@@ -56,9 +155,22 @@ func FetchCredits(ctx context.Context, sessionJWT string) (*CreditsInfo, error) 
 	req.Header.Set("Content-Type", "text/plain;charset=UTF-8")
 	req.Header.Set("User-Agent", orchidsUserAgent)
 	req.Header.Set("Next-Action", orchidsActionID)
-	req.Header.Set("Next-Router-State-Tree", `["",{"children":["__PAGE__",{},null,null]},null,null,true]`)
+
+	stateTree := defaultNextRouterStateTree
+	if tree, err := fetchNextRouterStateTree(ctx); err == nil && strings.TrimSpace(tree) != "" {
+		stateTree = tree
+	}
+	req.Header.Set("Next-Router-State-Tree", stateTree)
+
+	// Orchids front-end sends an x-deployment-id header (Vercel). Without it, some
+	// server actions may fail with a generic 500 digest.
+	if dpl, err := fetchDeploymentID(ctx); err == nil && strings.TrimSpace(dpl) != "" {
+		req.Header.Set("x-deployment-id", dpl)
+	}
+
 	req.Header.Set("Origin", "https://www.orchids.app")
 	req.Header.Set("Referer", "https://www.orchids.app/")
+	// Orchids RSC action seems to require cookies.
 	req.AddCookie(&http.Cookie{Name: "__session", Value: sessionJWT})
 
 	client := &http.Client{Timeout: 15 * time.Second}
