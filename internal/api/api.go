@@ -232,15 +232,25 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 		if strings.EqualFold(acc.AccountType, "warp") {
 			normalizeWarpTokenInput(&acc)
 		} else if acc.ClientCookie != "" {
+			acc.ClientCookie = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(acc.ClientCookie), "Bearer "))
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)
 			if err != nil {
-				// Orchids: allow pasting a pure JWT token directly.
-				// In this case we treat it as the upstream bearer token and skip cookie parsing.
+				// Orchids: users often paste something that *looks* like a JWT.
+				// But there are two different JWT-like things:
+				//   1) Clerk "__client" cookie JWT (may contain rotating_token) -> should be stored as cookie
+				//   2) Upstream bearer token JWT (clerk session token) -> can be stored as acc.Token
 				if isLikelyJWT(acc.ClientCookie) {
-					acc.Token = strings.TrimSpace(acc.ClientCookie)
-					acc.ClientCookie = ""
-					acc.SessionCookie = ""
-					acc.SessionID = ""
+					if jwtHasRotatingToken(acc.ClientCookie) {
+						// Treat as __client cookie value, not bearer token.
+						acc.SessionCookie = ""
+						acc.SessionID = ""
+						acc.Token = ""
+					} else {
+						acc.Token = strings.TrimSpace(acc.ClientCookie)
+						acc.ClientCookie = ""
+						acc.SessionCookie = ""
+						acc.SessionID = ""
+					}
 				} else {
 					http.Error(w, "Invalid client cookie: "+err.Error(), http.StatusBadRequest)
 					return
@@ -541,14 +551,20 @@ func (a *API) HandleImport(w http.ResponseWriter, r *http.Request) {
 		if strings.EqualFold(acc.AccountType, "warp") {
 			normalizeWarpTokenInput(&acc)
 		} else if acc.ClientCookie != "" {
+			acc.ClientCookie = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(acc.ClientCookie), "Bearer "))
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)
 			if err != nil {
-				// allow importing pure JWT in client_cookie
 				if isLikelyJWT(acc.ClientCookie) {
-					acc.Token = strings.TrimSpace(acc.ClientCookie)
-					acc.ClientCookie = ""
-					acc.SessionCookie = ""
-					acc.SessionID = ""
+					if jwtHasRotatingToken(acc.ClientCookie) {
+						acc.SessionCookie = ""
+						acc.SessionID = ""
+						acc.Token = ""
+					} else {
+						acc.Token = strings.TrimSpace(acc.ClientCookie)
+						acc.ClientCookie = ""
+						acc.SessionCookie = ""
+						acc.SessionID = ""
+					}
 				} else {
 					slog.Warn("Invalid client cookie in import", "name", acc.Name, "error", err)
 					result.Skipped++
