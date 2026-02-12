@@ -418,11 +418,12 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	var aiClientHistory []map[string]string
 	var builtPrompt string
+	var promptMeta orchids.AIClientPromptMeta
 	if isOrchidsAIClient {
-		builtPrompt, aiClientHistory = orchids.BuildAIClientPromptAndHistory(req.Messages, req.System, req.Model, noThinking, effectiveWorkdir, h.config.ContextMaxTokens)
+		builtPrompt, aiClientHistory, promptMeta = orchids.BuildAIClientPromptAndHistoryWithMeta(req.Messages, req.System, req.Model, noThinking, effectiveWorkdir, h.config.ContextMaxTokens)
 	} else {
 		// Non-AIClient routing is deprecated/removed.
-		builtPrompt, aiClientHistory = orchids.BuildAIClientPromptAndHistory(req.Messages, req.System, req.Model, noThinking, effectiveWorkdir, h.config.ContextMaxTokens)
+		builtPrompt, aiClientHistory, promptMeta = orchids.BuildAIClientPromptAndHistoryWithMeta(req.Messages, req.System, req.Model, noThinking, effectiveWorkdir, h.config.ContextMaxTokens)
 	}
 	buildDuration := time.Since(startBuild)
 	slog.Debug("Prompt build completed", "duration", buildDuration)
@@ -480,8 +481,22 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	slog.Debug("Checkpoint: LogConvertedPrompt")
 	logger.LogConvertedPrompt(builtPrompt)
 
-	// Token 计数
-	inputTokens := h.estimateInputTokens(r.Context(), req.Model, builtPrompt)
+	breakdown := estimateInputTokenBreakdown(builtPrompt, aiClientHistory, effectiveTools)
+	slog.Info(
+		"Input token breakdown (estimated)",
+		"prompt_profile", promptMeta.Profile,
+		"base_prompt_tokens", breakdown.BasePromptTokens,
+		"system_context_tokens", breakdown.SystemContextTokens,
+		"history_tokens", breakdown.HistoryTokens,
+		"tools_tokens", breakdown.ToolsTokens,
+		"estimated_total_input_tokens", breakdown.Total,
+	)
+
+	// Token 计数（用于前置 usage 展示）
+	inputTokens := breakdown.Total
+	if inputTokens <= 0 {
+		inputTokens = h.estimateInputTokens(r.Context(), req.Model, builtPrompt)
+	}
 
 	// Detect Response Format (Anthropic vs OpenAI)
 	responseFormat := adapter.DetectResponseFormat(r.URL.Path)

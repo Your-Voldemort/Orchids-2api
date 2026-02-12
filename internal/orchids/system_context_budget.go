@@ -25,13 +25,13 @@ func trimSystemContextToBudget(text string, maxTokens int) string {
 	if budget > 12000 {
 		budget = 12000
 	}
-	// Allocate up to ~1/3 of the total budget to system_context.
-	sysBudget := budget / 3
-	if sysBudget < 1200 {
-		sysBudget = 1200
+	// Allocate up to ~1/6 of the total budget to system_context.
+	sysBudget := budget / 6
+	if sysBudget < 500 {
+		sysBudget = 500
 	}
-	if sysBudget > 3500 {
-		sysBudget = 3500
+	if sysBudget > 1200 {
+		sysBudget = 1200
 	}
 
 	if tiktoken.EstimateTextTokens(text) <= sysBudget {
@@ -39,12 +39,12 @@ func trimSystemContextToBudget(text string, maxTokens int) string {
 	}
 
 	lines := strings.Split(text, "\n")
-	// Normalize: drop huge lines early
+	// Normalize: drop huge lines early.
 	filtered := make([]string, 0, len(lines))
 	for _, ln := range lines {
 		l := strings.TrimRight(ln, " \t")
-		if len(l) > 2000 {
-			l = l[:2000] + "…[line_truncated]"
+		if len(l) > 800 {
+			l = l[:800] + "…[truncated]"
 		}
 		filtered = append(filtered, l)
 	}
@@ -94,11 +94,11 @@ func trimSystemContextToBudget(text string, maxTokens int) string {
 	}
 	important = dedup
 
-	headN := 60
+	headN := 24
 	if len(lines) < headN {
 		headN = len(lines)
 	}
-	tailN := 40
+	tailN := 16
 	if len(lines) < tailN {
 		tailN = len(lines)
 	}
@@ -112,11 +112,11 @@ func trimSystemContextToBudget(text string, maxTokens int) string {
 		}
 		appendLines(head)
 		if len(imp) > 0 {
-			out = append(out, "…[system_context_trimmed: keeping key markers]…")
+			out = append(out, "…[trimmed:key]…")
 			appendLines(imp)
 		}
 		if len(tail) > 0 {
-			out = append(out, "…[system_context_tail]…")
+			out = append(out, "…[tail]…")
 			appendLines(tail)
 		}
 		// Collapse consecutive blank lines
@@ -141,12 +141,12 @@ func trimSystemContextToBudget(text string, maxTokens int) string {
 	tail := lines[len(lines)-tailN:]
 	candidate := builder(head, important, tail)
 	// If still too large, shrink head/tail.
-	for (headN > 10 || tailN > 10) && tiktoken.EstimateTextTokens(candidate) > sysBudget {
-		if headN > 10 {
-			headN = headN - 10
+	for (headN > 6 || tailN > 6) && tiktoken.EstimateTextTokens(candidate) > sysBudget {
+		if headN > 6 {
+			headN = headN - 6
 		}
-		if tailN > 10 {
-			tailN = tailN - 10
+		if tailN > 6 {
+			tailN = tailN - 6
 		}
 		head = lines[:headN]
 		tail = lines[len(lines)-tailN:]
@@ -155,7 +155,7 @@ func trimSystemContextToBudget(text string, maxTokens int) string {
 
 	// Final fallback: hard truncate by runes.
 	if tiktoken.EstimateTextTokens(candidate) > sysBudget {
-		candidate = truncateTextWithEllipsis(candidate, 6000)
+		candidate = truncateTextWithEllipsis(candidate, 2200)
 	}
 	return candidate
 }

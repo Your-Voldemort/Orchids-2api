@@ -37,7 +37,7 @@ func TestEnforceAIClientBudget_CompressesOlderHistoryBeforeWindowTrim(t *testing
 	if !strings.Contains(prompt, "<context_budget_note>") {
 		t.Fatalf("expected budget note in prompt")
 	}
-	if !strings.Contains(prompt, "优先对历史 chatHistory 做压缩与摘要") {
+	if !strings.Contains(prompt, "chatHistory compressed") {
 		t.Fatalf("expected compression-first note in prompt")
 	}
 }
@@ -56,7 +56,7 @@ func TestEnforceAIClientBudget_UsesWindowFallbackWhenStillOverBudget(t *testing.
 	if len(compressed) == 0 {
 		t.Fatalf("expected at least one message after fallback")
 	}
-	if !strings.Contains(prompt, "仍超限时保留最近消息窗口") {
+	if !strings.Contains(prompt, "recent window kept") {
 		t.Fatalf("expected fallback window note, got %q", prompt)
 	}
 }

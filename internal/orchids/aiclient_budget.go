@@ -359,14 +359,12 @@ func appendAIClientBudgetNote(promptText string, fallbackWindow bool, summarized
 	var sb strings.Builder
 	sb.WriteString(promptText)
 	sb.WriteString("\n\n<context_budget_note>\n")
-	sb.WriteString("为了将输入控制在 12000 tokens 以内，已优先对历史 chatHistory 做压缩与摘要")
+	sb.WriteString("chatHistory compressed")
 	if summarizedMessages > 0 {
-		sb.WriteString(fmt.Sprintf("（已压缩 %d 条较早消息）", summarizedMessages))
+		sb.WriteString(fmt.Sprintf(" (%d summarized)", summarizedMessages))
 	}
 	if fallbackWindow {
-		sb.WriteString("；仍超限时保留最近消息窗口。")
-	} else {
-		sb.WriteString("。")
+		sb.WriteString("; recent window kept")
 	}
 	sb.WriteString("\n</context_budget_note>\n")
 	return sb.String()

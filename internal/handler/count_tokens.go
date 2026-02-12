@@ -6,7 +6,6 @@ import (
 
 	"orchids-api/internal/debug"
 	"orchids-api/internal/orchids"
-	"orchids-api/internal/tiktoken"
 )
 
 // HandleCountTokens handles /v1/messages/count_tokens requests.
@@ -30,26 +29,28 @@ func (h *Handler) HandleCountTokens(w http.ResponseWriter, r *http.Request) {
 	if h.config != nil && h.config.ContextMaxTokens > 0 {
 		maxTokens = h.config.ContextMaxTokens
 	}
-	builtPrompt, aiClientHistory := orchids.BuildAIClientPromptAndHistory(req.Messages, req.System, req.Model, true /* noThinking */, "" /* workdir */, maxTokens)
-
-	// Estimate tokens for prompt + chatHistory (aiclient format)
-	totalTokens := tiktoken.EstimateTextTokens(builtPrompt)
-	for _, item := range aiClientHistory {
-		if c, ok := item["content"]; ok {
-			totalTokens += tiktoken.EstimateTextTokens(c) + 15
-		}
-	}
-	// Include tool definitions to avoid under-estimating real upstream input.
-	if len(req.Tools) > 0 {
-		if rawTools, err := json.Marshal(req.Tools); err == nil {
-			totalTokens += tiktoken.EstimateTextTokens(string(rawTools))
-		}
-	}
+	builtPrompt, aiClientHistory, meta := orchids.BuildAIClientPromptAndHistoryWithMeta(
+		req.Messages,
+		req.System,
+		req.Model,
+		true, /* noThinking */
+		"",   /* workdir */
+		maxTokens,
+	)
+	breakdown := estimateInputTokenBreakdown(builtPrompt, aiClientHistory, req.Tools)
 
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]int{
-		"input_tokens": totalTokens,
-	}); err != nil {
+	resp := map[string]interface{}{
+		"input_tokens":   breakdown.Total,
+		"prompt_profile": meta.Profile,
+		"breakdown": map[string]int{
+			"base_prompt_tokens":    breakdown.BasePromptTokens,
+			"system_context_tokens": breakdown.SystemContextTokens,
+			"history_tokens":        breakdown.HistoryTokens,
+			"tools_tokens":          breakdown.ToolsTokens,
+		},
+	}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
 		// Log error but we can't do much else since headers are written
 		_ = err
 	}
