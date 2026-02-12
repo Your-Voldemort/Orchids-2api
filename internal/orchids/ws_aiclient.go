@@ -20,9 +20,13 @@ import (
 
 var orchidsAIClientModels = []string{
 	"claude-sonnet-4-5",
+	"claude-opus-4-6",
+	"claude-opus-4.6",
 	"claude-opus-4-5",
 	"claude-opus-4.5",
 	"claude-haiku-4-5",
+	"claude-opus-4-6-thinking",
+	"claude-opus-4.6-thinking",
 	"claude-sonnet-4-5-thinking",
 	"claude-opus-4-5-thinking",
 	"claude-sonnet-4-20250514",
@@ -875,6 +879,11 @@ func normalizeAIClientModel(model string) string {
 	case "claude-haiku-4-5":
 		// Orchids 不支持 haiku，降级到 sonnet
 		mapped = "claude-sonnet-4-5"
+	case "claude-opus-4-6", "claude-opus-4.6":
+		// 兼容 4.6 的点号/横杠写法
+		mapped = "claude-opus-4-6"
+	case "claude-opus-4-6-thinking", "claude-opus-4.6-thinking":
+		mapped = "claude-opus-4-6-thinking"
 	case "claude-opus-4-5":
 		mapped = "claude-opus-4.5"
 	case "claude-sonnet-4-5-thinking":

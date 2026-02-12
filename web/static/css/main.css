@@ -762,7 +762,115 @@ tr:hover td {
 }
 
 /* =========================================
-   8. Modals & Toasts
+   8. Grok Tools
+   ========================================= */
+.grok-tools-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+.grok-panel {
+  background: rgba(0, 0, 0, 0.16);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.grok-panel h3 {
+  font-size: 1.05rem;
+  margin-bottom: 6px;
+}
+
+.grok-panel p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 14px;
+}
+
+.grok-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.grok-form-grid .full {
+  grid-column: span 4;
+}
+
+.grok-kv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+.grok-kv strong {
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.imagine-grid {
+  columns: 4 260px;
+  column-gap: 12px;
+  margin-top: 12px;
+}
+
+.imagine-card {
+  break-inside: avoid;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.imagine-card img {
+  width: 100%;
+  display: block;
+  cursor: zoom-in;
+}
+
+.imagine-meta {
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  display: flex;
+  justify-content: space-between;
+}
+
+.cache-list {
+  margin-top: 12px;
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+}
+
+.cache-list table {
+  width: 100%;
+}
+
+.cache-list th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-elevated);
+}
+
+.cache-list td code {
+  color: var(--accent-cyan);
+}
+
+/* =========================================
+   9. Modals & Toasts
    ========================================= */
 .modal {
   display: none;
@@ -868,7 +976,7 @@ tr:hover td {
 }
 
 /* =========================================
-   9. Login Page Specifics (Migrated)
+   10. Login Page Specifics (Migrated)
    ========================================= */
 .login-body {
   display: flex;
@@ -935,8 +1043,28 @@ tr:hover td {
 }
 
 /* =========================================
-   10. Responsiveness
+   11. Responsiveness
    ========================================= */
+@media (max-width: 1200px) {
+  .grok-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .grok-form-grid .full {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 760px) {
+  .grok-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .grok-form-grid .full {
+    grid-column: span 1;
+  }
+}
+
 @media (max-width: 900px) {
   .sidebar {
     transform: translateX(-100%);

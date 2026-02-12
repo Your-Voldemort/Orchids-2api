@@ -12,6 +12,7 @@
         <select class="form-input" id="accountType">
           <option value="orchids">Orchids</option>
           <option value="warp">Warp</option>
+          <option value="grok">Grok</option>
         </select>
       </div>
       <div class="form-group">
@@ -25,7 +26,8 @@
       </div>
       <div class="form-group">
         <label class="form-label">Agent Mode</label>
-        <input type="text" class="form-input" id="agentMode" value="claude-opus-4.5" />
+        <select class="form-input" id="agentMode"></select>
+        <small style="color: var(--text-muted); font-size: 12px">按账号类型自动展示该渠道支持的模型</small>
       </div>
       <div class="form-group">
         <label class="form-label">

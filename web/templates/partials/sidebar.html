@@ -5,22 +5,27 @@
   </div>
   <ul class="sidebar-menu">
     <li class="sidebar-item">
-      <a href="#" class="sidebar-link {{if eq .ActiveTab " accounts"}}active{{end}}" onclick="switchTab('accounts')">
+      <a href="#" class="sidebar-link {{if eq .ActiveTab "accounts"}}active{{end}}" onclick="switchTab('accounts')">
         <span>👤</span> 账号管理
       </a>
     </li>
     <li class="sidebar-item">
-      <a href="#" class="sidebar-link {{if eq .ActiveTab " keys"}}active{{end}}" onclick="switchTab('keys')">
+      <a href="#" class="sidebar-link {{if eq .ActiveTab "keys"}}active{{end}}" onclick="switchTab('keys')">
         <span>⚙️</span> 配置管理
       </a>
     </li>
     <li class="sidebar-item">
-      <a href="#" class="sidebar-link {{if eq .ActiveTab " models"}}active{{end}}" onclick="switchTab('models')">
+      <a href="#" class="sidebar-link {{if eq .ActiveTab "models"}}active{{end}}" onclick="switchTab('models')">
         <span>📁</span> 模型管理
       </a>
     </li>
     <li class="sidebar-item">
-      <a href="#" class="sidebar-link {{if eq .ActiveTab " tutorial"}}active{{end}}" onclick="switchTab('tutorial')">
+      <a href="#" class="sidebar-link {{if eq .ActiveTab "grok-tools"}}active{{end}}" onclick="switchTab('grok-tools')">
+        <span>🧠</span> Grok 工具
+      </a>
+    </li>
+    <li class="sidebar-item">
+      <a href="#" class="sidebar-link {{if eq .ActiveTab "tutorial"}}active{{end}}" onclick="switchTab('tutorial')">
         <span>📖</span> 使用教程
       </a>
     </li>

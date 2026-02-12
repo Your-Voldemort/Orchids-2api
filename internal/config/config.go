@@ -48,6 +48,9 @@ type Config struct {
 	OrchidsRunAllowlist       []string `json:"orchids_run_allowlist"`
 	OrchidsCCEntrypointMode   string   `json:"orchids_cc_entrypoint_mode"`
 	OrchidsFSIgnore           []string `json:"orchids_fs_ignore"`
+	GrokAPIBaseURL            string   `json:"grok_api_base_url"`
+	GrokUserAgent             string   `json:"grok_user_agent"`
+	GrokCFClearance           string   `json:"grok_cf_clearance"`
 	WarpDisableTools          *bool    `json:"warp_disable_tools"`
 	WarpMaxToolResults        int      `json:"warp_max_tool_results"`
 	WarpMaxHistoryMessages    int      `json:"warp_max_history_messages"`
@@ -193,6 +196,12 @@ func ApplyDefaults(cfg *Config) {
 	}
 	if len(cfg.OrchidsFSIgnore) == 0 {
 		cfg.OrchidsFSIgnore = []string{"debug-logs", "data", ".claude"}
+	}
+	if cfg.GrokAPIBaseURL == "" {
+		cfg.GrokAPIBaseURL = "https://grok.com"
+	}
+	if cfg.GrokUserAgent == "" {
+		cfg.GrokUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 	}
 
 	if cfg.WarpDisableTools == nil {

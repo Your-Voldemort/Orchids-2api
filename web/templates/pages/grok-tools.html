@@ -1,0 +1,183 @@
+{{define "page-grok-tools"}}
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="{{.AdminPath}}/css/main.css">
+</head>
+
+<body>
+  {{template "sidebar.html" .}}
+
+  <main class="main-content">
+    <section class="header-section">
+      <h1>Grok 工具</h1>
+      <p>统一管理 Imagine 瀑布流、Voice Token 与媒体缓存</p>
+    </section>
+
+    <div class="content-card" style="padding: 20px;">
+      <div class="platform-tabs" id="grokToolsTabs" style="margin-bottom: 16px;">
+        <button class="tab-item active" data-tab="imagine" onclick="switchGrokToolTab('imagine')">Imagine</button>
+        <button class="tab-item" data-tab="voice" onclick="switchGrokToolTab('voice')">Voice</button>
+        <button class="tab-item" data-tab="cache" onclick="switchGrokToolTab('cache')">Cache</button>
+      </div>
+
+      <section id="grokImagineSection" class="grok-tools-grid">
+        <div class="grok-panel">
+          <h3>Imagine 实时生成</h3>
+          <p>支持 WS/SSE 模式，持续生成图片并以瀑布流展示。</p>
+
+          <div class="grok-form-grid">
+            <div class="full">
+              <label class="form-label">Prompt</label>
+              <textarea id="imaginePrompt" class="form-input" rows="4" placeholder="例如：未来都市，霓虹雨夜，电影质感，广角镜头"></textarea>
+            </div>
+            <div>
+              <label class="form-label">宽高比</label>
+              <select id="imagineRatio" class="form-input">
+                <option value="2:3">2:3</option>
+                <option value="1:1">1:1</option>
+                <option value="3:2">3:2</option>
+                <option value="16:9">16:9</option>
+                <option value="9:16">9:16</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">并发任务</label>
+              <select id="imagineConcurrent" class="form-input">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+              </select>
+            </div>
+            <div>
+              <label class="form-label">连接模式</label>
+              <select id="imagineMode" class="form-input">
+                <option value="auto">Auto</option>
+                <option value="ws">WS</option>
+                <option value="sse">SSE</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:8px;">
+              <button class="btn btn-primary" id="imagineStartBtn" style="width:100%;">开始</button>
+              <button class="btn btn-outline" id="imagineStopBtn" style="width:100%;" disabled>停止</button>
+              <button class="btn btn-outline" id="imagineClearBtn" style="width:100%;">清空</button>
+            </div>
+          </div>
+
+          <div class="grok-form-grid">
+            <div class="grok-kv"><span>状态</span><strong id="imagineStatus">未启动</strong></div>
+            <div class="grok-kv"><span>图片数</span><strong id="imagineCount">0</strong></div>
+            <div class="grok-kv"><span>活跃连接</span><strong id="imagineActive">0</strong></div>
+            <div class="grok-kv"><span>平均耗时</span><strong id="imagineLatency">-</strong></div>
+          </div>
+        </div>
+
+        <div class="grok-panel">
+          <h3>瀑布流</h3>
+          <p>点击图片可在新窗口打开原图。</p>
+          <div id="imagineEmpty" class="empty-state" style="height:120px;">等待生成...</div>
+          <div id="imagineGrid" class="imagine-grid"></div>
+        </div>
+      </section>
+
+      <section id="grokVoiceSection" class="grok-tools-grid" style="display:none;">
+        <div class="grok-panel">
+          <h3>Voice Token</h3>
+          <p>调用后台 `/api/v1/admin/voice/token` 获取 LiveKit Token。</p>
+          <div class="grok-form-grid">
+            <div>
+              <label class="form-label">Voice</label>
+              <input id="voiceName" class="form-input" value="ara" />
+            </div>
+            <div>
+              <label class="form-label">Personality</label>
+              <input id="voicePersonality" class="form-input" value="assistant" />
+            </div>
+            <div>
+              <label class="form-label">Speed</label>
+              <input id="voiceSpeed" class="form-input" value="1.0" type="number" step="0.1" min="0.1" />
+            </div>
+            <div style="display:flex;align-items:flex-end;">
+              <button class="btn btn-primary" id="voiceFetchBtn" style="width:100%;">获取 Token</button>
+            </div>
+          </div>
+          <div class="grok-form-grid">
+            <div class="full">
+              <label class="form-label">LiveKit URL</label>
+              <input id="voiceUrlOutput" class="form-input" readonly />
+            </div>
+            <div class="full">
+              <label class="form-label">Token</label>
+              <textarea id="voiceTokenOutput" class="form-input" rows="6" readonly></textarea>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:flex-end;">
+            <button class="btn btn-outline" id="voiceCopyBtn">复制 Token</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="grokCacheSection" class="grok-tools-grid" style="display:none;">
+        <div class="grok-panel">
+          <h3>缓存总览</h3>
+          <p>对应 `data/tmp/image` 与 `data/tmp/video` 的本地缓存。</p>
+          <div class="grok-form-grid">
+            <div class="grok-kv"><span>图片缓存</span><strong id="cacheImageSummary">0 / 0 B</strong></div>
+            <div class="grok-kv"><span>视频缓存</span><strong id="cacheVideoSummary">0 / 0 B</strong></div>
+            <div class="grok-kv"><span>总计</span><strong id="cacheTotalSummary">0 / 0 B</strong></div>
+            <div class="grok-kv"><span>目录</span><strong id="cacheBaseDir">-</strong></div>
+          </div>
+          <div class="grok-form-grid">
+            <div>
+              <label class="form-label">类型过滤</label>
+              <select id="cacheTypeFilter" class="form-input">
+                <option value="">全部</option>
+                <option value="image">image</option>
+                <option value="video">video</option>
+              </select>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:8px;">
+              <button class="btn btn-outline" id="cacheRefreshBtn" style="width:100%;">刷新</button>
+              <button class="btn btn-danger-outline" id="cacheClearBtn" style="width:100%;">清空</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="grok-panel">
+          <h3>缓存列表</h3>
+          <p>支持单个缓存文件删除。</p>
+          <div class="cache-list">
+            <table>
+              <thead>
+                <tr>
+                  <th>类型</th>
+                  <th>文件</th>
+                  <th>大小</th>
+                  <th>更新时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="cacheListBody">
+                <tr>
+                  <td colspan="5" style="text-align:center;color:var(--text-secondary);padding:24px;">暂无数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="{{.AdminPath}}/js/common.js?v=20260212"></script>
+  <script src="{{.AdminPath}}/js/grok-tools.js?v=20260212"></script>
+</body>
+
+</html>
+{{end}}

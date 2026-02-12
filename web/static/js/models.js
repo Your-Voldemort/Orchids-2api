@@ -24,7 +24,7 @@ function renderChannelTabs() {
   const container = document.getElementById("modelPlatformFilters");
   if (!container) return;
 
-  const defaultChannels = ["Orchids", "Warp"];
+  const defaultChannels = ["Orchids", "Warp", "Grok"];
   const channels = new Set([...defaultChannels, ...models.map(m => m.channel)]);
   const sorted = Array.from(channels).sort();
   const tabs = [...sorted];

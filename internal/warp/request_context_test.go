@@ -1,6 +1,7 @@
 package warp
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -21,6 +22,36 @@ func TestBuildRequestBytes_UsesProvidedWorkdir(t *testing.T) {
 	}
 	if strings.Contains(s, "/Users/lofyer") {
 		t.Fatalf("unexpected hardcoded /Users/lofyer in request bytes")
+	}
+}
+
+func TestBuildRequestBytes_AppliesRequestedWarpModel(t *testing.T) {
+	t.Parallel()
+
+	reqBytes, err := buildRequestBytes("say hi", "claude-opus-4-6-max", nil, nil, false, "", "")
+	if err != nil {
+		t.Fatalf("buildRequestBytes: %v", err)
+	}
+
+	if !bytes.Contains(reqBytes, []byte("claude-4-6-opus-max")) {
+		t.Fatalf("expected normalized requested model in request bytes")
+	}
+	if bytes.Contains(reqBytes, []byte("claude-4-5-opus")) {
+		t.Fatalf("unexpected hardcoded default model still present in request bytes")
+	}
+}
+
+func TestBuildRequestBytes_UnknownModelFallsBackToAuto(t *testing.T) {
+	t.Parallel()
+
+	reqBytes, err := buildRequestBytes("say hi", "unknown-model", nil, nil, false, "", "")
+	if err != nil {
+		t.Fatalf("buildRequestBytes: %v", err)
+	}
+
+	pattern := []byte{0x0a, 0x04, 'a', 'u', 't', 'o', 0x22, 0x0e}
+	if !bytes.Contains(reqBytes, pattern) {
+		t.Fatalf("expected auto model slot pattern in request bytes")
 	}
 }
 

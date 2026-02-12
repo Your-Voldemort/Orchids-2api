@@ -19,6 +19,7 @@ import (
 	"orchids-api/internal/clerk"
 	"orchids-api/internal/config"
 	"orchids-api/internal/debug"
+	"orchids-api/internal/grok"
 	"orchids-api/internal/handler"
 	"orchids-api/internal/loadbalancer"
 	"orchids-api/internal/middleware"
@@ -99,6 +100,7 @@ func main() {
 	lb := loadbalancer.NewWithCacheTTL(s, time.Duration(cfg.LoadBalancerCacheTTL)*time.Second)
 	apiHandler := api.New(s, cfg.AdminUser, cfg.AdminPass, cfg, resolvedCfgPath)
 	h := handler.NewWithLoadBalancer(cfg, lb)
+	grokHandler := grok.NewHandler(cfg, lb)
 
 	tokenCache := tokencache.NewMemoryCache(time.Duration(cfg.CacheTTL)*time.Minute, 10000)
 	h.SetTokenCache(tokenCache)
@@ -126,6 +128,8 @@ func main() {
 	mux.HandleFunc("/orchids/v1/models/", h.HandleModelByID)
 	mux.HandleFunc("/warp/v1/models", h.HandleModels)
 	mux.HandleFunc("/warp/v1/models/", h.HandleModelByID)
+	mux.HandleFunc("/grok/models", h.HandleModels)
+	mux.HandleFunc("/grok/models/", h.HandleModelByID)
 	// Unified Model Routes (All channels)
 	mux.HandleFunc("/v1/models", h.HandleModels)
 	mux.HandleFunc("/v1/models/", h.HandleModelByID)
@@ -133,6 +137,10 @@ func main() {
 	// OpenAI Compatibility - Channel Specific
 	mux.HandleFunc("/orchids/v1/chat/completions", limiter.Limit(h.HandleMessages))
 	mux.HandleFunc("/warp/v1/chat/completions", limiter.Limit(h.HandleMessages))
+	mux.HandleFunc("/grok/chat/completions", limiter.Limit(grokHandler.HandleChatCompletions))
+	mux.HandleFunc("/grok/images/generations", limiter.Limit(grokHandler.HandleImagesGenerations))
+	mux.HandleFunc("/grok/images/edits", limiter.Limit(grokHandler.HandleImagesEdits))
+	mux.HandleFunc("/grok/files/", grokHandler.HandleFiles)
 
 	// Public routes
 	mux.HandleFunc("/api/login", apiHandler.HandleLogin)
@@ -150,6 +158,15 @@ func main() {
 	mux.HandleFunc("/api/config", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleConfig))
 	mux.HandleFunc("/api/config/cache/stats", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleCacheStats))
 	mux.HandleFunc("/api/config/cache/clear", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, apiHandler.HandleCacheClear))
+	mux.HandleFunc("/api/v1/admin/voice/token", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, grokHandler.HandleAdminVoiceToken))
+	mux.HandleFunc("/api/v1/admin/imagine/start", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, grokHandler.HandleAdminImagineStart))
+	mux.HandleFunc("/api/v1/admin/imagine/stop", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, grokHandler.HandleAdminImagineStop))
+	mux.HandleFunc("/api/v1/admin/imagine/sse", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, grokHandler.HandleAdminImagineSSE))
+	mux.HandleFunc("/api/v1/admin/imagine/ws", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, grokHandler.HandleAdminImagineWS))
+	mux.HandleFunc("/api/v1/admin/cache", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, grokHandler.HandleAdminCache))
+	mux.HandleFunc("/api/v1/admin/cache/list", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, grokHandler.HandleAdminCacheList))
+	mux.HandleFunc("/api/v1/admin/cache/clear", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, grokHandler.HandleAdminCacheClear))
+	mux.HandleFunc("/api/v1/admin/cache/item/delete", middleware.SessionAuth(cfg.AdminPass, cfg.AdminToken, grokHandler.HandleAdminCacheItemDelete))
 
 	// Protected Web UI
 	staticHandler := http.StripPrefix(cfg.AdminPath, web.StaticHandler())

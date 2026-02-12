@@ -5,11 +5,175 @@ let currentPlatform = '';
 let accountHealth = {};
 let pageSize = 20;
 let currentPage = 1;
+let modelCatalog = [];
+
+const fallbackAgentModes = {
+  orchids: [
+    "claude-sonnet-4-5",
+    "claude-opus-4-6",
+    "claude-opus-4-6-thinking",
+    "claude-opus-4-5",
+    "claude-sonnet-4-5-thinking",
+  ],
+  warp: [
+    "auto",
+    "auto-efficient",
+    "auto-genius",
+    "claude-4-5-sonnet",
+    "claude-4-5-sonnet-thinking",
+    "claude-4-5-opus",
+    "claude-4-5-opus-thinking",
+    "claude-4-6-opus-high",
+    "claude-4-6-opus-max",
+  ],
+  grok: [
+    "grok-3",
+    "grok-3-mini",
+    "grok-3-thinking",
+    "grok-4",
+    "grok-4-mini",
+    "grok-4-thinking",
+    "grok-4-heavy",
+    "grok-4.1-mini",
+    "grok-4.1-fast",
+    "grok-4.1-expert",
+    "grok-4.1-thinking",
+    "grok-imagine-1.0",
+    "grok-imagine-1.0-edit",
+    "grok-imagine-1.0-video",
+  ],
+};
+
+function normalizeChannel(channel) {
+  return String(channel || "orchids").trim().toLowerCase();
+}
+
+function isModelAvailable(model) {
+  if (!model) return false;
+  if (typeof model.status === "boolean") return model.status;
+  const status = String(model.status || "").toLowerCase();
+  if (!status) return true;
+  return status === "available";
+}
+
+function bySortOrder(a, b) {
+  const aOrderRaw = a && a.sort_order;
+  const bOrderRaw = b && b.sort_order;
+  const aOrder = Number.isFinite(Number(aOrderRaw)) ? Number(aOrderRaw) : 0;
+  const bOrder = Number.isFinite(Number(bOrderRaw)) ? Number(bOrderRaw) : 0;
+  if (aOrder !== bOrder) return aOrder - bOrder;
+  const aModelID = a && a.model_id ? a.model_id : "";
+  const bModelID = b && b.model_id ? b.model_id : "";
+  return String(aModelID).localeCompare(String(bModelID));
+}
+
+function getModelsForAccountType(type) {
+  const channel = normalizeChannel(type);
+  const active = modelCatalog
+    .filter((m) => normalizeChannel(m.channel) === channel)
+    .filter(isModelAvailable)
+    .sort(bySortOrder);
+
+  if (active.length > 0) return active;
+
+  const fallback = fallbackAgentModes[channel] || [];
+  return fallback.map((modelID, idx) => ({
+    model_id: modelID,
+    name: modelID,
+    sort_order: idx,
+    is_default: idx === 0,
+  }));
+}
+
+function setSelectOptions(select, options) {
+  if (!select) return;
+  select.innerHTML = "";
+  options.forEach((opt) => {
+    const el = document.createElement("option");
+    el.value = opt.value;
+    el.textContent = opt.label;
+    if (opt.selected) el.selected = true;
+    if (opt.disabled) el.disabled = true;
+    select.appendChild(el);
+  });
+}
+
+function renderAgentModeOptions(accountType, preferredValue = "") {
+  const select = document.getElementById("agentMode");
+  if (!select) return;
+
+  const models = getModelsForAccountType(accountType);
+  const preferred = String(preferredValue || "").trim();
+  const modelIDs = new Set(models.map((m) => String(m.model_id || "")));
+
+  const options = [];
+  let selectedValue = "";
+
+  if (preferred && !modelIDs.has(preferred)) {
+    options.push({
+      value: preferred,
+      label: `${preferred}（当前配置）`,
+      selected: true,
+    });
+    selectedValue = preferred;
+  }
+
+  models.forEach((m) => {
+    const modelID = String(m.model_id || "").trim();
+    if (!modelID) return;
+    const labelName = String(m.name || modelID).trim();
+    const label = labelName === modelID ? modelID : `${labelName} (${modelID})`;
+    options.push({
+      value: modelID,
+      label,
+    });
+  });
+
+  if (!selectedValue) {
+    if (preferred && modelIDs.has(preferred)) {
+      selectedValue = preferred;
+    } else {
+      const defaultModel = models.find((m) => m.is_default) || models[0];
+      selectedValue = defaultModel ? String(defaultModel.model_id || "") : "";
+    }
+  }
+
+  if (options.length === 0) {
+    options.push({ value: "", label: "暂无可用模型", selected: true, disabled: true });
+  } else {
+    const found = options.some((opt) => opt.value === selectedValue);
+    if (!found) {
+      selectedValue = String(options[0].value || "");
+    }
+    options.forEach((opt) => {
+      if (opt.value === selectedValue) opt.selected = true;
+    });
+  }
+
+  setSelectOptions(select, options);
+}
+
+async function loadModelCatalog() {
+  try {
+    const res = await fetch("/api/models");
+    if (!res.ok) {
+      throw new Error(`status ${res.status}`);
+    }
+    const list = await res.json();
+    modelCatalog = Array.isArray(list) ? list : [];
+  } catch (err) {
+    console.error("Failed to load models:", err);
+    modelCatalog = [];
+  }
+}
 
 // Load accounts from API
 async function loadAccounts() {
   try {
-    const res = await fetch("/api/accounts");
+    const [res] = await Promise.all([
+      fetch("/api/accounts"),
+      loadModelCatalog(),
+    ]);
     if (res.status === 401) {
       window.location.href = "./login.html";
       return;
@@ -54,6 +218,10 @@ function applyTokenLabels(type) {
     label.textContent = "Refresh Token";
     input.placeholder = "粘贴 refresh_token";
     hint.textContent = "Warp 只需要 refresh_token";
+  } else if (type === 'grok') {
+    label.textContent = "SSO Token";
+    input.placeholder = "粘贴 sso token（或包含 sso= 的 Cookie）";
+    hint.textContent = "Grok 使用 sso token（支持纯 token 或 Cookie 片段）";
   } else {
     label.textContent = "Client Cookie / JWT";
     input.placeholder = "粘贴 Clerk Cookie 或 JWT";
@@ -65,7 +233,7 @@ function applyTokenLabels(type) {
 function renderPlatformTabs() {
   const container = document.getElementById("platformFilters");
   if (!container) return;
-  const defaultTypes = ["orchids", "warp"];
+  const defaultTypes = ["orchids", "warp", "grok"];
   const types = new Set([...defaultTypes, ...accounts.map(normalizeAccountType)]);
   const sorted = Array.from(types).sort();
   const tabs = [...sorted];
@@ -127,6 +295,10 @@ function statusBadge(acc) {
   if (type === 'warp') {
     if (!getAccountToken(acc)) {
       return { text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少 Refresh Token' };
+    }
+  } else if (type === 'grok') {
+    if (!getAccountToken(acc)) {
+      return { text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少 SSO Token' };
     }
   } else if (!acc.session_id && !acc.session_cookie) {
     return { text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少会话信息' };
@@ -589,27 +761,47 @@ function openModal(account = null) {
   const modal = document.getElementById("accountModal");
   const title = document.getElementById("modalTitle");
   const form = document.getElementById("accountForm");
+  const typeEl = document.getElementById("accountType");
+  const modeEl = document.getElementById("agentMode");
 
-  if (account) {
-    title.textContent = "编辑账号";
-    document.getElementById("accountId").value = account.id;
-    document.getElementById("accountType").value = account.account_type || "orchids";
-    document.getElementById("clientCookie").value = getAccountToken(account);
-    document.getElementById("agentMode").value = account.agent_mode || 'claude-opus-4.5';
-    document.getElementById("weight").value = account.weight || 1;
-    document.getElementById("enabled").checked = account.enabled;
-  } else {
-    title.textContent = "添加账号";
-    form.reset();
-    document.getElementById("accountId").value = "";
-    document.getElementById("agentMode").value = "claude-opus-4.5";
-    document.getElementById("weight").value = "1";
-    document.getElementById("accountType").value = "orchids";
-    document.getElementById("enabled").checked = true;
+  // 进入弹窗时先渲染一次占位，避免空白。
+  if (modeEl) {
+    modeEl.disabled = true;
+    setSelectOptions(modeEl, [{ value: "", label: "加载模型中...", selected: true, disabled: true }]);
   }
-  applyTokenLabels(document.getElementById("accountType").value);
-  modal.classList.add("active");
-  modal.style.display = "flex";
+
+  const finalizeModal = () => {
+    applyTokenLabels(typeEl ? typeEl.value : "orchids");
+    if (modeEl) modeEl.disabled = false;
+    modal.classList.add("active");
+    modal.style.display = "flex";
+  };
+
+  const applyValues = () => {
+    if (account) {
+      title.textContent = "编辑账号";
+      document.getElementById("accountId").value = account.id;
+      document.getElementById("accountType").value = normalizeAccountType(account);
+      document.getElementById("clientCookie").value = getAccountToken(account);
+      document.getElementById("weight").value = account.weight || 1;
+      document.getElementById("enabled").checked = account.enabled;
+      renderAgentModeOptions(document.getElementById("accountType").value, account.agent_mode || "");
+    } else {
+      title.textContent = "添加账号";
+      form.reset();
+      document.getElementById("accountId").value = "";
+      document.getElementById("weight").value = "1";
+      document.getElementById("accountType").value = "orchids";
+      document.getElementById("enabled").checked = true;
+      renderAgentModeOptions("orchids", "");
+    }
+  };
+
+  loadModelCatalog()
+    .finally(() => {
+      applyValues();
+      finalizeModal();
+    });
 }
 
 // Close modal
@@ -723,10 +915,16 @@ function formatTokenDisplay(acc) {
       if (type === 'warp') {
         // Warp tokens (JWTs) have long common prefixes, so show more of the end
         return token.substring(0, 10) + '...' + token.substring(token.length - 10);
+      } else if (type === 'grok') {
+        return token.substring(0, 8) + '...' + token.substring(token.length - 8);
       }
       return token.substring(0, 30) + '...';
     }
     return token;
+  }
+  if (type === 'grok' && getAccountToken(acc)) {
+    const sso = getAccountToken(acc);
+    return sso.length > 20 ? sso.substring(0, 8) + '...' + sso.substring(sso.length - 8) : sso;
   }
   if (type === 'warp' && getAccountToken(acc)) {
     const rt = getAccountToken(acc);
@@ -779,7 +977,11 @@ document.addEventListener('DOMContentLoaded', () => {
   loadAccounts();
   const typeSelect = document.getElementById("accountType");
   if (typeSelect) {
-    typeSelect.addEventListener("change", () => applyTokenLabels(typeSelect.value));
+    typeSelect.addEventListener("change", () => {
+      applyTokenLabels(typeSelect.value);
+      renderAgentModeOptions(typeSelect.value, "");
+    });
     applyTokenLabels(typeSelect.value);
+    renderAgentModeOptions(typeSelect.value, "");
   }
 });

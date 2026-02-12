@@ -60,6 +60,56 @@ func normalizeWarpTokenOutput(acc *store.Account) *store.Account {
 	return &copyAcc
 }
 
+func parseGrokSSOToken(raw string) string {
+	token := strings.TrimSpace(raw)
+	if token == "" {
+		return ""
+	}
+	if strings.Contains(strings.ToLower(token), "sso=") {
+		parts := strings.Split(token, ";")
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if strings.HasPrefix(strings.ToLower(part), "sso=") {
+				kv := strings.SplitN(part, "=", 2)
+				if len(kv) == 2 {
+					token = strings.TrimSpace(kv[1])
+				}
+				break
+			}
+		}
+	}
+	return strings.TrimSpace(token)
+}
+
+func normalizeGrokTokenInput(acc *store.Account) {
+	if acc == nil || !strings.EqualFold(acc.AccountType, "grok") {
+		return
+	}
+	raw := strings.TrimSpace(acc.ClientCookie)
+	if raw == "" {
+		raw = strings.TrimSpace(acc.RefreshToken)
+	}
+	acc.ClientCookie = parseGrokSSOToken(raw)
+	// Grok only needs SSO token; clear unrelated fields.
+	acc.RefreshToken = ""
+	acc.SessionCookie = ""
+	acc.SessionID = ""
+	acc.ClientUat = ""
+	acc.ProjectID = ""
+}
+
+func normalizeAccountOutput(acc *store.Account) *store.Account {
+	out := normalizeWarpTokenOutput(acc)
+	if out == nil {
+		return nil
+	}
+	if strings.EqualFold(out.AccountType, "grok") {
+		out.RefreshToken = ""
+		out.SessionCookie = ""
+	}
+	return out
+}
+
 type ExportData struct {
 	Version  int             `json:"version"`
 	ExportAt time.Time       `json:"export_at"`
@@ -214,7 +264,7 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 		normalized := make([]*store.Account, 0, len(accounts))
 		for _, acc := range accounts {
-			normalized = append(normalized, normalizeWarpTokenOutput(acc))
+			normalized = append(normalized, normalizeAccountOutput(acc))
 		}
 		json.NewEncoder(w).Encode(normalized)
 
@@ -229,6 +279,8 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.EqualFold(acc.AccountType, "warp") {
 			normalizeWarpTokenInput(&acc)
+		} else if strings.EqualFold(acc.AccountType, "grok") {
+			normalizeGrokTokenInput(&acc)
 		} else if acc.ClientCookie != "" {
 			acc.ClientCookie = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(acc.ClientCookie), "Bearer "))
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)
@@ -291,7 +343,7 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 		}
 
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(normalizeWarpTokenOutput(&acc))
+		json.NewEncoder(w).Encode(normalizeAccountOutput(&acc))
 
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -359,6 +411,11 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				}
 				acc.Token = jwt
 				warpClient.SyncAccountState()
+			} else if strings.EqualFold(acc.AccountType, "grok") {
+				if strings.TrimSpace(acc.ClientCookie) == "" {
+					http.Error(w, "Failed to refresh grok account: missing sso token", http.StatusBadRequest)
+					return
+				}
 			} else {
 				info, err := clerk.FetchAccountInfoWithSession(acc.ClientCookie, acc.SessionCookie)
 				if err != nil {
@@ -426,7 +483,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Failed to save refreshed account: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
-			json.NewEncoder(w).Encode(normalizeWarpTokenOutput(acc))
+			json.NewEncoder(w).Encode(normalizeAccountOutput(acc))
 			return
 		}
 		acc, err := a.store.GetAccount(r.Context(), id)
@@ -434,7 +491,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
-		json.NewEncoder(w).Encode(normalizeWarpTokenOutput(acc))
+		json.NewEncoder(w).Encode(normalizeAccountOutput(acc))
 
 	case http.MethodPut:
 		existing, err := a.store.GetAccount(r.Context(), id)
@@ -457,6 +514,8 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.EqualFold(acc.AccountType, "warp") {
 			normalizeWarpTokenInput(&acc)
+		} else if strings.EqualFold(acc.AccountType, "grok") {
+			normalizeGrokTokenInput(&acc)
 		} else if acc.ClientCookie != "" {
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)
 			if err != nil {
@@ -500,7 +559,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		json.NewEncoder(w).Encode(normalizeWarpTokenOutput(&acc))
+		json.NewEncoder(w).Encode(normalizeAccountOutput(&acc))
 
 	case http.MethodDelete:
 		if err := a.store.DeleteAccount(r.Context(), id); err != nil {
@@ -532,7 +591,7 @@ func (a *API) HandleExport(w http.ResponseWriter, r *http.Request) {
 		Accounts: make([]store.Account, len(accounts)),
 	}
 	for i, acc := range accounts {
-		exportData.Accounts[i] = *normalizeWarpTokenOutput(acc)
+		exportData.Accounts[i] = *normalizeAccountOutput(acc)
 		exportData.Accounts[i].ID = 0
 		exportData.Accounts[i].RequestCount = 0
 	}
@@ -564,6 +623,8 @@ func (a *API) HandleImport(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.EqualFold(acc.AccountType, "warp") {
 			normalizeWarpTokenInput(&acc)
+		} else if strings.EqualFold(acc.AccountType, "grok") {
+			normalizeGrokTokenInput(&acc)
 		} else if acc.ClientCookie != "" {
 			acc.ClientCookie = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(acc.ClientCookie), "Bearer "))
 			clientJWT, sessionJWT, err := clerk.ParseClientCookies(acc.ClientCookie)

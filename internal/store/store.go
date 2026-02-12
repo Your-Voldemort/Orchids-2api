@@ -134,12 +134,14 @@ func (s *Store) seedModels() error {
 	models := []Model{
 		// Orchids 模型
 		{ID: "6", Channel: "Orchids", ModelID: "claude-sonnet-4-5", Name: "Claude Sonnet 4.5", Status: ModelStatusAvailable, IsDefault: true, SortOrder: 0},
-		{ID: "7", Channel: "Orchids", ModelID: "claude-opus-4-5", Name: "Claude Opus 4.5", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 1},
-		{ID: "42", Channel: "Orchids", ModelID: "claude-sonnet-4-5-thinking", Name: "Claude Sonnet 4.5 Thinking", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 2},
-		{ID: "43", Channel: "Orchids", ModelID: "claude-opus-4-5-thinking", Name: "Claude Opus 4.5 Thinking", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 3},
-		{ID: "8", Channel: "Orchids", ModelID: "claude-haiku-4-5", Name: "Claude Haiku 4.5", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 4},
-		{ID: "9", Channel: "Orchids", ModelID: "claude-sonnet-4-20250514", Name: "Claude Sonnet 4", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 5},
-		{ID: "10", Channel: "Orchids", ModelID: "claude-3-7-sonnet-20250219", Name: "Claude 3.7 Sonnet", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 6},
+		{ID: "44", Channel: "Orchids", ModelID: "claude-opus-4-6", Name: "Claude Opus 4.6", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 1},
+		{ID: "45", Channel: "Orchids", ModelID: "claude-opus-4-6-thinking", Name: "Claude Opus 4.6 Thinking", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 2},
+		{ID: "7", Channel: "Orchids", ModelID: "claude-opus-4-5", Name: "Claude Opus 4.5", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 3},
+		{ID: "42", Channel: "Orchids", ModelID: "claude-sonnet-4-5-thinking", Name: "Claude Sonnet 4.5 Thinking", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 4},
+		{ID: "43", Channel: "Orchids", ModelID: "claude-opus-4-5-thinking", Name: "Claude Opus 4.5 Thinking", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 5},
+		{ID: "8", Channel: "Orchids", ModelID: "claude-haiku-4-5", Name: "Claude Haiku 4.5", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 6},
+		{ID: "9", Channel: "Orchids", ModelID: "claude-sonnet-4-20250514", Name: "Claude Sonnet 4", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 7},
+		{ID: "10", Channel: "Orchids", ModelID: "claude-3-7-sonnet-20250219", Name: "Claude 3.7 Sonnet", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 8},
 		// Warp 模型
 		{ID: "60", Channel: "Warp", ModelID: "auto", Name: "Warp Auto", Status: ModelStatusAvailable, IsDefault: true, SortOrder: 0},
 		{ID: "61", Channel: "Warp", ModelID: "auto-efficient", Name: "Warp Auto Efficient", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 1},
@@ -164,6 +166,24 @@ func (s *Store) seedModels() error {
 		{ID: "85", Channel: "Warp", ModelID: "gpt-5-1-codex-high", Name: "GPT-5.1 Codex High (Warp)", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 20},
 		{ID: "86", Channel: "Warp", ModelID: "gpt-5-1-codex-max-low", Name: "GPT-5.1 Codex Max Low (Warp)", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 21},
 		{ID: "70", Channel: "Warp", ModelID: "warp-basic", Name: "Warp Basic", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 22},
+		// Grok 模型
+		{ID: "90", Channel: "Grok", ModelID: "grok-3", Name: "Grok 3", Status: ModelStatusAvailable, IsDefault: true, SortOrder: 0},
+		{ID: "91", Channel: "Grok", ModelID: "grok-3-mini", Name: "Grok 3 Mini", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 1},
+		{ID: "92", Channel: "Grok", ModelID: "grok-3-thinking", Name: "Grok 3 Thinking", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 2},
+		{ID: "93", Channel: "Grok", ModelID: "grok-3-fast", Name: "Grok 3 Fast", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 3},
+		{ID: "94", Channel: "Grok", ModelID: "grok-4", Name: "Grok 4", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 4},
+		{ID: "95", Channel: "Grok", ModelID: "grok-4-mini", Name: "Grok 4 Mini", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 5},
+		{ID: "96", Channel: "Grok", ModelID: "grok-4-thinking", Name: "Grok 4 Thinking", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 6},
+		{ID: "97", Channel: "Grok", ModelID: "grok-4-fast", Name: "Grok 4 Fast", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 7},
+		{ID: "98", Channel: "Grok", ModelID: "grok-4-heavy", Name: "Grok 4 Heavy", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 8},
+		{ID: "99", Channel: "Grok", ModelID: "grok-4.1-mini", Name: "Grok 4.1 Mini", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 9},
+		{ID: "100", Channel: "Grok", ModelID: "grok-4.1-fast", Name: "Grok 4.1 Fast", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 10},
+		{ID: "101", Channel: "Grok", ModelID: "grok-4.1-expert", Name: "Grok 4.1 Expert", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 11},
+		{ID: "102", Channel: "Grok", ModelID: "grok-4.1-thinking", Name: "Grok 4.1 Thinking", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 12},
+		{ID: "103", Channel: "Grok", ModelID: "grok-4.1", Name: "Grok 4.1", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 13},
+		{ID: "104", Channel: "Grok", ModelID: "grok-imagine-1.0", Name: "Grok Imagine 1.0", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 14},
+		{ID: "105", Channel: "Grok", ModelID: "grok-imagine-1.0-edit", Name: "Grok Imagine 1.0 Edit", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 15},
+		{ID: "106", Channel: "Grok", ModelID: "grok-imagine-1.0-video", Name: "Grok Imagine 1.0 Video", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 16},
 	}
 
 	for _, m := range models {

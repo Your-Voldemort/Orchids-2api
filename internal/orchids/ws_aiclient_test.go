@@ -162,3 +162,43 @@ func TestBuildWSRequestAIClient_PreservesProvidedChatHistoryWithinBudget(t *test
 		t.Fatalf("expected provided history to be preserved within budget")
 	}
 }
+
+func TestNormalizeAIClientModel_Opus46Variants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "hyphen-opus-4-6",
+			input: "claude-opus-4-6",
+			want:  "claude-opus-4-6",
+		},
+		{
+			name:  "dot-opus-4-6",
+			input: "claude-opus-4.6",
+			want:  "claude-opus-4-6",
+		},
+		{
+			name:  "hyphen-opus-4-6-thinking",
+			input: "claude-opus-4-6-thinking",
+			want:  "claude-opus-4-6-thinking",
+		},
+		{
+			name:  "dot-opus-4-6-thinking",
+			input: "claude-opus-4.6-thinking",
+			want:  "claude-opus-4-6-thinking",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeAIClientModel(tt.input)
+			if got != tt.want {
+				t.Fatalf("normalizeAIClientModel(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
