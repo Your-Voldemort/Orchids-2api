@@ -93,7 +93,7 @@ func injectThinkingPrefix(prompt string) string {
 	return prefix + "\n" + prompt
 }
 
-func buildLocalAssistantPrompt(systemText string, userText string, model string, workdir string) string {
+func buildLocalAssistantPrompt(systemText string, userText string, model string, workdir string, maxTokens int) string {
 	var b strings.Builder
 	dateStr := time.Now().Format("2006-01-02")
 	b.WriteString("<environment>\n")
@@ -156,7 +156,7 @@ Read / Write / Edit / Bash / Glob / Grep / TodoWrite。
 		condensed := condenseSystemContext(systemText)
 		if condensed != "" {
 			b.WriteString("<system_context>\n")
-			b.WriteString(condensed)
+			b.WriteString(trimSystemContextToBudget(condensed, maxTokens))
 			b.WriteString("\n</system_context>\n\n")
 		}
 	}
@@ -206,7 +206,7 @@ func BuildAIClientPromptAndHistory(messages []prompt.Message, system []prompt.Sy
 	// Truncate individual chatHistory items to avoid huge tool outputs blowing up context.
 	chatHistory = truncateAIClientHistory(chatHistory)
 
-	promptText := buildLocalAssistantPrompt(systemText, userText, model, workdir)
+	promptText := buildLocalAssistantPrompt(systemText, userText, model, workdir, maxTokens)
 	if !noThinking && !isSuggestionModeText(userText) {
 		promptText = injectThinkingPrefix(promptText)
 	}

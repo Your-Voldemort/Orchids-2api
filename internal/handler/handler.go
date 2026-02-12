@@ -434,8 +434,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Debug("Starting prompt build...", "conversation_id", conversationKey)
+	// Orchids: always use AIClient mode (other implementations are deprecated/removed).
 	isOrchidsAIClient := false
-	if _, ok := apiClient.(*orchids.Client); ok && strings.EqualFold(strings.TrimSpace(h.config.OrchidsImpl), "aiclient") {
+	if _, ok := apiClient.(*orchids.Client); ok {
 		isOrchidsAIClient = true
 	}
 

@@ -10,7 +10,7 @@ import (
 func TestBuildLocalAssistantPrompt_ContainsSingleResultGuideline(t *testing.T) {
 	t.Parallel()
 
-	prompt := buildLocalAssistantPrompt("", "hello", "", "")
+	prompt := buildLocalAssistantPrompt("", "hello", "", "", 12000)
 	if !strings.Contains(prompt, "工具执行成功后只输出一次简短结果") {
 		t.Fatalf("expected Chinese single-result guideline to be present")
 	}
@@ -34,7 +34,7 @@ func TestBuildLocalAssistantPrompt_ContainsSingleResultGuideline(t *testing.T) {
 func TestBuildLocalAssistantPrompt_IsCompact(t *testing.T) {
 	t.Parallel()
 
-	promptText := buildLocalAssistantPrompt("", "hello", "claude-opus-4-6", "/tmp/project")
+	promptText := buildLocalAssistantPrompt("", "hello", "claude-opus-4-6", "/tmp/project", 12000)
 	if got := len([]rune(promptText)); got > 3500 {
 		t.Fatalf("expected compact local assistant prompt <= 3500 runes, got %d", got)
 	}

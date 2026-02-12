@@ -747,7 +747,11 @@ func (c *Client) buildWSRequestAIClient(req upstream.UpstreamRequest) (*orchidsW
 			chatHistory = nil
 		}
 	} else {
-		promptText = buildLocalAssistantPrompt(systemText, userText, req.Model, req.Workdir)
+		maxTokens := 12000
+		if c.config != nil && c.config.ContextMaxTokens > 0 {
+			maxTokens = c.config.ContextMaxTokens
+		}
+		promptText = buildLocalAssistantPrompt(systemText, userText, req.Model, req.Workdir, maxTokens)
 		if !req.NoThinking && !isSuggestionModeText(userText) {
 			promptText = injectThinkingPrefix(promptText)
 		}
