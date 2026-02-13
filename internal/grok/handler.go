@@ -407,9 +407,8 @@ func (f *streamMarkupFilter) feed(chunk string) string {
 
 	const toolStart = "xai:tool_usage_card"
 	const toolEnd = "</xai:tool_usage_card>"
-	// Grok render blocks sometimes appear as '<grok:render ...>' and can be split,
-	// so treat any '<grok' as the beginning of a render block to avoid leaking '<grok<' fragments.
-	const renderStart = "<grok"
+	// Grok render blocks look like '<grok:render ...>' but can be split across chunks.
+	const renderStart = "<grok:render"
 	const renderEnd = "</grok:render>"
 
 	for {
@@ -417,9 +416,9 @@ func (f *streamMarkupFilter) feed(chunk string) string {
 		if f.inTool {
 			end := strings.Index(lower, toolEnd)
 			if end < 0 {
-				// Keep buffer bounded while waiting for end.
-				if len(f.pending) > 8192 {
-					f.pending = f.pending[len(f.pending)-8192:]
+				if len(f.pending) > 16384 {
+					f.pending = ""
+					f.inTool = false
 				}
 				break
 			}
@@ -430,8 +429,10 @@ func (f *streamMarkupFilter) feed(chunk string) string {
 		if f.inRender {
 			end := strings.Index(lower, renderEnd)
 			if end < 0 {
-				if len(f.pending) > 8192 {
-					f.pending = f.pending[len(f.pending)-8192:]
+				// Recovery: if we never see a closing tag, don't swallow the whole stream forever.
+				if len(f.pending) > 16384 {
+					f.pending = ""
+					f.inRender = false
 				}
 				break
 			}
@@ -455,13 +456,28 @@ func (f *streamMarkupFilter) feed(chunk string) string {
 		}
 
 		if idx < 0 {
-			// No marker found; emit everything except a small tail to catch split markers.
-			keep := 64
+			// No marker found; emit everything except a tail to catch split markers.
+			keep := 256
 			if len(f.pending) <= keep {
 				break
 			}
 			safe := validUTF8Prefix(f.pending[:len(f.pending)-keep])
+			// Avoid leaking partial '<grok:render' fragments; keep more if suffix looks like a start.
+			lsafe := strings.ToLower(safe)
+			if strings.HasSuffix(lsafe, "<") || strings.HasSuffix(lsafe, "<g") || strings.HasSuffix(lsafe, "<gr") || strings.HasSuffix(lsafe, "<gro") || strings.HasSuffix(lsafe, "<grok") || strings.HasSuffix(lsafe, "<grok:") {
+				// move one byte from safe back to pending by shrinking safe until it no longer ends with '<...'
+				for len(safe) > 0 {
+					safe = safe[:len(safe)-1]
+					lsafe = strings.ToLower(safe)
+					if !(strings.HasSuffix(lsafe, "<") || strings.HasSuffix(lsafe, "<g") || strings.HasSuffix(lsafe, "<gr") || strings.HasSuffix(lsafe, "<gro") || strings.HasSuffix(lsafe, "<grok") || strings.HasSuffix(lsafe, "<grok:")) {
+						break
+					}
+				}
+				// Reattach removed bytes to pending
+				f.pending = safe + f.pending[len(safe):]
+			}
 			cleaned := sanitizeText(stripToolAndRenderMarkup(safe))
+			cleaned = strings.TrimLeft(cleaned, "<")
 			if cleaned != "" {
 				out.WriteString(cleaned)
 			}
