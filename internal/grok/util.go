@@ -99,6 +99,64 @@ func extractImageURLs(value interface{}) []string {
 	return out
 }
 
+// extractRenderableImageLinks is a broad fallback for Grok tool/card payloads.
+// Some Grok responses include image card/tool metadata where URLs aren't under the known keys.
+// We conservatively collect http(s) links that look like images and point to Grok-related hosts.
+func extractRenderableImageLinks(value interface{}) []string {
+	seen := map[string]struct{}{}
+	var out []string
+
+	isLikelyImageURL := func(s string) bool {
+		s = strings.TrimSpace(s)
+		ls := strings.ToLower(s)
+		if !strings.HasPrefix(ls, "http://") && !strings.HasPrefix(ls, "https://") {
+			return false
+		}
+		// Host allowlist-ish: Grok assets or Grok domain, otherwise ignore to avoid spamming random links.
+		if !strings.Contains(ls, "grok.com") && !strings.Contains(ls, "x.ai") {
+			return false
+		}
+		// Common image extensions or Grok CDN patterns.
+		if strings.Contains(ls, "assets.grok.com") {
+			return true
+		}
+		for _, ext := range []string{".png", ".jpg", ".jpeg", ".webp", ".gif"} {
+			if strings.Contains(ls, ext) {
+				return true
+			}
+		}
+		return false
+	}
+
+	var walk func(interface{})
+	walk = func(v interface{}) {
+		switch x := v.(type) {
+		case map[string]interface{}:
+			for _, item := range x {
+				walk(item)
+			}
+		case []interface{}:
+			for _, item := range x {
+				walk(item)
+			}
+		case string:
+			// Some fields may contain multiple URLs; split on whitespace.
+			for _, part := range strings.Fields(x) {
+				p := strings.Trim(part, "\"'()[]{}<>,")
+				if isLikelyImageURL(p) {
+					if _, ok := seen[p]; !ok {
+						seen[p] = struct{}{}
+						out = append(out, p)
+					}
+				}
+			}
+		}
+	}
+
+	walk(value)
+	return out
+}
+
 type AttachmentInput struct {
 	Type string
 	Data string
