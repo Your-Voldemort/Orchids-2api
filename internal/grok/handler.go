@@ -359,6 +359,8 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 	sawToken := false
 	sentAny := false
 	var rawAll strings.Builder
+	inTool := false
+	inRender := false
 
 	emitChunk := func(delta map[string]interface{}, finish interface{}) {
 		chunk := map[string]interface{}{
@@ -390,7 +392,29 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 		if tokenDelta, ok := resp["token"].(string); ok && tokenDelta != "" {
 			rawAll.WriteString(tokenDelta)
 			sawToken = true
-			// Strip/skip tool-card and render markup; clients can't render them.
+
+			// Streaming safety: tool/render markup often arrives split across chunks.
+			// Detect start markers and suppress until we see the closing tag.
+			lower := strings.ToLower(tokenDelta)
+			if strings.Contains(lower, "xai:tool_usage_card") || strings.Contains(lower, "xai:tool_") {
+				inTool = true
+			}
+			if strings.Contains(lower, "grok:render") {
+				inRender = true
+			}
+			if inTool {
+				if strings.Contains(lower, "</xai:tool_usage_card>") {
+					inTool = false
+				}
+				return nil
+			}
+			if inRender {
+				if strings.Contains(lower, "</grok:render>") {
+					inRender = false
+				}
+				return nil
+			}
+
 			cleaned := stripToolAndRenderMarkup(tokenDelta)
 			if cleaned != "" {
 				emitChunk(map[string]interface{}{"content": cleaned}, nil)
