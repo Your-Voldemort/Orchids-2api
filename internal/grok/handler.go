@@ -396,46 +396,40 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 
 			// Streaming safety: tool/render markup often arrives split across chunks.
 			// Detect start markers and suppress until we see the closing tag.
-			// Use a rolling tail buffer to detect markers that may be split across chunks.
-			window := strings.ToLower(tail + tokenDelta)
-			if strings.Contains(window, "xai:tool_usage_card") || strings.Contains(window, "xai:tool_") {
-				inTool = true
-			}
-			if strings.Contains(window, "grok:render") {
-				inRender = true
-			}
-			if inTool {
-				if strings.Contains(window, "</xai:tool_usage_card>") {
-					inTool = false
+			// Streaming filter: markup can be split across chunks, so we keep state.
+			filter := func(chunk string) string {
+				if chunk == "" {
+					return ""
 				}
-				// update tail and suppress
-				if len(window) > 80 {
-					tail = window[len(window)-80:]
+				window := strings.ToLower(tail + chunk)
+				if strings.Contains(window, "xai:tool_usage_card") || strings.Contains(window, "xai:tool_") {
+					inTool = true
+				}
+				if strings.Contains(window, "grok:render") {
+					inRender = true
+				}
+				// Update tail (lowercased) for next chunk.
+				if len(window) > 120 {
+					tail = window[len(window)-120:]
 				} else {
 					tail = window
 				}
-				return nil
-			}
-			if inRender {
-				if strings.Contains(window, "</grok:render>") {
-					inRender = false
+				if inTool {
+					if strings.Contains(window, "</xai:tool_usage_card>") {
+						inTool = false
+					}
+					return ""
 				}
-				if len(window) > 80 {
-					tail = window[len(window)-80:]
-				} else {
-					tail = window
+				if inRender {
+					if strings.Contains(window, "</grok:render>") {
+						inRender = false
+					}
+					return ""
 				}
-				return nil
-			}
-			// update tail when not suppressing
-			if len(window) > 80 {
-				tail = window[len(window)-80:]
-			} else {
-				tail = window
+				return stripToolAndRenderMarkup(chunk)
 			}
 
-			cleaned := stripToolAndRenderMarkup(tokenDelta)
-			if cleaned != "" {
+			if cleaned := filter(tokenDelta); cleaned != "" {
 				emitChunk(map[string]interface{}{"content": cleaned}, nil)
 			}
 		}
@@ -444,9 +438,26 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 				lastMessage = msg
 				rawAll.WriteString(msg)
 				if !sawToken {
-					cleaned := stripToolAndRenderMarkup(msg)
-					if cleaned != "" {
-						emitChunk(map[string]interface{}{"content": cleaned}, nil)
+					// Apply the same streaming filter for message chunks too.
+					lower := strings.ToLower(msg)
+					// quick state transitions (in case msg delivers markup without token deltas)
+					if strings.Contains(lower, "xai:tool_usage_card") || strings.Contains(lower, "xai:tool_") {
+						inTool = true
+					}
+					if strings.Contains(lower, "grok:render") {
+						inRender = true
+					}
+					if !(inTool || inRender) {
+						cleaned := stripToolAndRenderMarkup(msg)
+						if cleaned != "" {
+							emitChunk(map[string]interface{}{"content": cleaned}, nil)
+						}
+					}
+					if inTool && strings.Contains(lower, "</xai:tool_usage_card>") {
+						inTool = false
+					}
+					if inRender && strings.Contains(lower, "</grok:render>") {
+						inRender = false
 					}
 				}
 				if strings.Contains(msg, "<grok:render") || strings.Contains(msg, "tool_usage_card") {
