@@ -390,11 +390,10 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 		if tokenDelta, ok := resp["token"].(string); ok && tokenDelta != "" {
 			rawAll.WriteString(tokenDelta)
 			sawToken = true
-			// Drop obvious tool-card/render markup chunks in stream; clients can't render them.
-			if strings.Contains(tokenDelta, "tool_usage_card") || strings.Contains(tokenDelta, "xai:tool_") || strings.Contains(tokenDelta, "<grok:render") {
-				// skip
-			} else {
-				emitChunk(map[string]interface{}{"content": tokenDelta}, nil)
+			// Strip/skip tool-card and render markup; clients can't render them.
+			cleaned := stripToolAndRenderMarkup(tokenDelta)
+			if cleaned != "" {
+				emitChunk(map[string]interface{}{"content": cleaned}, nil)
 			}
 		}
 		if mr, ok := resp["modelResponse"].(map[string]interface{}); ok {
@@ -547,7 +546,7 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 		content.WriteString(videoURL)
 	}
 
-	finalContent := content.String()
+	finalContent := stripToolAndRenderMarkup(content.String())
 	// If Grok returned search_images tool cards, run an equivalent image generation as a compatibility fallback.
 	// This makes OpenAI-compatible clients (e.g. Cherry Studio) able to display images.
 	args := parseSearchImagesArgsFromText(finalContent)
