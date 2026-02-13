@@ -552,6 +552,9 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 				if len(urls) > n {
 					urls = urls[:n]
 				}
+				if len(urls) == 0 {
+					emitChunk(map[string]interface{}{"content": "\n[图片生成未返回可用链接]\n"}, nil)
+				}
 				for _, u := range urls {
 					val, errV := h.imageOutputValue(context.Background(), token, u, "url")
 					if errV != nil || strings.TrimSpace(val) == "" {
