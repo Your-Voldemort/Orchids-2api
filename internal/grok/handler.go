@@ -194,8 +194,6 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	}
 	release := h.trackAccount(acc)
 	defer release()
-	release := h.trackAccount(acc)
-	defer release()
 
 	text, attachments, err := extractMessageAndAttachments(req.Messages, spec.IsVideo)
 	if err != nil {
