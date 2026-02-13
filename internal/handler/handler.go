@@ -316,6 +316,10 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	conversationKey := conversationKeyForRequest(r, req)
 
 	forcedChannel := channelFromPath(r.URL.Path)
+	if err := h.validateModelAvailability(r.Context(), req.Model, forcedChannel); err != nil {
+		h.writeErrorResponse(w, "invalid_request_error", err.Error(), http.StatusBadRequest)
+		return
+	}
 	effectiveWorkdir, prevWorkdir, workdirChanged := h.resolveWorkdir(r, req, conversationKey)
 	if workdirChanged {
 		slog.Warn("检测到工作目录变化，已清空历史", "prev", prevWorkdir, "next", effectiveWorkdir, "session", conversationKey)

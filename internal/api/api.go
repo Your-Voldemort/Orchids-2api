@@ -436,6 +436,10 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		if isRefresh || isVerify {
+			http.Error(w, "Deprecated endpoint. Use /api/accounts/{id}/check instead.", http.StatusGone)
+			return
+		}
 		if isUsage {
 			acc, err := a.store.GetAccount(r.Context(), id)
 			if err != nil {
@@ -454,7 +458,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if isRefresh || isVerify || isCheck {
+		if isCheck {
 			acc, err := a.store.GetAccount(r.Context(), id)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusNotFound)

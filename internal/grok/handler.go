@@ -59,6 +59,31 @@ func (h *Handler) selectAccount(ctx context.Context) (*store.Account, string, er
 	return acc, token, nil
 }
 
+func (h *Handler) ensureModelEnabled(ctx context.Context, modelID string) error {
+	if h == nil || h.lb == nil || h.lb.Store == nil {
+		return nil
+	}
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return nil
+	}
+	m, err := h.lb.Store.GetModelByModelID(ctx, modelID)
+	if err != nil || m == nil {
+		return fmt.Errorf("model not found")
+	}
+	if !m.Status.Enabled() {
+		return fmt.Errorf("model not available")
+	}
+	mChannel := strings.TrimSpace(m.Channel)
+	if mChannel == "" {
+		mChannel = "grok"
+	}
+	if !strings.EqualFold(mChannel, "grok") {
+		return fmt.Errorf("model not found")
+	}
+	return nil
+}
+
 func (h *Handler) trackAccount(acc *store.Account) func() {
 	if h == nil || h.lb == nil || acc == nil || acc.ID == 0 {
 		return func() {}
@@ -148,6 +173,10 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := req.Validate(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.ensureModelEnabled(r.Context(), req.Model); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -686,6 +715,10 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 		http.Error(w, "streaming is only supported when n=1 or n=2", http.StatusBadRequest)
 		return
 	}
+	if err := h.ensureModelEnabled(r.Context(), req.Model); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	spec, ok := ResolveModel(req.Model)
 	if !ok || !spec.IsImage || spec.ID == "grok-imagine-1.0-edit" {
@@ -853,6 +886,10 @@ func (h *Handler) HandleImagesEdits(w http.ResponseWriter, r *http.Request) {
 	spec, ok := ResolveModel(model)
 	if !ok || !spec.IsImage || spec.ID != "grok-imagine-1.0-edit" {
 		http.Error(w, "image edit model not supported", http.StatusBadRequest)
+		return
+	}
+	if err := h.ensureModelEnabled(r.Context(), model); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

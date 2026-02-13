@@ -104,6 +104,33 @@ func (h *Handler) selectAccount(ctx context.Context, model, forcedChannel string
 	return nil, nil, errors.New("no client configured")
 }
 
+func (h *Handler) validateModelAvailability(ctx context.Context, modelID, forcedChannel string) error {
+	if h == nil || h.loadBalancer == nil || h.loadBalancer.Store == nil {
+		return nil
+	}
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return nil
+	}
+	m, err := h.loadBalancer.Store.GetModelByModelID(ctx, modelID)
+	if err != nil || m == nil {
+		return fmt.Errorf("model not found")
+	}
+	if !m.Status.Enabled() {
+		return fmt.Errorf("model not available")
+	}
+	if forcedChannel != "" {
+		mChannel := strings.TrimSpace(m.Channel)
+		if mChannel == "" {
+			mChannel = "orchids"
+		}
+		if !strings.EqualFold(mChannel, forcedChannel) {
+			return fmt.Errorf("model not found")
+		}
+	}
+	return nil
+}
+
 func (h *Handler) updateAccountStats(account *store.Account, inputTokens, outputTokens int) {
 	if account == nil || h.loadBalancer == nil {
 		return

@@ -153,6 +153,9 @@ func ensureImageAspectRatio(payload map[string]interface{}, ratio string) {
 }
 
 func (h *Handler) generateImagineBatch(ctx context.Context, prompt, aspectRatio string, n int) ([]imagineImage, int, error) {
+	if err := h.ensureModelEnabled(ctx, "grok-imagine-1.0"); err != nil {
+		return nil, 0, err
+	}
 	spec, ok := ResolveModel("grok-imagine-1.0")
 	if !ok || !spec.IsImage {
 		return nil, 0, fmt.Errorf("image model not supported")
