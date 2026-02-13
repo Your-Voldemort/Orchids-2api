@@ -75,6 +75,9 @@ func (c *Client) headers(token string) http.Header {
 	if c.cfg != nil && strings.TrimSpace(c.cfg.GrokCFClearance) != "" {
 		cookie += "; cf_clearance=" + strings.TrimSpace(c.cfg.GrokCFClearance)
 	}
+	if c.cfg != nil && strings.TrimSpace(c.cfg.GrokCFBM) != "" {
+		cookie += "; __cf_bm=" + strings.TrimSpace(c.cfg.GrokCFBM)
+	}
 	h.Set("Cookie", cookie)
 	return h
 }
