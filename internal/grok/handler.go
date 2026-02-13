@@ -358,6 +358,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 	lastMessage := ""
 	sawToken := false
 	sentAny := false
+	var rawAll strings.Builder
 
 	emitChunk := func(delta map[string]interface{}, finish interface{}) {
 		chunk := map[string]interface{}{
@@ -387,17 +388,25 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 			sentRole = true
 		}
 		if tokenDelta, ok := resp["token"].(string); ok && tokenDelta != "" {
+			rawAll.WriteString(tokenDelta)
 			sawToken = true
-			emitChunk(map[string]interface{}{"content": tokenDelta}, nil)
+			// Drop obvious tool-card/render markup chunks in stream; clients can't render them.
+			if strings.Contains(tokenDelta, "tool_usage_card") || strings.Contains(tokenDelta, "xai:tool_") || strings.Contains(tokenDelta, "<grok:render") {
+				// skip
+			} else {
+				emitChunk(map[string]interface{}{"content": tokenDelta}, nil)
+			}
 		}
 		if mr, ok := resp["modelResponse"].(map[string]interface{}); ok {
 			if msg, ok := mr["message"].(string); ok && strings.TrimSpace(msg) != "" && msg != lastMessage {
 				lastMessage = msg
+				rawAll.WriteString(msg)
 				if !sawToken {
-					emitChunk(map[string]interface{}{"content": msg}, nil)
+					cleaned := stripToolAndRenderMarkup(msg)
+					if cleaned != "" {
+						emitChunk(map[string]interface{}{"content": cleaned}, nil)
+					}
 				}
-				// Debug aid: Grok sometimes returns image cards/tool markup instead of URLs.
-				// Log a small hint to help map where the real URLs live.
 				if strings.Contains(msg, "<grok:render") || strings.Contains(msg, "tool_usage_card") {
 					slog.Debug("grok message contains render/tool markup", "has_modelResponse", true)
 				}
@@ -437,6 +446,44 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 			return
 		}
 		emitChunk(map[string]interface{}{"content": "\n[上游响应解析失败]\n"}, nil)
+	}
+
+	// If Grok emitted search_images tool cards, generate equivalent images and append as Markdown.
+	args := parseSearchImagesArgsFromText(rawAll.String())
+	if len(args) > 0 {
+		imSpec, ok := ResolveModel("grok-imagine-1.0")
+		if ok {
+			for _, a := range args {
+				n := a.NumberOfImages
+				if n > 4 {
+					n = 4
+				}
+				payload := h.client.chatPayload(imSpec, "Image Generation: "+a.ImageDescription, true)
+				resp2, err2 := h.client.doChat(context.Background(), token, payload)
+				if err2 != nil {
+					continue
+				}
+				var urls []string
+				_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
+					if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
+						urls = append(urls, extractImageURLs(mr)...)
+					}
+					return nil
+				})
+				resp2.Body.Close()
+				urls = uniqueStrings(urls)
+				if len(urls) > n {
+					urls = urls[:n]
+				}
+				for _, u := range urls {
+					val, errV := h.imageOutputValue(context.Background(), token, u, "url")
+					if errV != nil || strings.TrimSpace(val) == "" {
+						val = u
+					}
+					emitChunk(map[string]interface{}{"content": "\n![](" + val + ")"}, nil)
+				}
+			}
+		}
 	}
 
 	emitChunk(map[string]interface{}{}, "stop")
