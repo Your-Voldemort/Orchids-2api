@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,8 +28,9 @@ const (
 )
 
 type Client struct {
-	cfg        *config.Config
-	httpClient *http.Client
+	cfg         *config.Config
+	httpClient  *http.Client
+	assetClient *http.Client
 }
 
 func New(cfg *config.Config) *Client {
@@ -35,11 +38,24 @@ func New(cfg *config.Config) *Client {
 	if cfg != nil && cfg.RequestTimeout > 0 {
 		timeout = time.Duration(cfg.RequestTimeout) * time.Second
 	}
+	baseProxy := resolveGrokProxy(cfg, strings.TrimSpace(getProxyField(cfg, "base")))
+	if baseProxy == nil {
+		baseProxy = resolveFallbackProxy(cfg)
+	}
+	assetProxy := resolveGrokProxy(cfg, strings.TrimSpace(getProxyField(cfg, "asset")))
+	if assetProxy == nil {
+		assetProxy = baseProxy
+	}
+
+	baseClient := newHTTPClient(cfg, timeout, baseProxy)
+	assetClient := baseClient
+	if assetProxy != nil && (baseProxy == nil || assetProxy.String() != baseProxy.String()) {
+		assetClient = newHTTPClient(cfg, timeout, assetProxy)
+	}
 	return &Client{
-		cfg: cfg,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
+		cfg:         cfg,
+		httpClient:  baseClient,
+		assetClient: assetClient,
 	}
 }
 
@@ -68,6 +84,12 @@ func (c *Client) headers(token string) http.Header {
 	h.Set("Origin", "https://grok.com")
 	h.Set("Pragma", "no-cache")
 	h.Set("Referer", "https://grok.com/")
+	h.Set("Priority", "u=1, i")
+	h.Set("Sec-Ch-Ua", `"Google Chrome";v="136", "Chromium";v="136", "Not(A:Brand";v="24"`)
+	h.Set("Sec-Ch-Ua-Platform", `"macOS"`)
+	h.Set("Sec-Fetch-Dest", "empty")
+	h.Set("Sec-Fetch-Mode", "cors")
+	h.Set("Sec-Fetch-Site", "same-origin")
 	h.Set("User-Agent", c.userAgent())
 	h.Set("x-statsig-id", buildStatsigID())
 	h.Set("x-xai-request-id", randomHex(16))
@@ -122,6 +144,86 @@ func (c *Client) chatPayload(spec ModelSpec, text string, noMemory bool) map[str
 	return payload
 }
 
+func (c *Client) clientForAsset(asset bool) *http.Client {
+	if asset && c.assetClient != nil {
+		return c.assetClient
+	}
+	return c.httpClient
+}
+
+func (c *Client) doRequest(ctx context.Context, reqURL string, method string, body []byte, headers http.Header, okStatus int, asset bool) (*http.Response, error) {
+	if okStatus == 0 {
+		okStatus = http.StatusOK
+	}
+	maxRetries := 0
+	if c.cfg != nil && c.cfg.MaxRetries > 0 {
+		maxRetries = c.cfg.MaxRetries
+	}
+	retryStatuses := map[int]struct{}{http.StatusUnauthorized: {}, http.StatusForbidden: {}, http.StatusTooManyRequests: {}}
+	baseDelay := 1 * time.Second
+	if c.cfg != nil && c.cfg.RetryDelay > 0 {
+		baseDelay = time.Duration(c.cfg.RetryDelay) * time.Millisecond
+	}
+	retry429Delay := time.Duration(0)
+	if c.cfg != nil && c.cfg.Retry429Interval > 0 {
+		retry429Delay = time.Duration(c.cfg.Retry429Interval) * time.Second
+	}
+
+	var lastStatus int
+	var lastBody string
+	lastDelay := baseDelay
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		req, err := http.NewRequestWithContext(ctx, method, reqURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header = headers.Clone()
+		req.Header.Set("x-xai-request-id", randomHex(16))
+
+		resp, err := c.clientForAsset(asset).Do(req)
+		if err == nil && resp.StatusCode == okStatus {
+			return resp, nil
+		}
+
+		if err != nil {
+			if attempt >= maxRetries {
+				return nil, err
+			}
+			delay := backoffDelay(baseDelay, retry429Delay, lastDelay, attempt, 0, 0)
+			lastDelay = delay
+			if !sleepWithContext(ctx, delay) {
+				return nil, ctx.Err()
+			}
+			continue
+		}
+
+		lastStatus = resp.StatusCode
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_ = resp.Body.Close()
+		lastBody = string(raw)
+
+		if _, ok := retryStatuses[lastStatus]; !ok || attempt >= maxRetries {
+			return nil, fmt.Errorf("grok upstream status=%d body=%s", lastStatus, lastBody)
+		}
+
+		retryAfter := parseRetryAfter(resp.Header.Get("Retry-After"))
+		delay := backoffDelay(baseDelay, retry429Delay, lastDelay, attempt, lastStatus, retryAfter)
+		lastDelay = delay
+		if !sleepWithContext(ctx, delay) {
+			return nil, ctx.Err()
+		}
+	}
+
+	if lastStatus == 0 {
+		return nil, fmt.Errorf("grok upstream request failed")
+	}
+	return nil, fmt.Errorf("grok upstream status=%d body=%s", lastStatus, lastBody)
+}
+
 func (c *Client) doChat(ctx context.Context, token string, payload map[string]interface{}) (*http.Response, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -129,24 +231,7 @@ func (c *Client) doChat(ctx context.Context, token string, payload map[string]in
 	}
 
 	reqURL := c.baseURL() + defaultChatPath
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header = c.headers(token)
-
-	c.configureProxyTransport()
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		defer resp.Body.Close()
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("grok upstream status=%d body=%s", resp.StatusCode, string(raw))
-	}
-	return resp, nil
+	return c.doRequest(ctx, reqURL, http.MethodPost, body, c.headers(token), http.StatusOK, false)
 }
 
 func (c *Client) VerifyToken(ctx context.Context, token, modelID string) (*RateLimitInfo, error) {
@@ -203,24 +288,11 @@ func (c *Client) GetUsage(ctx context.Context, token, modelID string) (*RateLimi
 	}
 
 	reqURL := c.baseURL() + defaultRateLimitsPath
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(raw))
-	if err != nil {
-		return nil, err
-	}
-	req.Header = c.headers(token)
-
-	c.configureProxyTransport()
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doRequest(ctx, reqURL, http.MethodPost, raw, c.headers(token), http.StatusOK, false)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("grok usage status=%d body=%s", resp.StatusCode, string(body))
-	}
 
 	var payloadResp map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&payloadResp); err != nil {
@@ -230,34 +302,6 @@ func (c *Client) GetUsage(ctx context.Context, token, modelID string) (*RateLimi
 		return info, nil
 	}
 	return parseRateLimitInfo(resp.Header), nil
-}
-
-func (c *Client) configureProxyTransport() {
-	if c.cfg == nil {
-		return
-	}
-
-	proxyAddr := strings.TrimSpace(c.cfg.ProxyHTTPS)
-	if proxyAddr == "" {
-		proxyAddr = strings.TrimSpace(c.cfg.ProxyHTTP)
-	}
-	if proxyAddr == "" {
-		return
-	}
-
-	u, err := url.Parse(proxyAddr)
-	if err != nil {
-		return
-	}
-
-	// Support username/password configured separately in admin UI.
-	if u.User == nil && strings.TrimSpace(c.cfg.ProxyUser) != "" {
-		u.User = url.UserPassword(strings.TrimSpace(c.cfg.ProxyUser), strings.TrimSpace(c.cfg.ProxyPass))
-	}
-
-	c.httpClient.Transport = &http.Transport{
-		Proxy: http.ProxyURL(u),
-	}
 }
 
 func (c *Client) uploadFile(ctx context.Context, token, fileName, fileMimeType, contentBase64 string) (string, string, error) {
@@ -282,25 +326,13 @@ func (c *Client) uploadFile(ctx context.Context, token, fileName, fileMimeType, 
 	}
 
 	reqURL := c.baseURL() + defaultUploadFilePath
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(raw))
-	if err != nil {
-		return "", "", err
-	}
-	req.Header = c.headers(token)
-	req.Header.Set("Referer", "https://grok.com/files")
-
-	c.configureProxyTransport()
-
-	resp, err := c.httpClient.Do(req)
+	headers := c.headers(token)
+	headers.Set("Referer", "https://grok.com/files")
+	resp, err := c.doRequest(ctx, reqURL, http.MethodPost, raw, headers, http.StatusOK, false)
 	if err != nil {
 		return "", "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", "", fmt.Errorf("grok upload status=%d body=%s", resp.StatusCode, string(body))
-	}
 
 	var out struct {
 		FileMetadataID string `json:"fileMetadataId"`
@@ -334,25 +366,13 @@ func (c *Client) createMediaPost(ctx context.Context, token, mediaType, prompt, 
 	}
 
 	reqURL := c.baseURL() + defaultCreatePostPath
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(raw))
-	if err != nil {
-		return "", err
-	}
-	req.Header = c.headers(token)
-	req.Header.Set("Referer", "https://grok.com/imagine")
-
-	c.configureProxyTransport()
-
-	resp, err := c.httpClient.Do(req)
+	headers := c.headers(token)
+	headers.Set("Referer", "https://grok.com/imagine")
+	resp, err := c.doRequest(ctx, reqURL, http.MethodPost, raw, headers, http.StatusOK, false)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return "", fmt.Errorf("grok create post status=%d body=%s", resp.StatusCode, string(body))
-	}
 
 	var out struct {
 		Post struct {
@@ -380,27 +400,15 @@ func (c *Client) downloadAsset(ctx context.Context, token, rawURL string) ([]byt
 		link = defaultAssetsBaseURL + link
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, link, nil)
-	if err != nil {
-		return nil, "", err
-	}
-	req.Header = c.headers(token)
-	req.Header.Set("Content-Type", "")
-	req.Header.Set("Accept-Encoding", "identity")
-	req.Header.Set("Referer", "https://grok.com/")
-
-	c.configureProxyTransport()
-
-	resp, err := c.httpClient.Do(req)
+	headers := c.headers(token)
+	headers.Set("Content-Type", "")
+	headers.Set("Accept-Encoding", "identity")
+	headers.Set("Referer", "https://grok.com/")
+	resp, err := c.doRequest(ctx, link, http.MethodGet, nil, headers, http.StatusOK, true)
 	if err != nil {
 		return nil, "", err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, "", fmt.Errorf("grok asset status=%d body=%s", resp.StatusCode, string(body))
-	}
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, "", err
@@ -446,27 +454,144 @@ func (c *Client) getVoiceToken(ctx context.Context, token, voice, personality st
 	}
 
 	reqURL := c.baseURL() + defaultLivekitPath
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(raw))
-	if err != nil {
-		return nil, err
-	}
-	req.Header = c.headers(token)
-
-	c.configureProxyTransport()
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.doRequest(ctx, reqURL, http.MethodPost, raw, c.headers(token), http.StatusOK, false)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("grok voice status=%d body=%s", resp.StatusCode, string(body))
-	}
 	out := map[string]interface{}{}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+func getProxyField(cfg *config.Config, kind string) string {
+	if cfg == nil {
+		return ""
+	}
+	switch kind {
+	case "base":
+		return cfg.GrokBaseProxyURL
+	case "asset":
+		return cfg.GrokAssetProxyURL
+	default:
+		return ""
+	}
+}
+
+func resolveFallbackProxy(cfg *config.Config) *url.URL {
+	if cfg == nil {
+		return nil
+	}
+	proxyAddr := strings.TrimSpace(cfg.ProxyHTTPS)
+	if proxyAddr == "" {
+		proxyAddr = strings.TrimSpace(cfg.ProxyHTTP)
+	}
+	return resolveGrokProxy(cfg, proxyAddr)
+}
+
+func resolveGrokProxy(cfg *config.Config, proxyAddr string) *url.URL {
+	proxyAddr = strings.TrimSpace(proxyAddr)
+	if proxyAddr == "" {
+		return nil
+	}
+	u, err := url.Parse(proxyAddr)
+	if err != nil {
+		return nil
+	}
+	if cfg != nil && u.User == nil && strings.TrimSpace(cfg.ProxyUser) != "" {
+		u.User = url.UserPassword(strings.TrimSpace(cfg.ProxyUser), strings.TrimSpace(cfg.ProxyPass))
+	}
+	return u
+}
+
+func newHTTPClient(cfg *config.Config, timeout time.Duration, proxyURL *url.URL) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if proxyURL != nil {
+		transport.Proxy = http.ProxyURL(proxyURL)
+	}
+	if cfg != nil && cfg.GrokUseUTLS {
+		transport = nil
+	}
+	var rt http.RoundTripper
+	if cfg != nil && cfg.GrokUseUTLS {
+		rt = newUTLSTransport(proxyURL)
+	} else {
+		rt = transport
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: rt,
+	}
+}
+
+func parseRetryAfter(raw string) time.Duration {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(raw); err == nil {
+		if secs <= 0 {
+			return 0
+		}
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(raw); err == nil {
+		delay := time.Until(t)
+		if delay > 0 {
+			return delay
+		}
+	}
+	return 0
+}
+
+func backoffDelay(baseDelay, retry429Delay, lastDelay time.Duration, attempt int, status int, retryAfter time.Duration) time.Duration {
+	maxDelay := 30 * time.Second
+	if retryAfter > 0 {
+		if retryAfter > maxDelay {
+			return maxDelay
+		}
+		return retryAfter
+	}
+
+	if status == http.StatusTooManyRequests {
+		if retry429Delay > 0 {
+			if retry429Delay > maxDelay {
+				return maxDelay
+			}
+			return retry429Delay
+		}
+		if lastDelay <= 0 {
+			lastDelay = baseDelay
+		}
+		upper := lastDelay * 3
+		if upper < baseDelay {
+			upper = baseDelay
+		}
+		delay := baseDelay + time.Duration(rand.Int63n(int64(upper-baseDelay)+1))
+		if delay > maxDelay {
+			return maxDelay
+		}
+		return delay
+	}
+
+	if baseDelay <= 0 {
+		baseDelay = 500 * time.Millisecond
+	}
+	exp := baseDelay * time.Duration(1<<max(0, attempt))
+	if exp > maxDelay {
+		exp = maxDelay
+	}
+	if exp <= 0 {
+		return baseDelay
+	}
+	return time.Duration(rand.Int63n(int64(exp) + 1))
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

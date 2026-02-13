@@ -52,6 +52,9 @@ type Config struct {
 	GrokUserAgent             string   `json:"grok_user_agent"`
 	GrokCFClearance           string   `json:"grok_cf_clearance"`
 	GrokCFBM                  string   `json:"grok_cf_bm"`
+	GrokBaseProxyURL          string   `json:"grok_base_proxy_url"`
+	GrokAssetProxyURL         string   `json:"grok_asset_proxy_url"`
+	GrokUseUTLS               bool     `json:"grok_use_utls"`
 	WarpDisableTools          *bool    `json:"warp_disable_tools"`
 	WarpMaxToolResults        int      `json:"warp_max_tool_results"`
 	WarpMaxHistoryMessages    int      `json:"warp_max_history_messages"`
