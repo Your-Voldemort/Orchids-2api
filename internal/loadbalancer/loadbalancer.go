@@ -203,6 +203,8 @@ const (
 	retry401Default = 5 * time.Minute
 	// 403/404 冷却时间：账号可能被封禁或配置错误，较长间隔后重试
 	retry403Default = 24 * time.Hour
+	// Grok 的 403 很多是 Cloudflare challenge/临时风控，不应长时间拉黑
+	retry403Grok = 10 * time.Minute
 )
 
 func (lb *LoadBalancer) isAccountAvailable(ctx context.Context, acc *store.Account) bool {
@@ -224,11 +226,16 @@ func (lb *LoadBalancer) isAccountAvailable(ctx context.Context, acc *store.Accou
 		}
 		return false
 	case "403", "404":
-		// 403/404 可能是临时封禁或配置问题，较长冷却后自动恢复
+		// 403/404 可能是临时封禁或配置问题。
+		// 对 Grok 来说，403 很多是 Cloudflare challenge，不应长时间拉黑。
 		if acc.LastAttempt.IsZero() {
 			return false
 		}
-		if now.Sub(acc.LastAttempt) >= retry403Default {
+		cooldown := retry403Default
+		if strings.EqualFold(acc.AccountType, "grok") {
+			cooldown = retry403Grok
+		}
+		if now.Sub(acc.LastAttempt) >= cooldown {
 			lb.clearAccountStatus(ctx, acc, status+" 冷却完成，自动恢复尝试")
 			return true
 		}
