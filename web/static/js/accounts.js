@@ -7,6 +7,19 @@ let pageSize = 20;
 let currentPage = 1;
 let modelCatalog = [];
 
+// DOM 缓存
+const domCache = {
+    accountsList: null,
+    paginationInfo: null,
+    paginationControls: null,
+};
+
+function initDOMCache() {
+    domCache.accountsList = document.getElementById("accountsList");
+    domCache.paginationInfo = document.getElementById("paginationInfo");
+    domCache.paginationControls = document.getElementById("paginationControls");
+}
+
 const fallbackAgentModes = {
   orchids: [
     "claude-sonnet-4-5",
@@ -417,7 +430,7 @@ async function batchDeleteAccounts() {
 
 // Render accounts table
 function renderAccounts() {
-  const container = document.getElementById("accountsList");
+  const container = domCache.accountsList || document.getElementById("accountsList");
   const filtered = accounts.filter(acc => {
     if (!currentPlatform) return true;
     const key = currentPlatform.toLowerCase();
@@ -452,7 +465,8 @@ function renderAccounts() {
     empty.appendChild(icon);
     empty.appendChild(text);
     container.appendChild(empty);
-    document.getElementById("paginationInfo").textContent = `共 0 条记录，第 1/1 页`;
+    const paginationInfo = domCache.paginationInfo || document.getElementById("paginationInfo");
+    paginationInfo.textContent = `共 0 条记录，第 1/1 页`;
     renderPagination(1, 1);
     return;
   }
@@ -493,6 +507,9 @@ function renderAccounts() {
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
+  
+  // 使用 DocumentFragment 批量构建表格行
+  const fragment = document.createDocumentFragment();
   pageItems.forEach((acc) => {
     const badge = statusBadge(acc);
     const tokenDisplay = formatTokenDisplay(acc);
@@ -602,13 +619,18 @@ function renderAccounts() {
     tdActions.appendChild(actionWrap);
     tr.appendChild(tdActions);
 
-    tbody.appendChild(tr);
+    // 将行添加到 fragment 而不是直接添加到 tbody
+    fragment.appendChild(tr);
   });
+  
+  // 一次性将所有行插入到 tbody
+  tbody.appendChild(fragment);
   table.appendChild(tbody);
   wrap.appendChild(table);
   container.appendChild(wrap);
 
-  document.getElementById("paginationInfo").textContent = `共 ${total} 条记录，第 ${currentPage}/${totalPages} 页`;
+  const paginationInfo = domCache.paginationInfo || document.getElementById("paginationInfo");
+  paginationInfo.textContent = `共 ${total} 条记录，第 ${currentPage}/${totalPages} 页`;
   renderPagination(currentPage, totalPages);
   updateSelectedCount();
 
@@ -638,7 +660,7 @@ function renderAccounts() {
 }
 
 function renderPagination(current, total) {
-  const container = document.getElementById("paginationControls");
+  const container = domCache.paginationControls || document.getElementById("paginationControls");
   if (!container) return;
 
   container.innerHTML = "";
@@ -968,6 +990,7 @@ async function importAccounts(event) {
 
 // Load accounts on page load
 document.addEventListener('DOMContentLoaded', () => {
+  initDOMCache();
   loadAccounts();
   const typeSelect = document.getElementById("accountType");
   if (typeSelect) {

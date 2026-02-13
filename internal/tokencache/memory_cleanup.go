@@ -3,7 +3,7 @@ package tokencache
 import "time"
 
 func (c *MemoryCache) cleanupLoop() {
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {

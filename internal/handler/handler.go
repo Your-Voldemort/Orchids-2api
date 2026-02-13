@@ -35,15 +35,16 @@ type Handler struct {
 	loadBalancer *loadbalancer.LoadBalancer
 	tokenCache   tokencache.Cache
 
-	sessionWorkdirsMu sync.RWMutex
-	sessionWorkdirs   map[string]string    // Map conversationKey -> string (workdir)
-	sessionConvIDs    map[string]string    // Map conversationKey -> upstream warp conversationID
-	sessionLastAccess map[string]time.Time // Map conversationKey -> last access time
+	sessionWorkdirs   *ShardedMap[string]    // Map conversationKey -> string (workdir)
+	sessionConvIDs    *ShardedMap[string]    // Map conversationKey -> upstream warp conversationID
+	sessionLastAccess *ShardedMap[time.Time] // Map conversationKey -> last access time
+	sessionCleanupMu  sync.Mutex             // Protects sessionCleanupRun
 	sessionCleanupRun time.Time
 
 	recentReqMu      sync.Mutex
 	recentRequests   map[string]*recentRequest
 	recentCleanupRun time.Time
+	recentCleaner    *AsyncCleaner // 异步清理器
 }
 
 type UpstreamClient interface {
@@ -84,14 +85,23 @@ func NewWithLoadBalancer(cfg *config.Config, lb *loadbalancer.LoadBalancer) *Han
 	h := &Handler{
 		config:            cfg,
 		loadBalancer:      lb,
-		sessionWorkdirs:   make(map[string]string),
-		sessionConvIDs:    make(map[string]string),
-		sessionLastAccess: make(map[string]time.Time),
+		sessionWorkdirs:   NewShardedMap[string](),
+		sessionConvIDs:    NewShardedMap[string](),
+		sessionLastAccess: NewShardedMap[time.Time](),
 		recentRequests:    make(map[string]*recentRequest),
 	}
 	if cfg != nil {
 		h.client = orchids.New(cfg)
 	}
+	
+	// 启动异步清理器，每 5 秒清理一次过期请求
+	h.recentCleaner = NewAsyncCleaner(5 * time.Second)
+	h.recentCleaner.Start(func() {
+		h.recentReqMu.Lock()
+		defer h.recentReqMu.Unlock()
+		h.cleanupRecentLocked(time.Now())
+	})
+	
 	return h
 }
 
@@ -136,11 +146,9 @@ func (h *Handler) registerRequest(hash string) (bool, bool) {
 		}
 		rec.last = now
 		rec.inFlight++
-		h.cleanupRecentLocked(now)
 		return false, false
 	}
 	h.recentRequests[hash] = &recentRequest{last: now, inFlight: 1}
-	h.cleanupRecentLocked(now)
 	return false, false
 }
 
@@ -156,7 +164,6 @@ func (h *Handler) finishRequest(hash string) {
 		rec.inFlight--
 	}
 	rec.last = now
-	h.cleanupRecentLocked(now)
 }
 
 func (h *Handler) cleanupRecentLocked(now time.Time) {
@@ -326,10 +333,8 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		req.Messages = resetMessagesForNewWorkdir(req.Messages)
 		// 工作目录变化时清除上游会话ID，强制开启新对话
 		if conversationKey != "" {
-			h.sessionWorkdirsMu.Lock()
-			delete(h.sessionConvIDs, conversationKey)
-			delete(h.sessionLastAccess, conversationKey)
-			h.sessionWorkdirsMu.Unlock()
+			h.sessionConvIDs.Delete(conversationKey)
+			h.sessionLastAccess.Delete(conversationKey)
 		}
 	}
 
@@ -515,11 +520,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		if conversationKey == "" {
 			return
 		}
-		h.sessionWorkdirsMu.Lock()
-		h.sessionConvIDs[conversationKey] = id
-		h.sessionLastAccess[conversationKey] = time.Now()
-		h.cleanupSessionWorkdirsLocked()
-		h.sessionWorkdirsMu.Unlock()
+		h.sessionConvIDs.Set(conversationKey, id)
+		h.sessionLastAccess.Set(conversationKey, time.Now())
+		h.cleanupSessionWorkdirs()
 		slog.Debug("Warp conversationID captured", "key", conversationKey, "id", id)
 	}
 	defer sh.release()
@@ -572,11 +575,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		// 复用上游返回的 conversationID，保持会话连续性
 		chatSessionID := ""
 		if conversationKey != "" {
-			h.sessionWorkdirsMu.Lock()
-			chatSessionID = h.sessionConvIDs[conversationKey]
-			h.sessionLastAccess[conversationKey] = time.Now()
-			h.cleanupSessionWorkdirsLocked()
-			h.sessionWorkdirsMu.Unlock()
+			chatSessionID, _ = h.sessionConvIDs.Get(conversationKey)
+			h.sessionLastAccess.Set(conversationKey, time.Now())
+			h.cleanupSessionWorkdirs()
 		}
 		if chatSessionID == "" {
 			chatSessionID = "chat_" + randomSessionID()

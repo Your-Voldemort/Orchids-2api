@@ -8,10 +8,13 @@ import (
 )
 
 func TestResolveWorkdir_NoSessionFallbackWithoutExplicitConversation(t *testing.T) {
+	sessionWorkdirs := NewShardedMap[string]()
+	sessionWorkdirs.Set("k1", "/stale/workdir")
+	
 	h := &Handler{
-		sessionWorkdirs:   map[string]string{"k1": "/stale/workdir"},
-		sessionConvIDs:    map[string]string{},
-		sessionLastAccess: map[string]time.Time{},
+		sessionWorkdirs:   sessionWorkdirs,
+		sessionConvIDs:    NewShardedMap[string](),
+		sessionLastAccess: NewShardedMap[time.Time](),
 	}
 	r := httptest.NewRequest(http.MethodPost, "http://example.com/warp/v1/messages", nil)
 	req := ClaudeRequest{}

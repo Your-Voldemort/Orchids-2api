@@ -148,9 +148,7 @@ func TestHandleMessages_Warp_StreamAndJSON(t *testing.T) {
 
 	// ensure upstream conversation id stored
 	convKey := conversationKeyForRequest(httptest.NewRequest(http.MethodPost, "http://x/warp/v1/messages", nil), ClaudeRequest{ConversationID: "c1"})
-	h.sessionWorkdirsMu.RLock()
-	got := h.sessionConvIDs[convKey]
-	h.sessionWorkdirsMu.RUnlock()
+	got, _ := h.sessionConvIDs.Get(convKey)
 	if got != "conv1" {
 		t.Fatalf("expected stored upstream conversation id conv1, got %q", got)
 	}

@@ -27,10 +27,12 @@ type MemoryCache struct {
 }
 
 type cacheItem struct {
-	tokens    int
-	expiresAt time.Time
-	size      int64
+	tokens     int
+	expiresAt  time.Time
+	accessedAt time.Time
+	size       int64
 }
+
 
 func NewMemoryCache(ttl time.Duration, maxEntries ...int) *MemoryCache {
 	if ttl < 0 {
@@ -102,6 +104,15 @@ func (c *MemoryCache) Get(ctx context.Context, key string) (int, bool) {
 		return 0, false
 	}
 	c.mu.RUnlock()
+	
+	// Update access timestamp
+	c.mu.Lock()
+	if item, ok := c.items[key]; ok {
+		item.accessedAt = time.Now()
+		c.items[key] = item
+	}
+	c.mu.Unlock()
+	
 	return item.tokens, true
 }
 
@@ -109,42 +120,45 @@ func (c *MemoryCache) Put(ctx context.Context, key string, tokens int) {
 	if c == nil {
 		return
 	}
+	now := time.Now()
 	expiresAt := time.Time{}
 	if c.ttl > 0 {
-		expiresAt = time.Now().Add(c.ttl)
+		expiresAt = now.Add(c.ttl)
 	}
 	size := int64(len(key)) + 8
 	c.mu.Lock()
 	if existing, ok := c.items[key]; ok {
 		c.sizeBytes -= existing.size
 	} else if c.maxEntries > 0 && len(c.items) >= c.maxEntries {
-		c.evictOldestLocked()
+		c.evictLRULocked()
 	}
 	c.items[key] = cacheItem{
-		tokens:    tokens,
-		expiresAt: expiresAt,
-		size:      size,
+		tokens:     tokens,
+		expiresAt:  expiresAt,
+		accessedAt: now,
+		size:       size,
 	}
 	c.sizeBytes += size
 	c.mu.Unlock()
 }
 
-func (c *MemoryCache) evictOldestLocked() {
-	var oldestKey string
-	var oldestTime time.Time
+func (c *MemoryCache) evictLRULocked() {
+	var lruKey string
+	var lruTime time.Time
 	first := true
 	for k, item := range c.items {
-		if first || item.expiresAt.Before(oldestTime) {
-			oldestKey = k
-			oldestTime = item.expiresAt
+		if first || item.accessedAt.Before(lruTime) {
+			lruKey = k
+			lruTime = item.accessedAt
 			first = false
 		}
 	}
 	if !first {
-		c.sizeBytes -= c.items[oldestKey].size
-		delete(c.items, oldestKey)
+		c.sizeBytes -= c.items[lruKey].size
+		delete(c.items, lruKey)
 	}
 }
+
 
 func (c *MemoryCache) GetStats(ctx context.Context) (int64, int64, error) {
 	if c == nil {

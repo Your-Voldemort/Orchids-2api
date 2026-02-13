@@ -73,33 +73,40 @@ func (c *Client) userAgent() string {
 	return defaultUA
 }
 
+// baseHeaders 是预分配的请求头模板，包含所有固定的请求头
+// 这避免了在每次请求时重新分配这些固定头，提升性能
+var baseHeaders = http.Header{
+	"Accept":              []string{"*/*"},
+	"Accept-Language":     []string{"zh-CN,zh;q=0.9,en;q=0.8"},
+	"Cache-Control":       []string{"no-cache"},
+	"Content-Type":        []string{"application/json"},
+	"Origin":              []string{"https://grok.com"},
+	"Pragma":              []string{"no-cache"},
+	"Referer":             []string{"https://grok.com/"},
+	"Priority":            []string{"u=1, i"},
+	"Sec-Ch-Ua":           []string{`"Google Chrome";v="136", "Chromium";v="136", "Not(A:Brand";v="24"`},
+	"Sec-Ch-Ua-Platform":  []string{`"macOS"`},
+	"Sec-Fetch-Dest":      []string{"empty"},
+	"Sec-Fetch-Mode":      []string{"cors"},
+	"Sec-Fetch-Site":      []string{"same-origin"},
+	"sec-ch-ua":           []string{`"Chromium";v="131", "Google Chrome";v="131", "Not_A Brand";v="24"`},
+	"sec-ch-ua-mobile":    []string{"?0"},
+	"sec-ch-ua-platform":  []string{`"Windows"`},
+}
+
 func (c *Client) headers(token string) http.Header {
-	h := http.Header{}
-	h.Set("Accept", "*/*")
-	// Let net/http manage Accept-Encoding so gzip is transparently decoded.
-	// Manually setting it disables automatic decompression and can break JSON parsing.
-	h.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	h.Set("Cache-Control", "no-cache")
-	h.Set("Content-Type", "application/json")
-	h.Set("Origin", "https://grok.com")
-	h.Set("Pragma", "no-cache")
-	h.Set("Referer", "https://grok.com/")
-	h.Set("Priority", "u=1, i")
-	h.Set("Sec-Ch-Ua", `"Google Chrome";v="136", "Chromium";v="136", "Not(A:Brand";v="24"`)
-	h.Set("Sec-Ch-Ua-Platform", `"macOS"`)
-	h.Set("Sec-Fetch-Dest", "empty")
-	h.Set("Sec-Fetch-Mode", "cors")
-	h.Set("Sec-Fetch-Site", "same-origin")
+	// 从预分配的模板克隆请求头
+	h := make(http.Header, len(baseHeaders))
+	for k, v := range baseHeaders {
+		h[k] = v
+	}
+	
+	// 添加动态请求头
 	h.Set("User-Agent", c.userAgent())
-	h.Set("sec-ch-ua", `"Chromium";v="131", "Google Chrome";v="131", "Not_A Brand";v="24"`)
-	h.Set("sec-ch-ua-mobile", "?0")
-	h.Set("sec-ch-ua-platform", `"Windows"`)
-	h.Set("Sec-Fetch-Dest", "empty")
-	h.Set("Sec-Fetch-Mode", "cors")
-	h.Set("Sec-Fetch-Site", "same-origin")
-	h.Set("Priority", "u=1, i")
 	h.Set("x-statsig-id", buildStatsigID())
 	h.Set("x-xai-request-id", randomHex(16))
+	
+	// 构建 Cookie
 	cookie := "sso=" + token + "; sso-rw=" + token
 	if c.cfg != nil && strings.TrimSpace(c.cfg.GrokCFClearance) != "" {
 		cookie += "; cf_clearance=" + strings.TrimSpace(c.cfg.GrokCFClearance)
@@ -108,6 +115,7 @@ func (c *Client) headers(token string) http.Header {
 		cookie += "; __cf_bm=" + strings.TrimSpace(c.cfg.GrokCFBM)
 	}
 	h.Set("Cookie", cookie)
+	
 	return h
 }
 
@@ -515,6 +523,9 @@ func resolveGrokProxy(cfg *config.Config, proxyAddr string) *url.URL {
 
 func newHTTPClient(cfg *config.Config, timeout time.Duration, proxyURL *url.URL) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 100
+	transport.MaxIdleConnsPerHost = 20
+	transport.IdleConnTimeout = 90 * time.Second
 	if proxyURL != nil {
 		transport.Proxy = http.ProxyURL(proxyURL)
 	}

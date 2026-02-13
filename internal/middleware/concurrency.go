@@ -15,12 +15,14 @@ import (
 // ConcurrencyLimiter limits concurrent request processing using a weighted semaphore.
 // This is more efficient than channel-based semaphore for high-throughput scenarios.
 type ConcurrencyLimiter struct {
-	sem           *semaphore.Weighted
-	maxConcurrent int64
-	timeout       time.Duration
+	// 64-bit atomic fields must be at the top for 32-bit alignment
 	activeCount   int64
 	totalReqs     int64
 	rejectedReqs  int64
+	maxConcurrent int64
+
+	sem     *semaphore.Weighted
+	timeout time.Duration
 
 	// Adaptive timeout
 	adaptive      bool
