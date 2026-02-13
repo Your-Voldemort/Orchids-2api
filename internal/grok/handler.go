@@ -59,6 +59,16 @@ func (h *Handler) selectAccount(ctx context.Context) (*store.Account, string, er
 	return acc, token, nil
 }
 
+func (h *Handler) trackAccount(acc *store.Account) func() {
+	if h == nil || h.lb == nil || acc == nil || acc.ID == 0 {
+		return func() {}
+	}
+	h.lb.AcquireConnection(acc.ID)
+	return func() {
+		h.lb.ReleaseConnection(acc.ID)
+	}
+}
+
 func (h *Handler) markAccountStatus(ctx context.Context, acc *store.Account, err error) {
 	if acc == nil || err == nil || h.lb == nil {
 		return
@@ -153,6 +163,10 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+	release := h.trackAccount(acc)
+	defer release()
+	release := h.trackAccount(acc)
+	defer release()
 
 	text, attachments, err := extractMessageAndAttachments(req.Messages, spec.IsVideo)
 	if err != nil {
@@ -684,6 +698,8 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 		http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+	release := h.trackAccount(acc)
+	defer release()
 
 	onePayload := h.client.chatPayload(spec, "Image Generation: "+req.Prompt, true)
 	if req.Stream {
@@ -858,6 +874,8 @@ func (h *Handler) HandleImagesEdits(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
+	release := h.trackAccount(acc)
+	defer release()
 
 	imageURLs := make([]string, 0, len(files))
 	for _, fh := range files {
