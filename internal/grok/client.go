@@ -166,7 +166,7 @@ func (c *Client) VerifyToken(ctx context.Context, token, modelID string) (*RateL
 	payload := c.chatPayload(spec, "ping", true)
 	resp, chatErr := c.doChat(ctx, token, payload)
 	if chatErr != nil {
-		return nil, err
+		return nil, chatErr
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))

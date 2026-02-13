@@ -200,6 +200,23 @@ function normalizeAccountType(acc) {
   return (acc.account_type || 'orchids').toLowerCase();
 }
 
+function getQuotaStats(acc) {
+  if (!acc) return null;
+  const limit = Math.floor(acc.usage_limit || 0);
+  if (limit <= 0) return null;
+  const type = normalizeAccountType(acc);
+  const current = Math.floor(acc.usage_current || 0);
+  let remaining = 0;
+  if (type === "warp") {
+    remaining = Math.max(0, limit - current);
+  } else {
+    remaining = Math.max(0, current);
+  }
+  const used = Math.max(0, limit - remaining);
+  const pctRemaining = limit > 0 ? Math.min(100, Math.round((remaining / limit) * 100)) : 0;
+  return { limit, remaining, used, pctRemaining };
+}
+
 function getAccountToken(acc) {
   if (!acc) return '';
   const type = normalizeAccountType(acc);
@@ -309,17 +326,9 @@ function evaluateAccountStatus(acc) {
     return { normal: false, text: '待补全', color: '#f59e0b', bg: 'rgba(245, 158, 11, 0.16)', tip: '缺少会话信息' };
   }
 
-  if (acc.usage_limit > 0) {
-    const used = acc.usage_current || 0;
-    const limit = acc.usage_limit || 0;
-    if (type === 'orchids' || type === 'grok') {
-      const remaining = Math.max(0, limit - used);
-      if (remaining <= 0) {
-        return { normal: false, text: '配额已满', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: '配额已用尽 (剩余 0 / ' + Math.floor(limit) + ')' };
-      }
-    } else if (used >= limit) {
-      return { normal: false, text: '配额已满', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: '配额已用尽 (已用 ' + Math.floor(used) + ' / ' + Math.floor(limit) + ')' };
-    }
+  const quota = getQuotaStats(acc);
+  if (quota && quota.limit > 0 && quota.remaining <= 0) {
+    return { normal: false, text: '配额已满', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.16)', tip: '配额已用尽 (剩余 0 / ' + quota.limit.toLocaleString() + ')' };
   }
 
   return { normal: true, text: '正常', color: '#34d399', bg: 'rgba(52, 211, 153, 0.16)', tip: '状态正常' };
@@ -337,9 +346,8 @@ function statusBadge(acc) {
 // Check single account
 async function checkAccount(id, silent = false) {
   const acc = accounts.find((a) => a.id === id);
-  const type = acc ? normalizeAccountType(acc) : "orchids";
-  const action = type === "grok" ? "verify" : "refresh";
-  const actionText = action === "verify" ? "验证" : "刷新";
+  const action = "check";
+  const actionText = "检查";
   try {
     const res = await fetch(`/api/accounts/${id}/${action}`);
     if (!res.ok) {
@@ -488,7 +496,6 @@ function renderAccounts() {
   pageItems.forEach((acc) => {
     const badge = statusBadge(acc);
     const tokenDisplay = formatTokenDisplay(acc);
-    const type = normalizeAccountType(acc);
     const tr = document.createElement("tr");
 
     const tdCheck = document.createElement("td");
@@ -526,19 +533,11 @@ function renderAccounts() {
 
     const tdQuota = document.createElement("td");
     tdQuota.style.fontSize = "0.85rem";
-    if (acc.usage_limit > 0) {
-      const used = Math.floor(acc.usage_current || 0);
-      const limit = Math.floor(acc.usage_limit);
-      if (type === 'orchids' || type === 'grok') {
-        const remaining = Math.max(0, limit - used);
-        const pct = limit > 0 ? Math.min(100, Math.round(((limit - remaining) / limit) * 100)) : 0;
-        const color = pct >= 90 ? "#fb7185" : pct >= 70 ? "#f59e0b" : "#34d399";
-        tdQuota.innerHTML = `<span style="color:${color}">${remaining.toLocaleString()} / ${limit.toLocaleString()}</span> <span style="color:#64748b;font-size:0.75rem">(剩余)</span>`;
-      } else {
-        const pct = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-        const color = pct >= 90 ? "#fb7185" : pct >= 70 ? "#f59e0b" : "#34d399";
-        tdQuota.innerHTML = `<span style="color:${color}">${used.toLocaleString()} / ${limit.toLocaleString()}</span> <span style="color:#64748b;font-size:0.75rem">(${pct}%)</span>`;
-      }
+    const quota = getQuotaStats(acc);
+    if (quota) {
+      const pct = quota.pctRemaining;
+      const color = pct <= 10 ? "#fb7185" : pct <= 30 ? "#f59e0b" : "#34d399";
+      tdQuota.innerHTML = `<span style="color:${color}">${quota.remaining.toLocaleString()} / ${quota.limit.toLocaleString()}</span> <span style="color:#64748b;font-size:0.75rem">(剩余)</span>`;
     } else {
       tdQuota.style.color = "#64748b";
       tdQuota.textContent = "-";
@@ -587,7 +586,7 @@ function renderAccounts() {
     refresh.className = "action-icon";
     refresh.dataset.action = "refresh";
     refresh.dataset.id = encodeData(acc.id);
-    refresh.title = type === "grok" ? "验证" : "刷新";
+    refresh.title = "检查";
     refresh.textContent = "🔄";
 
     const del = document.createElement("i");
@@ -856,8 +855,7 @@ function editAccount(id) {
 // Refresh token
 async function refreshToken(id) {
   const acc = accounts.find((a) => a.id === id);
-  const type = acc ? normalizeAccountType(acc) : "orchids";
-  const actionText = type === "grok" ? "验证" : "刷新";
+  const actionText = "检查";
   showToast(`正在${actionText}账号信息...`, "info");
   await checkAccount(id, false);
 }

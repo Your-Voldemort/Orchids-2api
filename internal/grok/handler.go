@@ -59,20 +59,35 @@ func (h *Handler) selectAccount(ctx context.Context) (*store.Account, string, er
 	return acc, token, nil
 }
 
+func (h *Handler) markAccountStatus(ctx context.Context, acc *store.Account, err error) {
+	if acc == nil || err == nil || h.lb == nil {
+		return
+	}
+	status := classifyAccountStatusFromError(err.Error())
+	if status == "" {
+		return
+	}
+	h.lb.MarkAccountStatus(ctx, acc, status)
+}
+
 func (h *Handler) syncGrokQuota(acc *store.Account, headers http.Header) {
 	if acc == nil || h.lb == nil || h.lb.Store == nil {
 		return
 	}
 	info := parseRateLimitInfo(headers)
-	if info == nil || info.Limit <= 0 {
+	if info == nil || (info.Limit <= 0 && info.Remaining <= 0) {
 		return
 	}
-	used := info.Limit - info.Remaining
-	if used < 0 {
-		used = 0
+	limit := info.Limit
+	remaining := info.Remaining
+	if remaining < 0 {
+		remaining = 0
 	}
-	acc.UsageLimit = float64(info.Limit)
-	acc.UsageCurrent = float64(used)
+	if limit <= 0 && remaining > 0 {
+		limit = remaining
+	}
+	acc.UsageLimit = float64(limit)
+	acc.UsageCurrent = float64(remaining)
 	if !info.ResetAt.IsZero() {
 		acc.QuotaResetAt = info.ResetAt
 	}
@@ -151,17 +166,20 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	fileAttachments, err := h.uploadAttachmentInputs(r.Context(), token, attachments)
 	if err != nil {
+		h.markAccountStatus(r.Context(), acc, err)
 		http.Error(w, "attachment upload failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
 	payload, err := h.buildChatPayload(r.Context(), token, spec, text, fileAttachments, req.VideoConfig)
 	if err != nil {
+		h.markAccountStatus(r.Context(), acc, err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
 	resp, err := h.client.doChat(r.Context(), token, payload)
 	if err != nil {
+		h.markAccountStatus(r.Context(), acc, err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -661,7 +679,7 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	_, token, err := h.selectAccount(r.Context())
+	acc, token, err := h.selectAccount(r.Context())
 	if err != nil {
 		http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
 		return
@@ -671,10 +689,12 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 	if req.Stream {
 		resp, err := h.client.doChat(r.Context(), token, onePayload)
 		if err != nil {
+			h.markAccountStatus(r.Context(), acc, err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()
+		h.syncGrokQuota(acc, resp.Header)
 		h.streamImageGeneration(w, resp.Body, token, req.ResponseFormat, req.N)
 		return
 	}
@@ -688,9 +708,11 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 	for i := 0; i < callsNeeded; i++ {
 		resp, err := h.client.doChat(r.Context(), token, onePayload)
 		if err != nil {
+			h.markAccountStatus(r.Context(), acc, err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		h.syncGrokQuota(acc, resp.Header)
 		err = parseUpstreamLines(resp.Body, func(line map[string]interface{}) error {
 			if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
 				urls = append(urls, extractImageURLs(mr)...)
@@ -831,7 +853,7 @@ func (h *Handler) HandleImagesEdits(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, token, err := h.selectAccount(r.Context())
+	acc, token, err := h.selectAccount(r.Context())
 	if err != nil {
 		http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
 		return
@@ -876,6 +898,7 @@ func (h *Handler) HandleImagesEdits(w http.ResponseWriter, r *http.Request) {
 		dataURI := dataURIFromBytes(mime, data)
 		_, fileURI, err := h.uploadSingleInput(r.Context(), token, dataURI)
 		if err != nil {
+			h.markAccountStatus(r.Context(), acc, err)
 			http.Error(w, "image upload failed: "+err.Error(), http.StatusBadGateway)
 			return
 		}
@@ -904,10 +927,12 @@ func (h *Handler) HandleImagesEdits(w http.ResponseWriter, r *http.Request) {
 	if stream {
 		resp, err := h.client.doChat(r.Context(), token, rawPayload)
 		if err != nil {
+			h.markAccountStatus(r.Context(), acc, err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()
+		h.syncGrokQuota(acc, resp.Header)
 		h.streamImageGeneration(w, resp.Body, token, responseFormat, n)
 		return
 	}
@@ -921,9 +946,11 @@ func (h *Handler) HandleImagesEdits(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < callsNeeded; i++ {
 		resp, err := h.client.doChat(r.Context(), token, rawPayload)
 		if err != nil {
+			h.markAccountStatus(r.Context(), acc, err)
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+		h.syncGrokQuota(acc, resp.Header)
 		err = parseUpstreamLines(resp.Body, func(line map[string]interface{}) error {
 			if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
 				urls = append(urls, extractImageURLs(mr)...)
@@ -1054,7 +1081,7 @@ func (h *Handler) HandleAdminVoiceToken(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	_, token, err := h.selectAccount(r.Context())
+	acc, token, err := h.selectAccount(r.Context())
 	if err != nil {
 		http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
 		return
@@ -1062,6 +1089,7 @@ func (h *Handler) HandleAdminVoiceToken(w http.ResponseWriter, r *http.Request) 
 
 	data, err := h.client.getVoiceToken(r.Context(), token, voice, personality, speed)
 	if err != nil {
+		h.markAccountStatus(r.Context(), acc, err)
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}

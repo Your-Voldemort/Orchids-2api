@@ -431,78 +431,11 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 
 	isRefresh := len(parts) > 1 && parts[1] == "refresh"
 	isVerify := len(parts) > 1 && parts[1] == "verify"
+	isCheck := len(parts) > 1 && parts[1] == "check"
 	isUsage := len(parts) > 1 && parts[1] == "usage"
 
 	switch r.Method {
 	case http.MethodGet:
-		if isVerify {
-			acc, err := a.store.GetAccount(r.Context(), id)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusNotFound)
-				return
-			}
-			if !strings.EqualFold(acc.AccountType, "grok") {
-				http.Error(w, "Verify is only supported for grok accounts", http.StatusBadRequest)
-				return
-			}
-			if strings.TrimSpace(acc.ClientCookie) == "" {
-				http.Error(w, "Failed to verify grok account: missing sso token", http.StatusBadRequest)
-				return
-			}
-
-			var cfg *config.Config
-			a.configMu.RLock()
-			if raw, ok := a.config.(*config.Config); ok {
-				cfg = raw
-			}
-			a.configMu.RUnlock()
-			client := grok.New(cfg)
-
-			verifyCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-			info, verifyErr := client.VerifyToken(verifyCtx, acc.ClientCookie, acc.AgentMode)
-			cancel()
-			if verifyErr != nil {
-				status := classifyAccountStatusFromError(verifyErr.Error())
-				if status != "" {
-					acc.StatusCode = status
-					acc.LastAttempt = time.Now()
-					if updateErr := a.store.UpdateAccount(r.Context(), acc); updateErr != nil {
-						slog.Warn("Failed to persist grok verify status", "account_id", acc.ID, "error", updateErr)
-					}
-				}
-				http.Error(w, "Failed to verify grok account: "+verifyErr.Error(), httpStatusFromAccountStatus(status))
-				return
-			}
-
-			acc.StatusCode = ""
-			acc.LastAttempt = time.Time{}
-			acc.QuotaResetAt = time.Time{}
-
-			if info != nil {
-				if info.Limit > 0 {
-					used := info.Limit - info.Remaining
-					if used < 0 {
-						used = 0
-					}
-					acc.UsageLimit = float64(info.Limit)
-					acc.UsageCurrent = float64(used)
-				} else if info.Remaining > 0 {
-					// Only remaining is known; expose it as limit with 0 used.
-					acc.UsageLimit = float64(info.Remaining)
-					acc.UsageCurrent = 0
-				}
-				if !info.ResetAt.IsZero() {
-					acc.QuotaResetAt = info.ResetAt
-				}
-			}
-
-			if err := a.store.UpdateAccount(r.Context(), acc); err != nil {
-				http.Error(w, "Failed to save verified account: "+err.Error(), http.StatusInternalServerError)
-				return
-			}
-			json.NewEncoder(w).Encode(normalizeAccountOutput(acc))
-			return
-		}
 		if isUsage {
 			acc, err := a.store.GetAccount(r.Context(), id)
 			if err != nil {
@@ -521,7 +454,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if isRefresh {
+		if isRefresh || isVerify || isCheck {
 			acc, err := a.store.GetAccount(r.Context(), id)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusNotFound)
@@ -541,15 +474,87 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 					if code := warp.HTTPStatusCode(err); code >= 400 {
 						status = code
 					}
+					if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusTooManyRequests {
+						acc.StatusCode = strconv.Itoa(status)
+						acc.LastAttempt = time.Now()
+						if updateErr := a.store.UpdateAccount(r.Context(), acc); updateErr != nil {
+							slog.Warn("Failed to persist warp refresh status", "account_id", acc.ID, "error", updateErr)
+						}
+					}
 					http.Error(w, "Failed to refresh warp account: "+err.Error(), status)
 					return
 				}
 				acc.Token = jwt
 				warpClient.SyncAccountState()
+
+				limitCtx, limitCancel := context.WithTimeout(r.Context(), 15*time.Second)
+				limitInfo, bonuses, limitErr := warpClient.GetRequestLimitInfo(limitCtx)
+				limitCancel()
+				if limitErr == nil && limitInfo != nil {
+					if limitInfo.IsUnlimited {
+						acc.Subscription = "unlimited"
+					} else {
+						acc.Subscription = "free"
+					}
+					totalLimit := float64(limitInfo.RequestLimit)
+					for _, bg := range bonuses {
+						totalLimit += float64(bg.RequestCreditsRemaining)
+					}
+					usedRequests := float64(limitInfo.RequestsUsedSinceLastRefresh)
+					acc.UsageLimit = totalLimit
+					acc.UsageCurrent = usedRequests
+					if limitInfo.NextRefreshTime != "" {
+						if t, err := time.Parse(time.RFC3339, limitInfo.NextRefreshTime); err == nil {
+							acc.QuotaResetAt = t
+						}
+					}
+				}
 			} else if strings.EqualFold(acc.AccountType, "grok") {
 				if strings.TrimSpace(acc.ClientCookie) == "" {
-					http.Error(w, "Failed to refresh grok account: missing sso token", http.StatusBadRequest)
+					http.Error(w, "Failed to verify grok account: missing sso token", http.StatusBadRequest)
 					return
+				}
+
+				var cfg *config.Config
+				a.configMu.RLock()
+				if raw, ok := a.config.(*config.Config); ok {
+					cfg = raw
+				}
+				a.configMu.RUnlock()
+				client := grok.New(cfg)
+
+				verifyCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+				info, verifyErr := client.VerifyToken(verifyCtx, acc.ClientCookie, acc.AgentMode)
+				cancel()
+				if verifyErr != nil {
+					status := classifyAccountStatusFromError(verifyErr.Error())
+					if status != "" {
+						acc.StatusCode = status
+						acc.LastAttempt = time.Now()
+						if updateErr := a.store.UpdateAccount(r.Context(), acc); updateErr != nil {
+							slog.Warn("Failed to persist grok verify status", "account_id", acc.ID, "error", updateErr)
+						}
+					}
+					http.Error(w, "Failed to verify grok account: "+verifyErr.Error(), httpStatusFromAccountStatus(status))
+					return
+				}
+
+				if info != nil {
+					limit := info.Limit
+					remaining := info.Remaining
+					if remaining < 0 {
+						remaining = 0
+					}
+					if limit <= 0 && remaining > 0 {
+						limit = remaining
+					}
+					if limit > 0 {
+						acc.UsageLimit = float64(limit)
+						acc.UsageCurrent = float64(remaining)
+					}
+					if !info.ResetAt.IsZero() {
+						acc.QuotaResetAt = info.ResetAt
+					}
 				}
 			} else {
 				info, err := clerk.FetchAccountInfoWithSession(acc.ClientCookie, acc.SessionCookie)
@@ -576,6 +581,14 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 					}
 
 					if refreshErr != nil {
+						status := classifyAccountStatusFromError(refreshErr.Error())
+						if status != "" {
+							acc.StatusCode = status
+							acc.LastAttempt = time.Now()
+							if updateErr := a.store.UpdateAccount(r.Context(), acc); updateErr != nil {
+								slog.Warn("Failed to persist orchids refresh status", "account_id", acc.ID, "error", updateErr)
+							}
+						}
 						http.Error(w, "Failed to refresh account: "+refreshErr.Error(), http.StatusBadRequest)
 						return
 					}
@@ -609,13 +622,12 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
-			// 刷新成功后清理账号状态
+			// 刷新/验证成功后清理账号状态
 			acc.StatusCode = ""
 			acc.LastAttempt = time.Time{}
-			acc.QuotaResetAt = time.Time{}
 
 			if err := a.store.UpdateAccount(r.Context(), acc); err != nil {
-				http.Error(w, "Failed to save refreshed account: "+err.Error(), http.StatusInternalServerError)
+				http.Error(w, "Failed to save checked account: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
 			json.NewEncoder(w).Encode(normalizeAccountOutput(acc))
