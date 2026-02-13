@@ -147,11 +147,12 @@ func stripToolAndRenderMarkup(text string) string {
 	if strings.TrimSpace(text) == "" {
 		return text
 	}
-	// Remove xai tool cards
+	// Remove xai tool cards (some upstream variants omit the leading '<')
 	text = regexp.MustCompile(`(?is)<xai:tool_usage_card.*?</xai:tool_usage_card>`).ReplaceAllString(text, "")
+	text = regexp.MustCompile(`(?is)xai:tool_usage_card.*?</xai:tool_usage_card>`).ReplaceAllString(text, "")
 	text = regexp.MustCompile(`(?is)xai:tool_usage_card.*?(?:</xai:tool_usage_card>|\z)`).ReplaceAllString(text, "")
-	// Remove grok render tags
-	text = regexp.MustCompile(`(?is)<grok:render.*?</grok:render>`).ReplaceAllString(text, "")
+	// Remove grok render tags (allow optional leading '<')
+	text = regexp.MustCompile(`(?is)<?grok:render.*?</grok:render>`).ReplaceAllString(text, "")
 	return strings.TrimSpace(text)
 }
 

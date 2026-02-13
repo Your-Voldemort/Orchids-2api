@@ -473,7 +473,9 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 				_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
 					if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
 						urls = append(urls, extractImageURLs(mr)...)
+						urls = append(urls, extractRenderableImageLinks(mr)...)
 					}
+					urls = append(urls, extractRenderableImageLinks(line)...)
 					return nil
 				})
 				resp2.Body.Close()
@@ -583,7 +585,9 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 				_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
 					if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
 						urls = append(urls, extractImageURLs(mr)...)
+						urls = append(urls, extractRenderableImageLinks(mr)...)
 					}
+					urls = append(urls, extractRenderableImageLinks(line)...)
 					return nil
 				})
 				resp2.Body.Close()
