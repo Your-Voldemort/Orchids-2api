@@ -400,6 +400,10 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 			for _, u := range extractImageURLs(mr) {
 				emitChunk(map[string]interface{}{"content": "\n![](" + u + ")"}, nil)
 			}
+			// Fallback: tool/card payloads may include image URLs outside of the known keys.
+			for _, u := range extractRenderableImageLinks(mr) {
+				emitChunk(map[string]interface{}{"content": "\n![](" + u + ")"}, nil)
+			}
 		}
 		if spec.IsVideo {
 			if progress, videoURL, _, ok := extractVideoProgress(resp); ok {
@@ -453,6 +457,9 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 				}
 			}
 			for _, u := range extractImageURLs(mr) {
+				content.WriteString("\n![](" + u + ")")
+			}
+			for _, u := range extractRenderableImageLinks(mr) {
 				content.WriteString("\n![](" + u + ")")
 			}
 		}
