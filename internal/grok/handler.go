@@ -29,9 +29,17 @@ func sanitizeText(s string) string {
 	}
 	// Drop replacement chars introduced by invalid UTF-8 boundaries.
 	s = strings.ReplaceAll(s, "\uFFFD", "")
-	// Some clients show stray "<<<" fragments when markup is partially suppressed.
-	// Keep it conservative: only trim leading '<' characters.
-	s = strings.TrimLeft(s, "<")
+	return s
+}
+
+func stripLeadingAngleNoise(s string) string {
+	// Only remove obvious leftover fragments like "<<<" at the beginning of a chunk/line.
+	// Keep single '<' to avoid damaging legitimate text.
+	s = strings.TrimLeft(s, "\n\r\t ")
+	for strings.HasPrefix(s, "<<<") {
+		s = strings.TrimPrefix(s, "<<<")
+		s = strings.TrimLeft(s, "\n\r\t ")
+	}
 	return s
 }
 
@@ -479,8 +487,7 @@ func (f *streamMarkupFilter) feed(chunk string) string {
 				// Reattach removed bytes to pending
 				f.pending = safe + f.pending[len(safe):]
 			}
-			cleaned := sanitizeText(stripToolAndRenderMarkup(safe))
-			cleaned = strings.TrimLeft(cleaned, "<")
+			cleaned := stripLeadingAngleNoise(sanitizeText(stripToolAndRenderMarkup(safe)))
 			if cleaned != "" {
 				out.WriteString(cleaned)
 			}
@@ -490,7 +497,7 @@ func (f *streamMarkupFilter) feed(chunk string) string {
 
 		// Emit prefix before the marker.
 		prefix := validUTF8Prefix(f.pending[:idx])
-		cleaned := sanitizeText(stripToolAndRenderMarkup(prefix))
+		cleaned := stripLeadingAngleNoise(sanitizeText(stripToolAndRenderMarkup(prefix)))
 		if cleaned != "" {
 			out.WriteString(cleaned)
 		}
