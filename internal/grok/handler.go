@@ -527,7 +527,10 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 	sawToken := false
 	sentAny := false
 	var rawAll strings.Builder
-	mf := &streamMarkupFilter{}
+	var mf *streamMarkupFilter
+	if !hasAttachments {
+		mf = &streamMarkupFilter{}
+	}
 
 	emitChunk := func(delta map[string]interface{}, finish interface{}) {
 		chunk := map[string]interface{}{
@@ -559,8 +562,13 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 		if tokenDelta, ok := resp["token"].(string); ok && tokenDelta != "" {
 			rawAll.WriteString(tokenDelta)
 			sawToken = true
-			if cleaned := mf.feed(tokenDelta); cleaned != "" {
-				emitChunk(map[string]interface{}{"content": cleaned}, nil)
+			if mf == nil {
+				// Vision Q/A path: avoid aggressive streaming filters that can corrupt text.
+				emitChunk(map[string]interface{}{"content": tokenDelta}, nil)
+			} else {
+				if cleaned := mf.feed(tokenDelta); cleaned != "" {
+					emitChunk(map[string]interface{}{"content": cleaned}, nil)
+				}
 			}
 		}
 		if mr, ok := resp["modelResponse"].(map[string]interface{}); ok {
@@ -568,8 +576,12 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 				lastMessage = msg
 				rawAll.WriteString(msg)
 				if !sawToken {
-					if cleaned := mf.feed(msg); cleaned != "" {
-						emitChunk(map[string]interface{}{"content": cleaned}, nil)
+					if mf == nil {
+						emitChunk(map[string]interface{}{"content": msg}, nil)
+					} else {
+						if cleaned := mf.feed(msg); cleaned != "" {
+							emitChunk(map[string]interface{}{"content": cleaned}, nil)
+						}
 					}
 				}
 				if strings.Contains(msg, "<grok:render") || strings.Contains(msg, "tool_usage_card") {
