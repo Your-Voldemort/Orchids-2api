@@ -758,6 +758,11 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 	sawToken := false
 	sentAny := false
 	var rawAll strings.Builder
+	// Image URL stream handling: prefer full image variants over -part-0 previews.
+	seenFull := map[string]bool{}
+	pendingPart := map[string]string{}
+	emitted := map[string]bool{}
+
 	var mf *streamMarkupFilter
 	if !hasAttachments {
 		mf = &streamMarkupFilter{}
@@ -783,6 +788,29 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 			flusher.Flush()
 		}
 		sentAny = true
+	}
+
+	emitImageURL := func(u string) {
+		u = strings.TrimSpace(u)
+		if u == "" {
+			return
+		}
+		if strings.Contains(u, "-part-0/") {
+			full := strings.ReplaceAll(u, "-part-0/", "/")
+			if seenFull[full] {
+				return
+			}
+			pendingPart[full] = u
+			return
+		}
+		seenFull[u] = true
+		if emitted[u] {
+			return
+		}
+		if md := formatImageMarkdown(u); md != "" {
+			emitChunk(map[string]interface{}{"content": md}, nil)
+			emitted[u] = true
+		}
 	}
 
 	err := parseUpstreamLines(body, func(resp map[string]interface{}) error {
@@ -834,22 +862,16 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 				}
 			}
 			for _, u := range extractImageURLs(mr) {
-				if md := formatImageMarkdown(u); md != "" {
-					emitChunk(map[string]interface{}{"content": md}, nil)
-				}
+				emitImageURL(u)
 			}
 			// Fallback: tool/card payloads may include image URLs outside of the known keys.
 			for _, u := range extractRenderableImageLinks(mr) {
-				if md := formatImageMarkdown(u); md != "" {
-					emitChunk(map[string]interface{}{"content": md}, nil)
-				}
+				emitImageURL(u)
 			}
 		}
 		// Broader fallback: sometimes URLs live outside modelResponse.
 		for _, u := range extractRenderableImageLinks(resp) {
-			if md := formatImageMarkdown(u); md != "" {
-				emitChunk(map[string]interface{}{"content": md}, nil)
-			}
+			emitImageURL(u)
 		}
 		if spec.IsVideo {
 			if progress, videoURL, _, ok := extractVideoProgress(resp); ok {
@@ -884,6 +906,13 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 				emitChunk(map[string]interface{}{"content": tail}, nil)
 			}
 		}
+	}
+	// Emit any pending part-0 previews only if we never saw a full variant.
+	for full, part := range pendingPart {
+		if seenFull[full] {
+			continue
+		}
+		emitImageURL(part)
 	}
 
 	// If Grok emitted search_images tool cards, generate equivalent images and append as Markdown.
