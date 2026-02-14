@@ -1532,6 +1532,7 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 	}
 
 	field := imageResponseField(req.ResponseFormat)
+	publicBase := detectPublicBaseURL(r)
 	data := make([]map[string]interface{}, 0, len(urls))
 	for _, u := range urls {
 		val, err := h.imageOutputValue(r.Context(), token, u, req.ResponseFormat)
@@ -1542,6 +1543,9 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 			} else {
 				val = ""
 			}
+		}
+		if field == "url" && publicBase != "" && strings.HasPrefix(val, "/") {
+			val = publicBase + val
 		}
 		data = append(data, map[string]interface{}{field: val})
 	}
