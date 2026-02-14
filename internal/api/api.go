@@ -516,6 +516,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}
 
 			checkOK := false
+			checkErrStatus := ""
 			defer func() {
 				a.checkMu.Lock()
 				defer a.checkMu.Unlock()
@@ -527,6 +528,12 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				fails := a.checkFailCount[id] + 1
 				a.checkFailCount[id] = fails
 				d := time.Duration(1<<minInt(fails, 8)) * time.Second
+				// For CF/rate-limit style failures, start with a bigger cooldown.
+				if checkErrStatus == "403" || checkErrStatus == "429" {
+					if d < 60*time.Second {
+						d = 60 * time.Second
+					}
+				}
 				if d > 10*time.Minute {
 					d = 10 * time.Minute
 				}
@@ -602,6 +609,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				if verifyErr != nil {
 					status := classifyAccountStatusFromError(verifyErr.Error())
 					if status != "" {
+						checkErrStatus = status
 						acc.StatusCode = status
 						acc.LastAttempt = time.Now()
 						if updateErr := a.store.UpdateAccount(r.Context(), acc); updateErr != nil {

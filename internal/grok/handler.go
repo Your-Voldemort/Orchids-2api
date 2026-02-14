@@ -244,14 +244,6 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	acc, token, err := h.selectAccount(r.Context())
-	if err != nil {
-		http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-	release := h.trackAccount(acc)
-	defer release()
-
 	text, attachments, err := extractMessageAndAttachments(req.Messages, spec.IsVideo)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -262,30 +254,57 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	fileAttachments, err := h.uploadAttachmentInputs(r.Context(), token, attachments)
-	if err != nil {
-		h.markAccountStatus(r.Context(), acc, err)
-		http.Error(w, "attachment upload failed: "+err.Error(), http.StatusBadGateway)
-		return
-	}
+	// Retry once on transient account failures (e.g. 403/429) by switching account.
+	var (
+		acc  *store.Account
+		token string
+		resp *http.Response
+	)
+	for attempt := 0; attempt < 2; attempt++ {
+		acc, token, err = h.selectAccount(r.Context())
+		if err != nil {
+			http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
+			return
+		}
+		release := h.trackAccount(acc)
 
-	payload, err := h.buildChatPayload(r.Context(), token, spec, text, fileAttachments, req.VideoConfig)
-	if err != nil {
-		h.markAccountStatus(r.Context(), acc, err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
-	resp, err := h.client.doChat(r.Context(), token, payload)
-	if err != nil {
-		h.markAccountStatus(r.Context(), acc, err)
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
+		fileAttachments, upErr := h.uploadAttachmentInputs(r.Context(), token, attachments)
+		if upErr != nil {
+			h.markAccountStatus(r.Context(), acc, upErr)
+			release()
+			http.Error(w, "attachment upload failed: "+upErr.Error(), http.StatusBadGateway)
+			return
+		}
+
+		payload, buildErr := h.buildChatPayload(r.Context(), token, spec, text, fileAttachments, req.VideoConfig)
+		if buildErr != nil {
+			h.markAccountStatus(r.Context(), acc, buildErr)
+			release()
+			http.Error(w, buildErr.Error(), http.StatusBadGateway)
+			return
+		}
+
+		resp, err = h.client.doChat(r.Context(), token, payload)
+		if err != nil {
+			status := classifyAccountStatusFromError(err.Error())
+			h.markAccountStatus(r.Context(), acc, err)
+			release()
+			// Switch account once for 403/429.
+			if attempt == 0 && (status == "403" || status == "429") {
+				continue
+			}
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		// Success
+		defer release()
+		break
 	}
 	defer resp.Body.Close()
 	h.syncGrokQuota(acc, resp.Header)
 
 	publicBase := detectPublicBaseURL(r)
-	hasAttachments := len(attachments) > 0 || len(fileAttachments) > 0
+	hasAttachments := len(attachments) > 0
 	if req.Stream {
 		h.streamChat(w, req.Model, spec, token, publicBase, hasAttachments, text, resp.Body)
 		return

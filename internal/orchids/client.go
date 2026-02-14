@@ -230,7 +230,18 @@ func (c *Client) GetToken() (string, error) {
 				// Info returned but missing JWT/sessionID.
 				slog.Warn("Orchids token fetch: clerk info missing jwt/session", "has_jwt", strings.TrimSpace(info.JWT) != "", "session_id", info.SessionID)
 			} else if err != nil {
-				slog.Warn("Orchids token fetch: clerk info failed", "error", err)
+				lower := strings.ToLower(err.Error())
+				if strings.Contains(lower, "no active sessions found") {
+					logKey := "clerk_info"
+					if c.account != nil {
+						logKey = fmt.Sprintf("clerk_info:acct:%d", c.account.ID)
+					}
+					if shouldLogNoActiveSession(logKey) {
+						slog.Debug("Orchids token fetch: clerk info failed (no active sessions)", "error", err)
+					}
+				} else {
+					slog.Warn("Orchids token fetch: clerk info failed", "error", err)
+				}
 			}
 			// If Clerk fetch fails, fall back to any stored token below.
 		}
