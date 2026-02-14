@@ -897,6 +897,21 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 			for _, u := range extractRenderableImageLinks(mr) {
 				emitImageURL(u)
 			}
+			// Extra fallback: scan for asset-like strings inside cards / embedded JSON.
+			for _, p := range collectAssetLikeStrings(mr, 80) {
+				p = strings.TrimSpace(p)
+				if p == "" {
+					continue
+				}
+				if isLikelyImageURL(p) {
+					emitImageURL(p)
+					continue
+				}
+				if isLikelyImageAssetPath(p) {
+					emitImageURL("https://assets.grok.com/" + strings.TrimPrefix(p, "/"))
+					continue
+				}
+			}
 		}
 		// Broader fallback: sometimes URLs live outside modelResponse.
 		for _, u := range extractRenderableImageLinks(resp) {
@@ -957,139 +972,8 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 		emitImageURL(part)
 	}
 
-	// If Grok emitted search_images tool cards, generate equivalent images and append as Markdown.
-	// IMPORTANT: do NOT run this fallback when the user provided image attachments (vision Q/A),
-	// otherwise we may accidentally generate unrelated images and/or corrupt the answer.
-	rawText := rawAll.String()
-	args := parseSearchImagesArgsFromText(rawText)
-	if !hasAttachments {
-		desc := strings.TrimSpace(userPrompt)
-		ld := strings.ToLower(desc)
-		neg := strings.Contains(desc, "不要图片") || strings.Contains(desc, "不需要图片") || strings.Contains(desc, "别发图片") || strings.Contains(desc, "不要照片") || strings.Contains(desc, "不需要照片") || strings.Contains(desc, "别发照片")
-		looksLikeImageReq := !neg && desc != "" && (strings.Contains(desc, "图片") || strings.Contains(desc, "照片") || strings.Contains(ld, "image") || strings.Contains(ld, "picture"))
-
-		// 1) If tool args exist, use them.
-		// 2) If we see search_images markup but args missing, fallback to user prompt.
-		if len(args) == 0 && strings.Contains(rawText, "search_images") && looksLikeImageReq {
-			args = []SearchImagesArgs{{ImageDescription: desc, NumberOfImages: inferRequestedImageCount(desc, 4)}}
-		}
-		// 3) If we see grok render image cards but no URLs, also fallback to user prompt.
-		if len(args) == 0 && strings.Contains(rawText, "grok:render") && looksLikeImageReq {
-			args = []SearchImagesArgs{{ImageDescription: desc, NumberOfImages: inferRequestedImageCount(desc, 4)}}
-		}
-		// 4) Some responses only include xai tool usage cards (no explicit search_images args).
-		if len(args) == 0 && strings.Contains(rawText, "tool_usage_card") && looksLikeImageReq {
-			args = []SearchImagesArgs{{ImageDescription: desc, NumberOfImages: inferRequestedImageCount(desc, 4)}}
-		}
-		// 5) If the user clearly asked for images but Grok returned no usable image URLs/cards,
-		// just generate images from the user prompt (Cherry Studio compatibility).
-		if len(args) == 0 && looksLikeImageReq {
-			args = []SearchImagesArgs{{ImageDescription: desc, NumberOfImages: inferRequestedImageCount(desc, 4)}}
-		}
-	}
-	if len(args) > 0 {
-		imSpec, ok := ResolveModel("grok-imagine-1.0")
-		if ok {
-			for _, a := range args {
-				n := a.NumberOfImages
-				var urls []string
-				var debugHTTP []string
-				var debugAsset []string
-				// grok upstream may return fewer images than requested per call; loop until we reach n
-				// or until a call yields no new unique image URLs.
-				for {
-					cur := normalizeImageURLs(urls, n)
-					if n > 0 && len(cur) >= n {
-						urls = cur
-						break
-					}
-					need := n - len(cur)
-					if n > 0 && need <= 0 {
-						urls = cur
-						break
-					}
-					// Upstream may ignore large imageGenerationCount and keep returning only 2 images.
-					// To reach arbitrary N, request 1 image per call with a distinct variant prompt.
-					if need > 1 {
-						need = 1
-					}
-					before := len(cur)
-					variants := []string{"安福路白天", "外滩夜景", "南京路人潮", "法租界梧桐", "弄堂市井", "地铁口"}
-					vi := 0
-					if before > 0 {
-						vi = before % len(variants)
-					}
-					desc2 := fmt.Sprintf("%s\n\n请生成与之前不同的画面，第%d张：%s（seed %s）", a.ImageDescription, before+1, variants[vi], randomHex(8))
-					payload := h.client.chatPayload(imSpec, "Image Generation: "+desc2, true, need)
-					resp2, err2 := h.client.doChat(context.Background(), token, payload)
-					if err2 != nil {
-						urls = cur
-						break
-					}
-					_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
-						if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
-							urls = append(urls, extractImageURLs(mr)...)
-							urls = append(urls, extractRenderableImageLinks(mr)...)
-							if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-								debugHTTP = append(debugHTTP, collectHTTPStrings(mr, 20)...)
-								debugAsset = append(debugAsset, collectAssetLikeStrings(mr, 40)...)
-							}
-						}
-						urls = append(urls, extractRenderableImageLinks(line)...)
-						if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-							debugHTTP = append(debugHTTP, collectHTTPStrings(line, 20)...)
-							debugAsset = append(debugAsset, collectAssetLikeStrings(line, 40)...)
-						}
-						return nil
-					})
-					resp2.Body.Close()
-					after := len(normalizeImageURLs(urls, n))
-					if after <= before {
-						urls = normalizeImageURLs(urls, n)
-						break
-					}
-				}
-				if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-					debugHTTP = uniqueStrings(debugHTTP)
-					debugAsset = uniqueStrings(debugAsset)
-					if len(debugHTTP) > 0 {
-						slog.Info("grok imagine fallback: observed http urls", "count", len(debugHTTP), "urls", debugHTTP)
-					} else {
-						slog.Info("grok imagine fallback: no http urls observed")
-					}
-					if len(debugAsset) > 0 {
-						slog.Info("grok imagine fallback: observed asset-like strings", "count", len(debugAsset), "items", debugAsset)
-					}
-				}
-				urls = normalizeImageURLs(urls, n)
-				urls = appendImageCandidates(urls, debugHTTP, debugAsset, n)
-				if len(urls) == 0 {
-					emitChunk(map[string]interface{}{"content": "\n[图片生成未返回可用链接]\n"}, nil)
-				}
-				var imgOut strings.Builder
-				wroteSep := false
-				for _, u := range urls {
-					val, errV := h.imageOutputValue(context.Background(), token, u, "url")
-					if errV != nil || strings.TrimSpace(val) == "" {
-						val = u
-					}
-					if publicBase != "" && strings.HasPrefix(val, "/") {
-						val = publicBase + val
-					}
-					if !wroteSep {
-						imgOut.WriteString("\n\n")
-						wroteSep = true
-					}
-					imgOut.WriteString("![](")
-					imgOut.WriteString(val)
-					imgOut.WriteString(")\n")
-				}
-				if imgOut.Len() > 0 {
-					emitChunk(map[string]interface{}{"content": imgOut.String()}, nil)
-				}
-			}
-		}
-	}
+	// NOTE: We intentionally do NOT call grok-imagine as a fallback.
+	// Contract: Only emit image links that Grok actually returned (parsed from cards/urls).
 
 	emitChunk(map[string]interface{}{}, "stop")
 	writeSSE(w, "", "[DONE]")
@@ -1162,128 +1046,8 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 		}
 		finalContent += formatImageMarkdown(val)
 	}
-	// If Grok returned search_images tool cards, run an equivalent image generation as a compatibility fallback.
-	// This makes OpenAI-compatible clients (e.g. Cherry Studio) able to display images.
-	args := parseSearchImagesArgsFromText(finalContent)
-	if !hasAttachments {
-		desc := strings.TrimSpace(userPrompt)
-		ld := strings.ToLower(desc)
-		neg := strings.Contains(desc, "不要图片") || strings.Contains(desc, "不需要图片") || strings.Contains(desc, "别发图片") || strings.Contains(desc, "不要照片") || strings.Contains(desc, "不需要照片") || strings.Contains(desc, "别发照片")
-		looksLikeImageReq := !neg && desc != "" && (strings.Contains(desc, "图片") || strings.Contains(desc, "照片") || strings.Contains(ld, "image") || strings.Contains(ld, "picture"))
-		if len(args) == 0 && strings.Contains(finalContent, "search_images") && looksLikeImageReq {
-			args = []SearchImagesArgs{{ImageDescription: desc, NumberOfImages: 4}}
-		}
-		if len(args) == 0 && strings.Contains(finalContent, "grok:render") && looksLikeImageReq {
-			args = []SearchImagesArgs{{ImageDescription: desc, NumberOfImages: 4}}
-		}
-		if len(args) == 0 && strings.Contains(finalContent, "tool_usage_card") && looksLikeImageReq {
-			args = []SearchImagesArgs{{ImageDescription: desc, NumberOfImages: 4}}
-		}
-		if len(args) == 0 && looksLikeImageReq {
-			args = []SearchImagesArgs{{ImageDescription: desc, NumberOfImages: 4}}
-		}
-	}
-	if len(args) > 0 {
-		cleaned := stripToolAndRenderMarkup(finalContent)
-		finalContent = stripLeadingAngleNoise(sanitizeText(cleaned))
-
-		imSpec, ok := ResolveModel("grok-imagine-1.0")
-		if ok {
-			for _, a := range args {
-				n := a.NumberOfImages
-				var urls []string
-				var debugHTTP []string
-				var debugAsset []string
-				// grok upstream may return fewer images than requested per call; loop until we reach n
-				// or until a call yields no new unique image URLs.
-				for {
-					cur := normalizeImageURLs(urls, n)
-					if n > 0 && len(cur) >= n {
-						urls = cur
-						break
-					}
-					need := n - len(cur)
-					if n > 0 && need <= 0 {
-						urls = cur
-						break
-					}
-					// Upstream may ignore large imageGenerationCount and keep returning only 2 images.
-					// To reach arbitrary N, request 1 image per call with a distinct variant prompt.
-					if need > 1 {
-						need = 1
-					}
-					before := len(cur)
-					variants := []string{"安福路白天", "外滩夜景", "南京路人潮", "法租界梧桐", "弄堂市井", "地铁口"}
-					vi := 0
-					if before > 0 {
-						vi = before % len(variants)
-					}
-					desc2 := fmt.Sprintf("%s\n\n请生成与之前不同的画面，第%d张：%s（seed %s）", a.ImageDescription, before+1, variants[vi], randomHex(8))
-					payload := h.client.chatPayload(imSpec, "Image Generation: "+desc2, true, need)
-					resp2, err2 := h.client.doChat(context.Background(), token, payload)
-					if err2 != nil {
-						urls = cur
-						break
-					}
-					_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
-						if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
-							urls = append(urls, extractImageURLs(mr)...)
-							urls = append(urls, extractRenderableImageLinks(mr)...)
-							if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-								debugHTTP = append(debugHTTP, collectHTTPStrings(mr, 20)...)
-								debugAsset = append(debugAsset, collectAssetLikeStrings(mr, 40)...)
-							}
-						}
-						urls = append(urls, extractRenderableImageLinks(line)...)
-						if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-							debugHTTP = append(debugHTTP, collectHTTPStrings(line, 20)...)
-							debugAsset = append(debugAsset, collectAssetLikeStrings(line, 40)...)
-						}
-						return nil
-					})
-					resp2.Body.Close()
-					after := len(normalizeImageURLs(urls, n))
-					if after <= before {
-						urls = normalizeImageURLs(urls, n)
-						break
-					}
-				}
-				if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-					debugHTTP = uniqueStrings(debugHTTP)
-					debugAsset = uniqueStrings(debugAsset)
-					if len(debugHTTP) > 0 {
-						slog.Info("grok imagine fallback: observed http urls", "count", len(debugHTTP), "urls", debugHTTP)
-					} else {
-						slog.Info("grok imagine fallback: no http urls observed")
-					}
-					if len(debugAsset) > 0 {
-						slog.Info("grok imagine fallback: observed asset-like strings", "count", len(debugAsset), "items", debugAsset)
-					}
-				}
-				urls = normalizeImageURLs(urls, n)
-				if len(urls) == 0 {
-					urls = appendImageCandidates(urls, uniqueStrings(debugHTTP), uniqueStrings(debugAsset), n)
-				}
-				wroteSep := false
-				for _, u := range urls {
-					val, errV := h.imageOutputValue(context.Background(), token, u, "url")
-					if errV != nil || strings.TrimSpace(val) == "" {
-						val = u
-					}
-					if publicBase != "" && strings.HasPrefix(val, "/") {
-						val = publicBase + val
-					}
-					if !wroteSep {
-						finalContent += "\n\n"
-						wroteSep = true
-					}
-					finalContent += "![]("
-					finalContent += val
-					finalContent += ")\\n"
-				}
-			}
-		}
-	}
+	// NOTE: We intentionally do NOT call grok-imagine as a fallback.
+	// Contract: Only emit image links that Grok actually returned (parsed from cards/urls).
 
 	resp := map[string]interface{}{
 		"id":      id,
