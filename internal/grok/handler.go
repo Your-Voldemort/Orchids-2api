@@ -67,7 +67,10 @@ type scoredURL struct {
 	score int
 }
 
-func filterGeneratedPartVariants(urls []string) []string {
+// preferFullOverPart drops "-part-0" preview variants when the corresponding full URL is present.
+// This is part of the stable contract:
+// - Never emit -part-0 when full exists.
+func preferFullOverPart(urls []string) []string {
 	if len(urls) == 0 {
 		return urls
 	}
@@ -77,7 +80,6 @@ func filterGeneratedPartVariants(urls []string) []string {
 	}
 	out := make([]string, 0, len(urls))
 	for _, u := range urls {
-		// If we have both .../<id>/image.jpg and .../<id>-part-0/image.jpg, drop the part variant.
 		if strings.Contains(u, "-part-0/") {
 			full := strings.ReplaceAll(u, "-part-0/", "/")
 			if _, ok := set[full]; ok {
@@ -948,7 +950,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 						filtered = append(filtered, u)
 					}
 				}
-				urls = filterGeneratedPartVariants(filtered)
+				urls = preferFullOverPart(filtered)
 				if len(urls) > n {
 					urls = urls[:n]
 				}
@@ -1177,7 +1179,7 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 						filtered = append(filtered, u)
 					}
 				}
-				urls = filterGeneratedPartVariants(filtered)
+				urls = preferFullOverPart(filtered)
 				if len(urls) > n {
 					urls = urls[:n]
 				}
