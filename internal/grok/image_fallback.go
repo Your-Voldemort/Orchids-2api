@@ -2,6 +2,7 @@ package grok
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -47,6 +48,7 @@ func (h *Handler) generateImagesFallback(ctx context.Context, token string, prom
 	var urls []string
 	var debugHTTP []string
 	var debugAsset []string
+	var sampleLines []string
 	maxAttempts := n * 4
 	if maxAttempts < 4 {
 		maxAttempts = 4
@@ -85,6 +87,11 @@ func (h *Handler) generateImagesFallback(ctx context.Context, token string, prom
 		}
 		before := len(urls)
 		_ = parseUpstreamLines(resp.Body, func(line map[string]interface{}) error {
+			if h.cfg != nil && h.cfg.GrokDebugImageFallback && len(sampleLines) < 3 {
+				if b, errJ := json.Marshal(line); errJ == nil {
+					sampleLines = append(sampleLines, string(b))
+				}
+			}
 			if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
 				urls = append(urls, extractImageURLs(mr)...)
 				if h.cfg != nil && h.cfg.GrokDebugImageFallback {
@@ -109,7 +116,15 @@ func (h *Handler) generateImagesFallback(ctx context.Context, token string, prom
 
 	urls = normalizeImageURLs(urls, n)
 	if len(urls) == 0 && h.cfg != nil && h.cfg.GrokDebugImageFallback {
-		slog.Warn("grok imagine fallback: finished with no urls", "reason_hint", lastErr, "http_strings", len(debugHTTP), "asset_strings", len(debugAsset), "http_sample", uniqueFirstN(debugHTTP, 8), "asset_sample", uniqueFirstN(debugAsset, 8))
+		slog.Warn(
+			"grok imagine fallback: finished with no urls",
+			"reason_hint", lastErr,
+			"http_strings", len(debugHTTP),
+			"asset_strings", len(debugAsset),
+			"http_sample", uniqueFirstN(debugHTTP, 8),
+			"asset_sample", uniqueFirstN(debugAsset, 8),
+			"sample_lines", sampleLines,
+		)
 	}
 	if len(urls) == 0 && strings.Contains(lastErr, "status=429") {
 		return nil, "rate-limited"
