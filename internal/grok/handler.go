@@ -67,6 +67,28 @@ type scoredURL struct {
 	score int
 }
 
+func filterGeneratedPartVariants(urls []string) []string {
+	if len(urls) == 0 {
+		return urls
+	}
+	set := map[string]struct{}{}
+	for _, u := range urls {
+		set[u] = struct{}{}
+	}
+	out := make([]string, 0, len(urls))
+	for _, u := range urls {
+		// If we have both .../<id>/image.jpg and .../<id>-part-0/image.jpg, drop the part variant.
+		if strings.Contains(u, "-part-0/") {
+			full := strings.ReplaceAll(u, "-part-0/", "/")
+			if _, ok := set[full]; ok {
+				continue
+			}
+		}
+		out = append(out, u)
+	}
+	return out
+}
+
 func extractPreferredImageURLsFromJSONText(s string) []string {
 	s = strings.TrimSpace(s)
 	if s == "" || !strings.HasPrefix(s, "{") {
@@ -946,7 +968,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 						filtered = append(filtered, u)
 					}
 				}
-				urls = filtered
+				urls = filterGeneratedPartVariants(filtered)
 				if len(urls) > n {
 					urls = urls[:n]
 				}
@@ -1175,7 +1197,7 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 						filtered = append(filtered, u)
 					}
 				}
-				urls = filtered
+				urls = filterGeneratedPartVariants(filtered)
 				if len(urls) > n {
 					urls = urls[:n]
 				}
@@ -1327,13 +1349,17 @@ func (h *Handler) cacheMediaURL(ctx context.Context, token, rawURL, mediaType st
 	if mediaType == "image" && strings.Contains(lurl, "encrypted-tbn0.gstatic.com") {
 		return "", fmt.Errorf("skip thumbnail url")
 	}
+	// If the client can't reach assets.grok.com (common in some regions), caching through this server
+	// is required for images to display at all.
+	forceCache := mediaType == "image" && strings.Contains(lurl, "assets.grok.com/")
 
 	data, mimeType, err := h.client.downloadAsset(ctx, token, rawURL)
 	if err != nil {
 		return "", err
 	}
 	// Heuristic: avoid caching tiny/low-res images (often thumbnails/previews).
-	if mediaType == "image" {
+	// Except for assets.grok.com: caching is needed so clients can access the image.
+	if mediaType == "image" && !forceCache {
 		w, hgt := imageDimsFromBytes(data)
 		if (w > 0 && hgt > 0 && (w < 900 || hgt < 900)) || len(data) < 60*1024 {
 			slog.Debug("skip caching low-res image", "url", trimURL, "bytes", len(data), "w", w, "h", hgt)
