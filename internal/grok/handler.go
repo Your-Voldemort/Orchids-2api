@@ -1327,15 +1327,26 @@ func inferRequestedImageCount(s string, def int) int {
 	s = strings.ReplaceAll(s, "俩张", "2张")
 	s = strings.ReplaceAll(s, "三张", "3张")
 	s = strings.ReplaceAll(s, "四张", "4张")
-	// ASCII digits.
-	for _, n := range []int{4, 3, 2, 1} {
-		if strings.Contains(s, fmt.Sprintf("%d张", n)) {
-			return n
-		}
-		if strings.Contains(strings.ToLower(s), fmt.Sprintf("%d images", n)) {
+	s = strings.ReplaceAll(s, "五张", "5张")
+	s = strings.ReplaceAll(s, "六张", "6张")
+	s = strings.ReplaceAll(s, "七张", "7张")
+	s = strings.ReplaceAll(s, "八张", "8张")
+	s = strings.ReplaceAll(s, "九张", "9张")
+	s = strings.ReplaceAll(s, "十张", "10张")
+
+	// Match any "<number>张".
+	if m := regexp.MustCompile(`(?i)(\d{1,3})\s*张`).FindStringSubmatch(s); len(m) == 2 {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
 			return n
 		}
 	}
+	// English: "<number> images" or "<number> image".
+	if m := regexp.MustCompile(`(?i)(\d{1,3})\s*images?`).FindStringSubmatch(s); len(m) == 2 {
+		if n, err := strconv.Atoi(m[1]); err == nil && n > 0 {
+			return n
+		}
+	}
+
 	return def
 }
 
