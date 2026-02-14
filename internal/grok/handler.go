@@ -1044,6 +1044,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 				if len(urls) == 0 {
 					emitChunk(map[string]interface{}{"content": "\n[图片生成未返回可用链接]\n"}, nil)
 				}
+				var imgOut strings.Builder
 				wroteSep := false
 				for _, u := range urls {
 					val, errV := h.imageOutputValue(context.Background(), token, u, "url")
@@ -1054,10 +1055,15 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 						val = publicBase + val
 					}
 					if !wroteSep {
-						emitChunk(map[string]interface{}{"content": "\n\n"}, nil)
+						imgOut.WriteString("\n\n")
 						wroteSep = true
 					}
-					emitChunk(map[string]interface{}{"content": "![](" + val + ")\n"}, nil)
+					imgOut.WriteString("![](")
+					imgOut.WriteString(val)
+					imgOut.WriteString(")\n")
+				}
+				if imgOut.Len() > 0 {
+					emitChunk(map[string]interface{}{"content": imgOut.String()}, nil)
 				}
 			}
 		}
