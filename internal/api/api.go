@@ -33,6 +33,20 @@ type API struct {
 	configMu   sync.RWMutex
 	config     interface{} // Using interface{} to avoid circular dependency if any, or just use *config.Config
 	configPath string      // Path to config.json
+
+	// Account check backoff / storm control
+	checkMu          sync.Mutex
+	checkInFlight    map[int64]bool
+	checkFailCount   map[int64]int
+	checkNextAllowed map[int64]time.Time
+	checkSem         chan struct{}
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func normalizeWarpTokenInput(acc *store.Account) {
@@ -211,6 +225,11 @@ func New(s *store.Store, adminUser, adminPass string, cfg interface{}, cfgPath s
 		adminPass:  adminPass,
 		config:     cfg,
 		configPath: cfgPath,
+
+		checkInFlight:    map[int64]bool{},
+		checkFailCount:   map[int64]int{},
+		checkNextAllowed: map[int64]time.Time{},
+		checkSem:         make(chan struct{}, 2),
 	}
 }
 
@@ -459,11 +478,61 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if isCheck {
+			// Storm control / backoff: only allow a small number of concurrent checks,
+			// and apply exponential backoff per account on failures.
+			now := time.Now()
+			a.checkMu.Lock()
+			if a.checkInFlight[id] {
+				a.checkMu.Unlock()
+				http.Error(w, "account check already in progress", http.StatusTooManyRequests)
+				return
+			}
+			if next, ok := a.checkNextAllowed[id]; ok && !next.IsZero() && now.Before(next) {
+				retryAfter := int(next.Sub(now).Seconds())
+				if retryAfter < 1 {
+					retryAfter = 1
+				}
+				a.checkMu.Unlock()
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+				http.Error(w, "account check backoff", http.StatusTooManyRequests)
+				return
+			}
+			a.checkInFlight[id] = true
+			a.checkMu.Unlock()
+			defer func() {
+				a.checkMu.Lock()
+				delete(a.checkInFlight, id)
+				a.checkMu.Unlock()
+			}()
+
+			// global concurrency limit
+			a.checkSem <- struct{}{}
+			defer func() { <-a.checkSem }()
+
 			acc, err := a.store.GetAccount(r.Context(), id)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
+
+			checkOK := false
+			defer func() {
+				a.checkMu.Lock()
+				defer a.checkMu.Unlock()
+				if checkOK {
+					a.checkFailCount[id] = 0
+					a.checkNextAllowed[id] = time.Now().Add(3 * time.Second)
+					return
+				}
+				fails := a.checkFailCount[id] + 1
+				a.checkFailCount[id] = fails
+				d := time.Duration(1<<minInt(fails, 8)) * time.Second
+				if d > 10*time.Minute {
+					d = 10 * time.Minute
+				}
+				a.checkNextAllowed[id] = time.Now().Add(d)
+			}()
+
 			if strings.EqualFold(acc.AccountType, "warp") {
 				var cfg *config.Config
 				a.configMu.RLock()
@@ -629,6 +698,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			// 刷新/验证成功后清理账号状态
 			acc.StatusCode = ""
 			acc.LastAttempt = time.Time{}
+			checkOK = true
 
 			if err := a.store.UpdateAccount(r.Context(), acc); err != nil {
 				http.Error(w, "Failed to save checked account: "+err.Error(), http.StatusInternalServerError)
