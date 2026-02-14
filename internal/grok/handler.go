@@ -528,10 +528,16 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 					imgs[i] = u
 				}
 			}
+
 			if len(imgs) > 0 {
-				h.replyChatImagesOnly(w, req.Model, imgs, req.Stream)
+				// Text first, then images. Text is best-effort; if it fails, return images only.
+				textCtx, cancel2 := context.WithTimeout(r.Context(), 20*time.Second)
+				defer cancel2()
+				txt, _ := h.doTextOnlyChat(textCtx, spec, text)
+				h.replyChatTextAndImages(w, req.Model, txt, imgs, req.Stream)
 				return
 			}
+
 			// Prefer images/generations even on failure: do NOT fall back to Grok chat.
 			http.Error(w, "no image generated", http.StatusBadGateway)
 			return
