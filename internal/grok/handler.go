@@ -1002,31 +1002,40 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 				if n > 4 {
 					n = 4
 				}
-				payload := h.client.chatPayload(imSpec, "Image Generation: "+a.ImageDescription, true, n)
-				resp2, err2 := h.client.doChat(context.Background(), token, payload)
-				if err2 != nil {
-					continue
-				}
 				var urls []string
 				var debugHTTP []string
 				var debugAsset []string
-				_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
-					if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
-						urls = append(urls, extractImageURLs(mr)...)
-						urls = append(urls, extractRenderableImageLinks(mr)...)
-						if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-							debugHTTP = append(debugHTTP, collectHTTPStrings(mr, 20)...)
-							debugAsset = append(debugAsset, collectAssetLikeStrings(mr, 40)...)
+				// grok upstream often returns 2 images per call; loop to reach n.
+				for attempt := 0; attempt < 3; attempt++ {
+					cur := normalizeImageURLs(urls, n)
+					if len(cur) >= n {
+						urls = cur
+						break
+					}
+					need := n - len(cur)
+					payload := h.client.chatPayload(imSpec, "Image Generation: "+a.ImageDescription, true, need)
+					resp2, err2 := h.client.doChat(context.Background(), token, payload)
+					if err2 != nil {
+						break
+					}
+					_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
+						if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
+							urls = append(urls, extractImageURLs(mr)...)
+							urls = append(urls, extractRenderableImageLinks(mr)...)
+							if h.cfg != nil && h.cfg.GrokDebugImageFallback {
+								debugHTTP = append(debugHTTP, collectHTTPStrings(mr, 20)...)
+								debugAsset = append(debugAsset, collectAssetLikeStrings(mr, 40)...)
+							}
 						}
-					}
-					urls = append(urls, extractRenderableImageLinks(line)...)
-					if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-						debugHTTP = append(debugHTTP, collectHTTPStrings(line, 20)...)
-						debugAsset = append(debugAsset, collectAssetLikeStrings(line, 40)...)
-					}
-					return nil
-				})
-				resp2.Body.Close()
+						urls = append(urls, extractRenderableImageLinks(line)...)
+						if h.cfg != nil && h.cfg.GrokDebugImageFallback {
+							debugHTTP = append(debugHTTP, collectHTTPStrings(line, 20)...)
+							debugAsset = append(debugAsset, collectAssetLikeStrings(line, 40)...)
+						}
+						return nil
+					})
+					resp2.Body.Close()
+				}
 				if h.cfg != nil && h.cfg.GrokDebugImageFallback {
 					debugHTTP = uniqueStrings(debugHTTP)
 					debugAsset = uniqueStrings(debugAsset)
@@ -1171,31 +1180,40 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 				if n > 4 {
 					n = 4 // keep it small; the original tool can request many
 				}
-				payload := h.client.chatPayload(imSpec, "Image Generation: "+a.ImageDescription, true, n)
-				resp2, err2 := h.client.doChat(context.Background(), token, payload)
-				if err2 != nil {
-					continue
-				}
 				var urls []string
 				var debugHTTP []string
 				var debugAsset []string
-				_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
-					if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
-						urls = append(urls, extractImageURLs(mr)...)
-						urls = append(urls, extractRenderableImageLinks(mr)...)
-						if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-							debugHTTP = append(debugHTTP, collectHTTPStrings(mr, 20)...)
-							debugAsset = append(debugAsset, collectAssetLikeStrings(mr, 40)...)
+				// grok upstream often returns 2 images per call; loop to reach n.
+				for attempt := 0; attempt < 3; attempt++ {
+					cur := normalizeImageURLs(urls, n)
+					if len(cur) >= n {
+						urls = cur
+						break
+					}
+					need := n - len(cur)
+					payload := h.client.chatPayload(imSpec, "Image Generation: "+a.ImageDescription, true, need)
+					resp2, err2 := h.client.doChat(context.Background(), token, payload)
+					if err2 != nil {
+						break
+					}
+					_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
+						if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
+							urls = append(urls, extractImageURLs(mr)...)
+							urls = append(urls, extractRenderableImageLinks(mr)...)
+							if h.cfg != nil && h.cfg.GrokDebugImageFallback {
+								debugHTTP = append(debugHTTP, collectHTTPStrings(mr, 20)...)
+								debugAsset = append(debugAsset, collectAssetLikeStrings(mr, 40)...)
+							}
 						}
-					}
-					urls = append(urls, extractRenderableImageLinks(line)...)
-					if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-						debugHTTP = append(debugHTTP, collectHTTPStrings(line, 20)...)
-						debugAsset = append(debugAsset, collectAssetLikeStrings(line, 40)...)
-					}
-					return nil
-				})
-				resp2.Body.Close()
+						urls = append(urls, extractRenderableImageLinks(line)...)
+						if h.cfg != nil && h.cfg.GrokDebugImageFallback {
+							debugHTTP = append(debugHTTP, collectHTTPStrings(line, 20)...)
+							debugAsset = append(debugAsset, collectAssetLikeStrings(line, 40)...)
+						}
+						return nil
+					})
+					resp2.Body.Close()
+				}
 				if h.cfg != nil && h.cfg.GrokDebugImageFallback {
 					debugHTTP = uniqueStrings(debugHTTP)
 					debugAsset = uniqueStrings(debugAsset)
