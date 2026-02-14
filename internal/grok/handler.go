@@ -202,59 +202,10 @@ func isLikelyImageAssetPath(p string) bool {
 	return false
 }
 
-func stripLeadingAngleNoise(s string) string {
-	// Remove obvious leftover fragments like "<<<" produced by suppressed markup.
-	// In practice these can appear as:
-	//   - contiguous runs: <<<<
-	//   - separated by whitespace / zero-width chars: < <  or <\u200b<
-	// We keep a single '<' intact to avoid damaging legitimate content.
-	if s == "" {
-		return s
-	}
-
-	r := []rune(s)
-	out := make([]rune, 0, len(r))
-
-	isSep := func(ch rune) bool {
-		switch ch {
-		case ' ', '\t', '\r', '\n', '\u200b', '\u200c', '\u200d', '\ufeff':
-			return true
-		default:
-			return false
-		}
-	}
-
-	for i := 0; i < len(r); {
-		if r[i] == '<' {
-			j := i
-			count := 0
-			for j < len(r) {
-				if r[j] == '<' {
-					count++
-					j++
-					continue
-				}
-				if isSep(r[j]) {
-					j++
-					continue
-				}
-				break
-			}
-			if count >= 2 {
-				// Skip the whole noisy segment, plus trailing spaces/tabs.
-				i = j
-				for i < len(r) && (r[i] == ' ' || r[i] == '\t') {
-					i++
-				}
-				continue
-			}
-		}
-		out = append(out, r[i])
-		i++
-	}
-
-	return string(out)
-}
+// stripLeadingAngleNoise was an experimental cleanup for leaked markup fragments like '<<<'.
+// It proved unreliable in practice and could interfere with legitimate content.
+// Kept as a no-op for compatibility with older code paths.
+func stripLeadingAngleNoise(s string) string { return s }
 
 const maxEditImageBytes = 50 * 1024 * 1024
 
