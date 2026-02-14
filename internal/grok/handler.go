@@ -785,6 +785,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 	lastMessage := ""
 	sawToken := false
 	sentAny := false
+	emittedText := false
 	var rawAll strings.Builder
 	// Image URL stream handling: prefer full image variants over -part-0 previews.
 	seenFull := map[string]bool{}
@@ -814,6 +815,11 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 		writeSSE(w, "", encodeJSON(chunk))
 		if flusher != nil {
 			flusher.Flush()
+		}
+		if c, ok := delta["content"].(string); ok {
+			if strings.TrimSpace(c) != "" {
+				emittedText = true
+			}
 		}
 		sentAny = true
 	}
@@ -878,7 +884,9 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 			if msg, ok := mr["message"].(string); ok && strings.TrimSpace(msg) != "" && msg != lastMessage {
 				lastMessage = msg
 				rawAll.WriteString(msg)
-				if !sawToken {
+				// If upstream provides token streaming but our filter suppresses it (e.g. markup/noise),
+				// still emit the message once to avoid losing all text.
+				if !sawToken || !emittedText {
 					if mf == nil {
 						cleaned := stripToolAndRenderMarkup(msg)
 						cleaned = stripLeadingAngleNoise(sanitizeText(cleaned))
