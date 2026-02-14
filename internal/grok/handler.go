@@ -41,6 +41,33 @@ func formatImageMarkdown(u string) string {
 	return "\n\n![](" + u + ")\n\n"
 }
 
+func isLikelyImageURL(u string) bool {
+	u = strings.TrimSpace(u)
+	if u == "" {
+		return false
+	}
+	if strings.HasPrefix(u, "/grok/v1/files/image/") {
+		return true
+	}
+	lu := strings.ToLower(u)
+	if strings.HasPrefix(lu, "http://") || strings.HasPrefix(lu, "https://") {
+		// Quick allow if it clearly ends with an image extension (ignore query).
+		cut := lu
+		if q := strings.IndexByte(cut, '?'); q >= 0 {
+			cut = cut[:q]
+		}
+		if strings.HasSuffix(cut, ".jpg") || strings.HasSuffix(cut, ".jpeg") || strings.HasSuffix(cut, ".png") || strings.HasSuffix(cut, ".webp") || strings.HasSuffix(cut, ".gif") {
+			return true
+		}
+		// assets.grok.com generated image paths
+		if strings.Contains(lu, "assets.grok.com/") && (strings.Contains(lu, "/generated/") || strings.Contains(lu, "/image")) {
+			return true
+		}
+		return false
+	}
+	return false
+}
+
 func isLikelyImageAssetPath(p string) bool {
 	p = strings.TrimSpace(p)
 	if p == "" {
@@ -803,11 +830,35 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 						slog.Info("grok imagine fallback: observed asset-like strings", "count", len(debugAsset), "items", debugAsset)
 					}
 				}
+				// Keep only URLs that are actually renderable as images.
 				urls = uniqueStrings(urls)
+				filtered := make([]string, 0, len(urls))
+				for _, u := range urls {
+					if isLikelyImageURL(u) {
+						filtered = append(filtered, u)
+					}
+				}
+				urls = filtered
 				if len(urls) > n {
 					urls = urls[:n]
 				}
-				// If imagine didn't return http urls, we sometimes still get assets.grok.com paths.
+				// If we got no renderable image URLs from the primary parsers, try to salvage
+				// direct image URLs from observed http strings (e.g. image_card.original fields).
+				if len(urls) == 0 && len(debugHTTP) > 0 {
+					for _, u := range debugHTTP {
+						if isLikelyImageURL(u) {
+							urls = append(urls, u)
+							if len(urls) >= n {
+								break
+							}
+						}
+					}
+					urls = uniqueStrings(urls)
+					if len(urls) > n {
+						urls = urls[:n]
+					}
+				}
+				// If imagine still didn't return usable URLs, we sometimes still get assets.grok.com paths.
 				// Only accept strings that look like actual image asset paths; otherwise we risk
 				// turning echoed prompts / JSON cards into bogus URLs.
 				if len(urls) == 0 {
@@ -989,7 +1040,15 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 						slog.Info("grok imagine fallback: observed asset-like strings", "count", len(debugAsset), "items", debugAsset)
 					}
 				}
+				// Keep only URLs that are actually renderable as images.
 				urls = uniqueStrings(urls)
+				filtered := make([]string, 0, len(urls))
+				for _, u := range urls {
+					if isLikelyImageURL(u) {
+						filtered = append(filtered, u)
+					}
+				}
+				urls = filtered
 				if len(urls) > n {
 					urls = urls[:n]
 				}
