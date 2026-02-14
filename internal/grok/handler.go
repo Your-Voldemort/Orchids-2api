@@ -561,6 +561,22 @@ func (h *Handler) buildChatPayload(ctx context.Context, token string, spec Model
 		payload["fileAttachments"] = fileAttachments
 	}
 
+	// If the user request looks like image generation, ask Grok to run its image generation tool
+	// within the same chat request (no grok-imagine fallback).
+	ld := strings.ToLower(text)
+	neg := strings.Contains(text, "不要图片") || strings.Contains(text, "不需要图片") || strings.Contains(text, "别发图片") || strings.Contains(text, "不要照片") || strings.Contains(text, "不需要照片") || strings.Contains(text, "别发照片")
+	looksLikeImageReq := !neg && strings.TrimSpace(text) != "" && (strings.Contains(text, "图片") || strings.Contains(text, "照片") || strings.Contains(ld, "image") || strings.Contains(ld, "picture"))
+	if looksLikeImageReq {
+		if to, ok := payload["toolOverrides"].(map[string]interface{}); ok {
+			to["imageGen"] = true
+		} else {
+			payload["toolOverrides"] = map[string]interface{}{"imageGen": true}
+		}
+		payload["enableImageGeneration"] = true
+		payload["enableImageStreaming"] = false
+		payload["imageGenerationCount"] = inferRequestedImageCount(text, 1)
+	}
+
 	if !spec.IsVideo {
 		return payload, nil
 	}

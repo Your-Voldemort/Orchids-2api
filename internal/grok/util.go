@@ -13,8 +13,8 @@ import (
 	"net/url"
 	"path"
 	"regexp"
-	"strconv"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -68,7 +68,7 @@ func extractImageURLs(value interface{}) []string {
 		case map[string]interface{}:
 			for k, item := range x {
 				lk := strings.ToLower(k)
-				if lk == "generatedimageurls" || lk == "imageurls" || lk == "image_urls" {
+				if lk == "generatedimageurls" || lk == "imageurls" || lk == "image_urls" || lk == "imageurl" {
 					switch vv := item.(type) {
 					case []interface{}:
 						for _, one := range vv {
