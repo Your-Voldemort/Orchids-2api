@@ -42,14 +42,7 @@ func stripLeadingAngleNoise(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 
-	isWS := func(c byte) bool {
-		switch c {
-		case ' ', '\t', '\r', '\n':
-			return true
-		default:
-			return false
-		}
-	}
+	// isWS removed (no longer needed)
 
 	for i := 0; i < len(s); {
 		if s[i] == '<' {
@@ -59,8 +52,9 @@ func stripLeadingAngleNoise(s string) string {
 				j++
 			}
 			run := j - i
-			prevWS := i == 0 || isWS(s[i-1])
-			if run >= 3 && prevWS {
+			// Treat any run of '<<<' as noise. This sequence is not valid in Grok markup and
+			// repeatedly leaks as a fragment; stripping it anywhere is safe and improves UX.
+			if run >= 3 {
 				// skip all '<' in this run
 				i = j
 				// also skip immediate whitespace after it
