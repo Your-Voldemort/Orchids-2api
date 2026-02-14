@@ -33,14 +33,31 @@ func sanitizeText(s string) string {
 }
 
 func stripLeadingAngleNoise(s string) string {
-	// Only remove obvious leftover fragments like "<<<" at the beginning of a chunk/line.
-	// Keep single '<' to avoid damaging legitimate text.
-	s = strings.TrimLeft(s, "\n\r\t ")
-	for strings.HasPrefix(s, "<<<") {
-		s = strings.TrimPrefix(s, "<<<")
-		s = strings.TrimLeft(s, "\n\r\t ")
+	// Remove obvious leftover fragments like "<<<" produced by suppressed markup.
+	// Keep it conservative: only strip runs of '<' when they appear at line starts.
+	if s == "" {
+		return s
 	}
-	return s
+
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimLeft(line, "\r\t ")
+		if strings.HasPrefix(trimmed, "<<<") {
+			trimmed = strings.TrimLeft(trimmed, "<")
+			trimmed = strings.TrimLeft(trimmed, "\r\t ")
+			lines[i] = trimmed
+		} else {
+			lines[i] = line
+		}
+	}
+	out := strings.Join(lines, "\n")
+	// also handle the very beginning (no leading newline)
+	out = strings.TrimLeft(out, "\r\t ")
+	if strings.HasPrefix(out, "<<<") {
+		out = strings.TrimLeft(out, "<")
+		out = strings.TrimLeft(out, "\r\t ")
+	}
+	return out
 }
 
 const maxEditImageBytes = 50 * 1024 * 1024
