@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -12,7 +13,7 @@ import (
 // behavior (and account switching policy) to obtain stable /files URLs, then let chat embed them.
 //
 // It does NOT rely on the upstream imagine chat returning direct URLs, which is often empty.
-func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt string, n int, responseFormat string) ([]string, string) {
+func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt string, n int, responseFormat string, publicBase string) ([]string, string) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return nil, "empty-prompt"
@@ -38,7 +39,19 @@ func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt strin
 	defer release()
 
 	switched := false
-	doChatWithSwitch := func(payload map[string]interface{}) (map[string]interface{}, error) {
+	doChatCollectURLsWithSwitch := func(payload map[string]interface{}) ([]string, error) {
+		collect := func(resp *http.Response) []string {
+			var u []string
+			_ = parseUpstreamLines(resp.Body, func(line map[string]interface{}) error {
+				if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
+					u = append(u, extractImageURLs(mr)...)
+				}
+				u = append(u, extractImageURLs(line)...)
+				return nil
+			})
+			return normalizeImageURLs(u, 0)
+		}
+
 		resp, err := h.client.doChat(ctx, token, payload)
 		if err != nil {
 			status := classifyAccountStatusFromError(err.Error())
@@ -55,6 +68,7 @@ func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt strin
 				}
 				acc, token = acc2, token2
 				release = h.trackAccount(acc)
+
 				resp2, err3 := h.client.doChat(ctx, token, payload)
 				if err3 != nil {
 					status2 := classifyAccountStatusFromError(err3.Error())
@@ -66,29 +80,13 @@ func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt strin
 				}
 				defer resp2.Body.Close()
 				h.syncGrokQuota(acc, resp2.Header)
-				var out map[string]interface{}
-				_ = parseUpstreamLines(resp2.Body, func(line map[string]interface{}) error {
-					out = line
-					if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
-						out = mr
-					}
-					return nil
-				})
-				return out, nil
+				return collect(resp2), nil
 			}
 			return nil, err
 		}
 		defer resp.Body.Close()
 		h.syncGrokQuota(acc, resp.Header)
-		var out map[string]interface{}
-		_ = parseUpstreamLines(resp.Body, func(line map[string]interface{}) error {
-			out = line
-			if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
-				out = mr
-			}
-			return nil
-		})
-		return out, nil
+		return collect(resp), nil
 	}
 
 	// mirrors HandleImagesGenerations non-stream behavior: request single images and vary prompt.
@@ -119,12 +117,12 @@ func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt strin
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		mr, err := doChatWithSwitch(payload)
+		genURLs, err := doChatCollectURLsWithSwitch(payload)
 		if err != nil {
 			break
 		}
 		before := len(urls)
-		urls = append(urls, extractImageURLs(mr)...)
+		urls = append(urls, genURLs...)
 		urls = normalizeImageURLs(urls, 0)
 		after := len(urls)
 		if h.cfg != nil && h.cfg.GrokDebugImageFallback {
@@ -143,9 +141,7 @@ func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt strin
 
 	// apply /files caching + "no part-0 if full exists" contract and response_format.
 	out := make([]string, 0, len(urls))
-	// In chat fallback we may not have the original request host; best effort: keep absolute if imageOutputValue returns it,
-	// otherwise leave as-is.
-	publicBase := ""
+	publicBase = strings.TrimSpace(publicBase)
 	for _, u := range urls {
 		val, errV := h.imageOutputValue(context.Background(), token, u, responseFormat)
 		if errV != nil || strings.TrimSpace(val) == "" {
