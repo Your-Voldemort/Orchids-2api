@@ -1053,6 +1053,7 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 	lastMessage := ""
 	sawToken := false
 	videoURL := ""
+	var imageCandidates []string
 
 	err := parseUpstreamLines(body, func(resp map[string]interface{}) error {
 		if tokenDelta, ok := resp["token"].(string); ok && tokenDelta != "" {
@@ -1069,22 +1070,10 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 					slog.Debug("grok message contains render/tool markup", "has_modelResponse", true)
 				}
 			}
-			for _, u := range extractImageURLs(mr) {
-				if md := formatImageMarkdown(u); md != "" {
-					content.WriteString(md)
-				}
-			}
-			for _, u := range extractRenderableImageLinks(mr) {
-				if md := formatImageMarkdown(u); md != "" {
-					content.WriteString(md)
-				}
-			}
+			imageCandidates = append(imageCandidates, extractImageURLs(mr)...)
+			imageCandidates = append(imageCandidates, extractRenderableImageLinks(mr)...)
 		}
-		for _, u := range extractRenderableImageLinks(resp) {
-			if md := formatImageMarkdown(u); md != "" {
-				content.WriteString(md)
-			}
-		}
+		imageCandidates = append(imageCandidates, extractRenderableImageLinks(resp)...)
 		if spec.IsVideo {
 			if progress, vurl, _, ok := extractVideoProgress(resp); ok && progress >= 100 && strings.TrimSpace(vurl) != "" {
 				videoURL = strings.TrimSpace(vurl)
@@ -1109,6 +1098,19 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 
 	finalContent := stripToolAndRenderMarkup(content.String())
 	finalContent = stripLeadingAngleNoise(sanitizeText(finalContent))
+
+	// Append any collected image links as Markdown, after text cleanup.
+	imgs := normalizeImageURLs(imageCandidates, 8)
+	for _, u := range imgs {
+		val, errV := h.imageOutputValue(context.Background(), token, u, "url")
+		if errV != nil || strings.TrimSpace(val) == "" {
+			val = u
+		}
+		if publicBase != "" && strings.HasPrefix(val, "/") {
+			val = publicBase + val
+		}
+		finalContent += formatImageMarkdown(val)
+	}
 	// If Grok returned search_images tool cards, run an equivalent image generation as a compatibility fallback.
 	// This makes OpenAI-compatible clients (e.g. Cherry Studio) able to display images.
 	args := parseSearchImagesArgsFromText(finalContent)
