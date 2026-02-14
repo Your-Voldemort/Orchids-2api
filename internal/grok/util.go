@@ -14,6 +14,7 @@ import (
 	"path"
 	"regexp"
 	"strconv"
+	"sort"
 	"strings"
 	"time"
 )
@@ -235,10 +236,6 @@ func extractRenderableImageLinks(value interface{}) []string {
 		if !strings.HasPrefix(ls, "http://") && !strings.HasPrefix(ls, "https://") {
 			return false
 		}
-		// Host allowlist-ish: Grok assets or Grok domain, otherwise ignore to avoid spamming random links.
-		if !strings.Contains(ls, "grok.com") && !strings.Contains(ls, "x.ai") {
-			return false
-		}
 		// Common image extensions or Grok CDN patterns.
 		if strings.Contains(ls, "assets.grok.com") {
 			return true
@@ -277,6 +274,32 @@ func extractRenderableImageLinks(value interface{}) []string {
 	}
 
 	walk(value)
+
+	// Prefer higher-quality originals over tiny thumbnails.
+	score := func(u string) int {
+		lu := strings.ToLower(u)
+		// Google tbn thumbnails are almost always low-res.
+		if strings.Contains(lu, "encrypted-tbn0.gstatic.com") {
+			return 0
+		}
+		if strings.Contains(lu, "thumbnail") || strings.Contains(lu, "thumb") {
+			return 10
+		}
+		// Prefer URLs that look like direct image files.
+		if strings.Contains(lu, ".jpg") || strings.Contains(lu, ".jpeg") || strings.Contains(lu, ".png") || strings.Contains(lu, ".webp") || strings.Contains(lu, ".gif") {
+			return 100
+		}
+		return 50
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		si := score(out[i])
+		sj := score(out[j])
+		if si == sj {
+			return out[i] < out[j]
+		}
+		return si > sj
+	})
+
 	return out
 }
 
