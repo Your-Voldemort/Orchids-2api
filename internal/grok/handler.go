@@ -1179,24 +1179,7 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 				}
 				urls = normalizeImageURLs(urls, n)
 				if len(urls) == 0 {
-					if len(debugAsset) > 0 {
-						for _, p := range debugAsset {
-							p = strings.TrimSpace(p)
-							if p == "" || strings.Contains(p, "grok-3") || strings.Contains(p, "grok-4") {
-								continue
-							}
-							if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-								urls = append(urls, p)
-							} else if isLikelyImageAssetPath(p) {
-								urls = append(urls, "https://assets.grok.com/"+strings.TrimPrefix(p, "/"))
-							} else {
-								continue
-							}
-							if len(urls) >= n {
-								break
-							}
-						}
-					}
+					urls = appendImageCandidates(urls, uniqueStrings(debugHTTP), uniqueStrings(debugAsset), n)
 				}
 				wroteSep := false
 				for _, u := range urls {
