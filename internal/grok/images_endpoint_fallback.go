@@ -2,6 +2,7 @@ package grok
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -53,6 +54,9 @@ func (h *Handler) generateImagesViaImagesEndpoint(ctx context.Context, prompt st
 		}
 		status := classifyAccountStatusFromError(err.Error())
 		h.markAccountStatus(ctx, acc, err)
+		if h.cfg != nil && h.cfg.GrokDebugImageFallback {
+			slog.Warn("images-endpoint fallback: upstream error", "status", status, "err", err.Error(), "switched", switched)
+		}
 		if !switched && (status == "403" || status == "429") {
 			switched = true
 			release()
@@ -67,13 +71,16 @@ func (h *Handler) generateImagesViaImagesEndpoint(ctx context.Context, prompt st
 			}
 			status2 := classifyAccountStatusFromError(err3.Error())
 			h.markAccountStatus(ctx, acc, err3)
-			_ = status2
+			if h.cfg != nil && h.cfg.GrokDebugImageFallback {
+				slog.Warn("images-endpoint fallback: upstream error(after switch)", "status", status2, "err", err3.Error())
+			}
 			return nil, err3
 		}
 		return nil, err
 	}
 
 	var urls []string
+	var sampleLines []string
 	maxAttempts := n * 4
 	if maxAttempts < 4 {
 		maxAttempts = 4
@@ -108,7 +115,13 @@ func (h *Handler) generateImagesViaImagesEndpoint(ctx context.Context, prompt st
 			break
 		}
 		before := len(urls)
+		sampleLines = sampleLines[:0]
 		_ = parseUpstreamLines(resp.Body, func(line map[string]interface{}) error {
+			if h.cfg != nil && h.cfg.GrokDebugImageFallback && len(sampleLines) < 3 {
+				if b, errJ := json.Marshal(line); errJ == nil {
+					sampleLines = append(sampleLines, string(b))
+				}
+			}
 			if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
 				urls = append(urls, extractImageURLs(mr)...)
 			}
@@ -119,7 +132,11 @@ func (h *Handler) generateImagesViaImagesEndpoint(ctx context.Context, prompt st
 		urls = normalizeImageURLs(urls, 0)
 		after := len(urls)
 		if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-			slog.Info("images-endpoint fallback: attempt result", "new_urls", after-before, "total_urls", after)
+			fields := []any{"new_urls", after - before, "total_urls", after}
+			if after-before == 0 {
+				fields = append(fields, "sample_lines", sampleLines)
+			}
+			slog.Info("images-endpoint fallback: attempt result", fields...)
 		}
 	}
 
