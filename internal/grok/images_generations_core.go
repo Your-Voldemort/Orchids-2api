@@ -14,6 +14,10 @@ import (
 //
 // It does NOT rely on the upstream imagine chat returning direct URLs, which is often empty.
 func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt string, n int, responseFormat string, publicBase string) ([]string, string) {
+	return h.generateViaImagesGenerationsWithAccountSwitch(ctx, prompt, n, responseFormat, publicBase, 0)
+}
+
+func (h *Handler) generateViaImagesGenerationsWithAccountSwitch(ctx context.Context, prompt string, n int, responseFormat string, publicBase string, switchedRuns int) ([]string, string) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return nil, "empty-prompt"
@@ -38,7 +42,7 @@ func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt strin
 	release := h.trackAccount(acc)
 	defer release()
 
-	switched := false
+	switchedOnce := false
 	doChatCollectURLsWithSwitch := func(payload map[string]interface{}) ([]string, error) {
 		collect := func(resp *http.Response) []string {
 			var u []string
@@ -57,10 +61,10 @@ func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt strin
 			status := classifyAccountStatusFromError(err.Error())
 			h.markAccountStatus(ctx, acc, err)
 			if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-				slog.Warn("images-generations core: upstream error", "status", status, "err", err.Error(), "switched", switched)
+				slog.Warn("images-generations core: upstream error", "status", status, "err", err.Error(), "switched", switchedOnce)
 			}
-			if !switched && (status == "403" || status == "429") {
-				switched = true
+			if !switchedOnce && (status == "403" || status == "429") {
+				switchedOnce = true
 				release()
 				acc2, token2, err2 := h.selectAccount(ctx)
 				if err2 != nil {
@@ -136,6 +140,12 @@ func (h *Handler) generateViaImagesGenerations(ctx context.Context, prompt strin
 
 	urls = normalizeImageURLs(urls, n)
 	if len(urls) == 0 {
+		if switchedRuns < 1 {
+			if h.cfg != nil && h.cfg.GrokDebugImageFallback {
+				slog.Warn("images-generations core: no urls, switching account and retrying once")
+			}
+			return h.generateViaImagesGenerationsWithAccountSwitch(ctx, prompt, n, responseFormat, publicBase, switchedRuns+1)
+		}
 		return nil, "no-urls"
 	}
 
