@@ -508,10 +508,18 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			n := inferRequestedImageCount(text, 2)
 			ctx2, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 			defer cancel()
-			imgPrompt := buildImagePromptFromUser(text, n)
-			imgs, errImg := h.callLocalImagesGenerations(ctx2, imgPrompt, n)
-			_ = errImg
-			imgs = normalizeImageURLs(imgs, n)
+			imgPrompt := strings.TrimSpace(text)
+			if imgPrompt == "" {
+				imgPrompt = "图片"
+			}
+			var imgs []string
+			for attempt := 0; attempt < 3; attempt++ {
+				out, _ := h.callLocalImagesGenerations(ctx2, imgPrompt, n)
+				imgs = normalizeImageURLs(out, n)
+				if len(imgs) > 0 {
+					break
+				}
+			}
 			if publicBase != "" {
 				for i, u := range imgs {
 					u = strings.TrimSpace(u)
@@ -531,11 +539,8 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			}
 
 			if len(imgs) > 0 {
-				// Text first, then images. Text is best-effort; if it fails, return images only.
-				textCtx, cancel2 := context.WithTimeout(r.Context(), 20*time.Second)
-				defer cancel2()
-				txt, _ := h.doTextOnlyChat(textCtx, spec, text)
-				h.replyChatTextAndImages(w, req.Model, txt, imgs, req.Stream)
+				// Keep image-mode deterministic: return images only.
+				h.replyChatTextAndImages(w, req.Model, "", imgs, req.Stream)
 				return
 			}
 
@@ -922,11 +927,6 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 		}
 
 		val, errV := h.imageOutputValue(context.Background(), token, raw, "url")
-		if errV != nil {
-			if isLowResImageErr(errV) {
-				return
-			}
-		}
 		if errV != nil || strings.TrimSpace(val) == "" {
 			val = raw
 		}
@@ -1088,56 +1088,6 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 		emitImageURL("https://assets.grok.com/" + strings.TrimPrefix(p, "/"))
 	}
 
-	// Fallback (restore grok2api-style behavior): if the user asked for images but Grok chat did not
-	// return any extractable image links, call grok-imagine to generate images.
-	if !hasAttachments {
-		desc := strings.TrimSpace(userPrompt)
-		ld := strings.ToLower(desc)
-		neg := strings.Contains(desc, "不要图片") || strings.Contains(desc, "不需要图片") || strings.Contains(desc, "别发图片") || strings.Contains(desc, "不要照片") || strings.Contains(desc, "不需要照片") || strings.Contains(desc, "别发照片")
-		looksLikeImageReq := !neg && desc != "" && (strings.Contains(desc, "图片") || strings.Contains(desc, "照片") || strings.Contains(ld, "image") || strings.Contains(ld, "picture"))
-		if looksLikeImageReq && len(emitted) == 0 {
-			n := inferRequestedImageCount(desc, 2)
-			if n < 1 {
-				n = 1
-			}
-
-			// Auto-mode: instead of grok-imagine fallback, call our own /images/generations logic
-			// to reliably obtain image URLs, then emit them as Markdown. Keep it silent on failure.
-			ctx2, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-				slog.Info("grok imagine fallback: start", "n", n)
-			}
-			imgs, reason := h.generateViaImagesGenerations(ctx2, desc, n, "url", publicBase)
-			if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-				slog.Info("grok imagine fallback: done", "reason", reason, "count", len(imgs))
-			}
-			imgs = normalizeImageURLs(imgs, n)
-			if len(imgs) > 0 {
-				var out strings.Builder
-				out.WriteString("\n\n")
-				for _, u := range imgs {
-					val, errV := h.imageOutputValue(context.Background(), token, u, "url")
-					if errV != nil {
-						if isLowResImageErr(errV) {
-							continue
-						}
-					}
-					if errV != nil || strings.TrimSpace(val) == "" {
-						val = u
-					}
-					if publicBase != "" && strings.HasPrefix(val, "/") {
-						val = publicBase + val
-					}
-					out.WriteString("![](")
-					out.WriteString(val)
-					out.WriteString(")\n")
-				}
-				emitChunk(map[string]interface{}{"content": out.String()}, nil)
-			}
-		}
-	}
-
 	emitChunk(map[string]interface{}{}, "stop")
 	writeSSE(w, "", "[DONE]")
 	if flusher != nil {
@@ -1201,11 +1151,6 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 	imgs := normalizeImageURLs(imageCandidates, 8)
 	for _, u := range imgs {
 		val, errV := h.imageOutputValue(context.Background(), token, u, "url")
-		if errV != nil {
-			if isLowResImageErr(errV) {
-				continue
-			}
-		}
 		if errV != nil || strings.TrimSpace(val) == "" {
 			val = u
 		}
@@ -1214,43 +1159,6 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 		}
 		finalContent += formatImageMarkdown(val)
 	}
-	// Fallback: if the user asked for images but Grok chat did not return any extractable image links,
-	// call grok-imagine to generate images.
-	// This matches common grok2api behavior for OpenAI clients.
-	if !hasAttachments {
-		desc := strings.TrimSpace(userPrompt)
-		ld := strings.ToLower(desc)
-		neg := strings.Contains(desc, "不要图片") || strings.Contains(desc, "不需要图片") || strings.Contains(desc, "别发图片") || strings.Contains(desc, "不要照片") || strings.Contains(desc, "不需要照片") || strings.Contains(desc, "别发照片")
-		looksLikeImageReq := !neg && desc != "" && (strings.Contains(desc, "图片") || strings.Contains(desc, "照片") || strings.Contains(ld, "image") || strings.Contains(ld, "picture"))
-		if looksLikeImageReq {
-			// If Grok didn't provide links, generate.
-			n := inferRequestedImageCount(desc, 2)
-			if n > 0 && len(imgs) < n {
-				ctx2, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-				defer cancel()
-				if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-					slog.Info("grok imagine fallback(non-stream): start", "n", n)
-				}
-				gen, reason := h.generateViaImagesGenerations(ctx2, desc, n, "url", "")
-				if h.cfg != nil && h.cfg.GrokDebugImageFallback {
-					slog.Info("grok imagine fallback(non-stream): done", "reason", reason, "count", len(gen))
-				}
-				if len(gen) > 0 {
-					for _, u := range gen {
-						val, errV := h.imageOutputValue(context.Background(), token, u, "url")
-						if errV != nil || strings.TrimSpace(val) == "" {
-							val = u
-						}
-						if publicBase != "" && strings.HasPrefix(val, "/") {
-							val = publicBase + val
-						}
-						finalContent += formatImageMarkdown(val)
-					}
-				}
-			}
-		}
-	}
-
 	resp := map[string]interface{}{
 		"id":      id,
 		"object":  "chat.completion",
@@ -1424,16 +1332,10 @@ func (h *Handler) imageOutputValue(ctx context.Context, token, url, format strin
 		if strings.Contains(trim, "-part-0/") {
 			full := strings.ReplaceAll(trim, "-part-0/", "/")
 			if name, err := h.cacheMediaURL(ctx, token, full, "image"); err == nil && name != "" {
-				if !h.cachedImageAcceptable(name) {
-					return "", fmt.Errorf("low-res cached image")
-				}
 				return "/grok/v1/files/image/" + name, nil
 			}
 		}
 		if name, err := h.cacheMediaURL(ctx, token, trim, "image"); err == nil && name != "" {
-			if !h.cachedImageAcceptable(name) {
-				return "", fmt.Errorf("low-res cached image")
-			}
 			return "/grok/v1/files/image/" + name, nil
 		}
 		return trim, nil
@@ -1443,47 +1345,6 @@ func (h *Handler) imageOutputValue(ctx context.Context, token, url, format strin
 		return "", err
 	}
 	return base64.StdEncoding.EncodeToString(raw), nil
-}
-
-func isLowResCachedImage(sizeBytes int64, w int, hgt int) bool {
-	if sizeBytes > 0 && sizeBytes < 80*1024 {
-		return true
-	}
-	if w > 0 && hgt > 0 {
-		min := w
-		if hgt < min {
-			min = hgt
-		}
-		if min < 900 {
-			return true
-		}
-	}
-	return false
-}
-
-func isLowResImageErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(err.Error(), "low-res")
-}
-
-func (h *Handler) cachedImageAcceptable(name string) bool {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return false
-	}
-	fullPath := filepath.Join(cacheBaseDir, "image", name)
-	info, err := os.Stat(fullPath)
-	if err != nil || !info.Mode().IsRegular() {
-		return false
-	}
-	b, err := os.ReadFile(fullPath)
-	if err != nil {
-		return false
-	}
-	w, hgt := imageDimsFromBytes(b)
-	return !isLowResCachedImage(info.Size(), w, hgt)
 }
 
 func (h *Handler) cacheMediaBytes(rawURL, mediaType string, data []byte, mimeType string) (string, error) {
@@ -1659,7 +1520,7 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 		return nil, err
 	}
 
-	onePayload := h.client.chatPayload(spec, "Image Generation: "+req.Prompt, true, req.N)
+	onePayload := h.client.chatPayload(spec, req.Prompt, true, req.N)
 	if req.Stream {
 		resp, err := doChatWithSwitch(onePayload)
 		if err != nil {
@@ -1679,15 +1540,12 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 	stoppedReason := ""
 
 	// Grok upstream may return only 2 images per call and may repeat.
-	// To reach N, request 1 image per call and vary the prompt (scene/person/composition) to reduce repeats.
+	// To reach N, request 1 image per call without rewriting the user's prompt.
 	maxAttempts := req.N * 4
 	if maxAttempts < 4 {
 		maxAttempts = 4
 	}
 	deadline := time.Now().Add(60 * time.Second)
-	// Variants should not overwrite the subject (e.g. turning a "美女照片" request into street scenery).
-	// Keep them as composition/lighting/camera hints only.
-	variants := []string{"人像写真", "半身近景", "全身站姿", "室内棚拍", "自然光", "浅景深", "电影感光影", "干净背景"}
 	for i := 0; i < maxAttempts; i++ {
 		attempts++
 		cur := normalizeImageURLs(urls, 0)
@@ -1700,9 +1558,8 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 			stoppedReason = "deadline"
 			break
 		}
-		v := variants[i%len(variants)]
-		prompt2 := fmt.Sprintf("%s\n\n请生成与之前不同的一张图片：%s。要求不同人物/不同构图/不同光线。（seed %s #%d）", req.Prompt, v, randomHex(4), i+1)
-		payload := h.client.chatPayload(spec, "Image Generation: "+strings.TrimSpace(prompt2), true, 1)
+		prompt2 := req.Prompt
+		payload := h.client.chatPayload(spec, strings.TrimSpace(prompt2), true, 1)
 		resp, err := doChatWithSwitch(payload)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
@@ -1726,11 +1583,6 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 			return
 		}
 		next := normalizeImageURLs(urls, 0)
-		if len(next) <= len(cur) {
-			urls = next
-			stoppedReason = "no-new-urls"
-			break
-		}
 		urls = next
 	}
 	if stoppedReason == "" {
@@ -1752,9 +1604,6 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 	for _, u := range urls {
 		val, err := h.imageOutputValue(r.Context(), token, u, req.ResponseFormat)
 		if err != nil {
-			if isLowResImageErr(err) {
-				continue
-			}
 			slog.Warn("grok image convert failed", "url", u, "error", err)
 			if field == "url" {
 				val = u
@@ -1773,7 +1622,6 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 		"data":    data,
 		"usage":   imageUsagePayload(),
 	}
-	maybeAddImageDebug(r, out, req.N, len(urls), attempts, stoppedReason)
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(out)
 }

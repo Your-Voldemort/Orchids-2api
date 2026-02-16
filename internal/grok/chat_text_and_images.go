@@ -10,22 +10,32 @@ import (
 // text first, then Markdown images. In stream mode, it emits two chunks (role, then content).
 func (h *Handler) replyChatTextAndImages(w http.ResponseWriter, model string, text string, imgs []string, stream bool) {
 	text = strings.TrimSpace(text)
+	cleanImgs := make([]string, 0, len(imgs))
+	for _, u := range imgs {
+		u = strings.TrimSpace(u)
+		if u != "" {
+			cleanImgs = append(cleanImgs, u)
+		}
+	}
 
 	var out strings.Builder
 	if text != "" {
 		out.WriteString(text)
 	}
-	if len(imgs) > 0 {
+	if len(cleanImgs) > 0 {
 		if out.Len() > 0 {
 			out.WriteString("\n\n")
-		} else {
-			out.WriteString("\n\n")
 		}
-		for _, u := range imgs {
-			u = strings.TrimSpace(u)
-			if u == "" {
-				continue
-			}
+		if text == "" {
+			out.WriteString("图片链接：\n")
+		}
+		// Always emit raw URLs first for clients that do not render Markdown images.
+		for _, u := range cleanImgs {
+			out.WriteString(u)
+			out.WriteString("\n")
+		}
+		out.WriteString("\n")
+		for _, u := range cleanImgs {
 			out.WriteString("![](")
 			out.WriteString(u)
 			out.WriteString(")\n")

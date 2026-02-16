@@ -24,7 +24,7 @@ func (h *Handler) callLocalImagesGenerations(ctx context.Context, prompt string,
 	if n <= 0 {
 		n = 1
 	}
-	// Use the same endpoint logic that is known to work.
+	// Reuse the same endpoint contract as /grok/v1/images/generations.
 	url := fmt.Sprintf("http://127.0.0.1:%s/grok/v1/images/generations", h.cfg.Port)
 	payload := map[string]any{
 		"prompt":          prompt,
