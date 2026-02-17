@@ -17,6 +17,18 @@ type imagesGenerationsResp struct {
 }
 
 func (h *Handler) callLocalImagesGenerations(ctx context.Context, prompt string, n int) ([]string, error) {
+	return h.callLocalImagesGenerationsWithOptions(ctx, "grok-imagine-1.0", prompt, n, "1024x1024", "url", nil)
+}
+
+func (h *Handler) callLocalImagesGenerationsWithOptions(
+	ctx context.Context,
+	model string,
+	prompt string,
+	n int,
+	size string,
+	responseFormat string,
+	nsfw *bool,
+) ([]string, error) {
 	prompt = strings.TrimSpace(prompt)
 	if prompt == "" {
 		return nil, fmt.Errorf("empty prompt")
@@ -24,12 +36,26 @@ func (h *Handler) callLocalImagesGenerations(ctx context.Context, prompt string,
 	if n <= 0 {
 		n = 1
 	}
+	model = normalizeModelID(model)
+	if strings.TrimSpace(model) == "" {
+		model = "grok-imagine-1.0"
+	}
+	normalizedSize, err := normalizeImageSize(size)
+	if err != nil {
+		return nil, err
+	}
+	responseFormat = normalizeImageResponseFormat(responseFormat)
 	// Reuse the same endpoint contract as /grok/v1/images/generations.
 	url := fmt.Sprintf("http://127.0.0.1:%s/grok/v1/images/generations", h.cfg.Port)
 	payload := map[string]any{
+		"model":           model,
 		"prompt":          prompt,
 		"n":               n,
-		"response_format": "url",
+		"size":            normalizedSize,
+		"response_format": responseFormat,
+	}
+	if nsfw != nil {
+		payload["nsfw"] = *nsfw
 	}
 	b, _ := json.Marshal(payload)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))

@@ -746,6 +746,131 @@ func normalizeMessageRole(role string) string {
 	}
 }
 
+func validateChatMessages(messages []ChatMessage) error {
+	allowedRoles := map[string]struct{}{
+		"developer": {},
+		"system":    {},
+		"user":      {},
+		"assistant": {},
+	}
+	userContentTypes := map[string]struct{}{
+		"text":        {},
+		"image_url":   {},
+		"input_audio": {},
+		"file":        {},
+	}
+
+	for _, msg := range messages {
+		role := strings.TrimSpace(msg.Role)
+		if _, ok := allowedRoles[role]; !ok {
+			return fmt.Errorf("role must be one of [assistant developer system user]")
+		}
+		switch content := msg.Content.(type) {
+		case string:
+			if strings.TrimSpace(content) == "" {
+				return fmt.Errorf("message content cannot be empty")
+			}
+		case []interface{}:
+			if len(content) == 0 {
+				return fmt.Errorf("message content cannot be an empty array")
+			}
+			for _, block := range content {
+				m, ok := block.(map[string]interface{})
+				if !ok {
+					return fmt.Errorf("content block must be an object")
+				}
+				if len(m) == 0 {
+					return fmt.Errorf("content block cannot be empty")
+				}
+				rawType, hasType := m["type"]
+				if !hasType {
+					return fmt.Errorf("content block must have a 'type' field")
+				}
+				blockType := strings.TrimSpace(fmt.Sprint(rawType))
+				if blockType == "" {
+					return fmt.Errorf("content block 'type' cannot be empty")
+				}
+
+				if role == "user" {
+					if _, ok := userContentTypes[blockType]; !ok {
+						return fmt.Errorf("invalid content block type: '%s'", blockType)
+					}
+				} else if blockType != "text" {
+					return fmt.Errorf("the '%s' role only supports 'text' type, got '%s'", role, blockType)
+				}
+
+				switch blockType {
+				case "text":
+					text, _ := m["text"].(string)
+					if strings.TrimSpace(text) == "" {
+						return fmt.Errorf("text content cannot be empty")
+					}
+				case "image_url":
+					imageURL, _ := m["image_url"].(map[string]interface{})
+					if imageURL == nil {
+						return fmt.Errorf("image_url must have a 'url' field")
+					}
+					urlVal, _ := imageURL["url"].(string)
+					if err := validateMediaInput(urlVal, "image_url.url"); err != nil {
+						return err
+					}
+				case "input_audio":
+					audio, _ := m["input_audio"].(map[string]interface{})
+					if audio == nil {
+						return fmt.Errorf("input_audio must have a 'data' field")
+					}
+					dataVal, _ := audio["data"].(string)
+					if err := validateMediaInput(dataVal, "input_audio.data"); err != nil {
+						return err
+					}
+				case "file":
+					fileData, _ := m["file"].(map[string]interface{})
+					if fileData == nil {
+						return fmt.Errorf("file must have a 'file_data' field")
+					}
+					dataVal, _ := fileData["file_data"].(string)
+					if err := validateMediaInput(dataVal, "file.file_data"); err != nil {
+						return err
+					}
+				default:
+					return fmt.Errorf("invalid content block type: '%s'", blockType)
+				}
+
+			}
+		default:
+			return fmt.Errorf("message content must be a string or array")
+		}
+	}
+	return nil
+}
+
+func validateMediaInput(value string, fieldName string) error {
+	val := strings.TrimSpace(value)
+	if val == "" {
+		return fmt.Errorf("%s cannot be empty", fieldName)
+	}
+	lower := strings.ToLower(val)
+	if strings.HasPrefix(lower, "data:") {
+		return nil
+	}
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return nil
+	}
+	if looksLikeBase64Payload(val) {
+		return fmt.Errorf("%s base64 must be provided as a data URI (data:<mime>;base64,...)", fieldName)
+	}
+	return fmt.Errorf("%s must be a URL or data URI", fieldName)
+}
+
+func looksLikeBase64Payload(value string) bool {
+	candidate := strings.Join(strings.Fields(value), "")
+	if len(candidate) < 32 || len(candidate)%4 != 0 {
+		return false
+	}
+	_, err := base64.StdEncoding.DecodeString(candidate)
+	return err == nil
+}
+
 func extractAttachmentURL(v interface{}) string {
 	switch x := v.(type) {
 	case string:
@@ -755,6 +880,9 @@ func extractAttachmentURL(v interface{}) string {
 			return strings.TrimSpace(u)
 		}
 		if u, ok := x["data"].(string); ok && strings.TrimSpace(u) != "" {
+			return strings.TrimSpace(u)
+		}
+		if u, ok := x["file_data"].(string); ok && strings.TrimSpace(u) != "" {
 			return strings.TrimSpace(u)
 		}
 	}
@@ -771,6 +899,49 @@ func extractAttachmentData(v interface{}, field string) string {
 		}
 	}
 	return ""
+}
+
+func extractPromptAndImageURLs(messages []ChatMessage) (string, []string) {
+	prompt := ""
+	imageURLs := make([]string, 0)
+
+	for _, msg := range messages {
+		role := strings.TrimSpace(msg.Role)
+		switch content := msg.Content.(type) {
+		case string:
+			text := strings.TrimSpace(content)
+			if text != "" {
+				prompt = text
+			}
+		case []interface{}:
+			for _, block := range content {
+				m, ok := block.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				blockType := strings.ToLower(strings.TrimSpace(fmt.Sprint(m["type"])))
+				switch blockType {
+				case "text":
+					if s, ok := m["text"].(string); ok && strings.TrimSpace(s) != "" {
+						prompt = strings.TrimSpace(s)
+					}
+				case "image_url":
+					if role != "user" {
+						continue
+					}
+					if data := extractAttachmentURL(m["image_url"]); data != "" {
+						imageURLs = append(imageURLs, data)
+					}
+				}
+			}
+		default:
+			text := strings.TrimSpace(extractContentText(content))
+			if text != "" {
+				prompt = text
+			}
+		}
+	}
+	return prompt, imageURLs
 }
 
 func dataURIFromBytes(mime string, data []byte) string {
@@ -928,6 +1099,66 @@ func resolveAspectRatio(size string) string {
 		return "3:2"
 	default:
 		return "2:3"
+	}
+}
+
+func validateVideoConfig(cfg *VideoConfig) (*VideoConfig, error) {
+	if cfg == nil {
+		cfg = &VideoConfig{}
+	}
+	cfg.Normalize()
+
+	aspectRatioMap := map[string]string{
+		"1280x720": "16:9",
+		"720x1280": "9:16",
+		"1792x1024": "3:2",
+		"1024x1792": "2:3",
+		"1024x1024": "1:1",
+		"16:9":     "16:9",
+		"9:16":     "9:16",
+		"3:2":      "3:2",
+		"2:3":      "2:3",
+		"1:1":      "1:1",
+	}
+	ar := strings.TrimSpace(cfg.AspectRatio)
+	if ar == "" {
+		ar = "3:2"
+	}
+	mapped, ok := aspectRatioMap[ar]
+	if !ok {
+		return nil, fmt.Errorf("aspect_ratio must be one of [1280x720 720x1280 1792x1024 1024x1792 1024x1024 16:9 9:16 3:2 2:3 1:1]")
+	}
+	cfg.AspectRatio = mapped
+
+	if cfg.VideoLength != 6 && cfg.VideoLength != 10 && cfg.VideoLength != 15 {
+		return nil, fmt.Errorf("video_length must be 6, 10, or 15 seconds")
+	}
+	resolution := strings.TrimSpace(cfg.ResolutionName)
+	if resolution != "480p" && resolution != "720p" {
+		return nil, fmt.Errorf("resolution_name must be one of ['480p', '720p']")
+	}
+	cfg.ResolutionName = resolution
+
+	preset := strings.TrimSpace(cfg.Preset)
+	switch preset {
+	case "fun", "normal", "spicy", "custom":
+	default:
+		return nil, fmt.Errorf("preset must be one of ['fun', 'normal', 'spicy', 'custom']")
+	}
+	cfg.Preset = preset
+	return cfg, nil
+}
+
+func normalizeImageSize(size string) (string, error) {
+	s := strings.ToLower(strings.TrimSpace(size))
+	if s == "" {
+		return "1024x1024", nil
+	}
+	switch s {
+	case "1280x720", "720x1280", "1792x1024", "1024x1792", "1024x1024":
+		return s, nil
+	default:
+		return "", fmt.Errorf("size must be one of 1280x720/720x1280/1792x1024/1024x1792/1024x1024")
 	}
 }
 

@@ -124,12 +124,16 @@
       <section id="grokCacheSection" class="grok-tools-grid" style="display:none;">
         <div class="grok-panel">
           <h3>缓存总览</h3>
-          <p>对应 `data/tmp/image` 与 `data/tmp/video` 的本地缓存。</p>
+          <p>本地缓存 + 在线资产概览。</p>
           <div class="grok-form-grid">
             <div class="grok-kv"><span>图片缓存</span><strong id="cacheImageSummary">0 / 0 B</strong></div>
             <div class="grok-kv"><span>视频缓存</span><strong id="cacheVideoSummary">0 / 0 B</strong></div>
             <div class="grok-kv"><span>总计</span><strong id="cacheTotalSummary">0 / 0 B</strong></div>
             <div class="grok-kv"><span>目录</span><strong id="cacheBaseDir">-</strong></div>
+            <div class="grok-kv"><span>在线资产</span><strong id="cacheOnlineCount">0</strong></div>
+            <div class="grok-kv"><span>在线状态</span><strong id="cacheOnlineStatus">未加载</strong></div>
+            <div class="grok-kv"><span>在线范围</span><strong id="cacheOnlineScope">none</strong></div>
+            <div class="grok-kv"><span>上次清理</span><strong id="cacheOnlineLastClear">-</strong></div>
           </div>
           <div class="grok-form-grid">
             <div>
@@ -148,7 +152,7 @@
         </div>
 
         <div class="grok-panel">
-          <h3>缓存列表</h3>
+          <h3>本地缓存列表</h3>
           <p>支持单个缓存文件删除。</p>
           <div class="cache-list">
             <table>
@@ -169,6 +173,44 @@
             </table>
           </div>
         </div>
+
+        <div class="grok-panel">
+          <h3>在线资产账号</h3>
+          <p>支持按账号加载在线资产数量并执行在线清理。</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn btn-outline" id="cacheOnlineLoadSelectedBtn">加载选中统计</button>
+            <button class="btn btn-outline" id="cacheOnlineLoadAllBtn">加载全部统计</button>
+            <button class="btn btn-danger-outline" id="cacheOnlineClearSelectedBtn">清理选中在线资产</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+            <span class="tag" id="cacheOnlineBatchStatus">空闲</span>
+            <span style="color:var(--text-secondary);font-size:12px;" id="cacheOnlineBatchProgress">0/0</span>
+            <progress id="cacheOnlineBatchBar" value="0" max="100" style="width:180px;height:8px;"></progress>
+            <button class="btn btn-outline" id="cacheOnlineBatchCancelBtn" style="display:none;">取消任务</button>
+          </div>
+          <div class="cache-list">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:36px;text-align:center;">
+                    <input id="cacheOnlineSelectAll" type="checkbox" />
+                  </th>
+                  <th>Token</th>
+                  <th>池</th>
+                  <th>资产数</th>
+                  <th>状态</th>
+                  <th>上次清理</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="cacheOnlineBody">
+                <tr>
+                  <td colspan="7" style="text-align:center;color:var(--text-secondary);padding:24px;">暂无在线账号</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </section>
     </div>
   </main>
@@ -176,7 +218,7 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <script src="{{.AdminPath}}/js/common.js?v=20260212"></script>
-  <script src="{{.AdminPath}}/js/grok-tools.js?v=20260212"></script>
+  <script src="{{.AdminPath}}/js/grok-tools.js?v=20260217"></script>
 </body>
 
 </html>

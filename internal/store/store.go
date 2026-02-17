@@ -13,6 +13,7 @@ type Account struct {
 	ID            int64     `json:"id"`
 	Name          string    `json:"name"`
 	AccountType   string    `json:"account_type"`
+	NSFWEnabled   bool      `json:"nsfw_enabled"`
 	SessionID     string    `json:"session_id"`
 	ClientCookie  string    `json:"client_cookie"`
 	RefreshToken  string    `json:"refresh_token,omitempty"`

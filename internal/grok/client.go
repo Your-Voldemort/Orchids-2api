@@ -3,6 +3,7 @@ package grok
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,20 +18,33 @@ import (
 )
 
 const (
-	defaultBaseURL        = "https://grok.com"
-	defaultAssetsBaseURL  = "https://assets.grok.com"
-	defaultChatPath       = "/rest/app-chat/conversations/new"
-	defaultUploadFilePath = "/rest/app-chat/upload-file"
-	defaultCreatePostPath = "/rest/media/post/create"
-	defaultLivekitPath    = "/rest/livekit/tokens"
-	defaultRateLimitsPath = "/rest/rate-limits"
-	defaultUA             = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+	defaultBaseURL          = "https://grok.com"
+	defaultAssetsBaseURL    = "https://assets.grok.com"
+	defaultAssetsListPath   = "/rest/assets"
+	defaultAssetsDeletePath = "/rest/assets-metadata"
+	defaultChatPath         = "/rest/app-chat/conversations/new"
+	defaultUploadFilePath   = "/rest/app-chat/upload-file"
+	defaultCreatePostPath   = "/rest/media/post/create"
+	defaultLivekitPath      = "/rest/livekit/tokens"
+	defaultRateLimitsPath   = "/rest/rate-limits"
+	defaultAcceptTOSURL     = "https://accounts.x.ai/auth_mgmt.AuthManagement/SetTosAcceptedVersion"
+	defaultSetBirthPath     = "/rest/auth/set-birth-date"
+	defaultNSFWMgmtPath     = "/auth_mgmt.AuthManagement/UpdateUserFeatureControls"
+	defaultUA               = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 )
 
 type Client struct {
 	cfg         *config.Config
 	httpClient  *http.Client
 	assetClient *http.Client
+}
+
+type NSFWEnableResult struct {
+	Success     bool   `json:"success"`
+	HTTPStatus  int    `json:"http_status"`
+	GRPCStatus  int    `json:"grpc_status,omitempty"`
+	GRPCMessage string `json:"grpc_message,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 func New(cfg *config.Config) *Client {
@@ -485,6 +499,386 @@ func (c *Client) getVoiceToken(ctx context.Context, token, voice, personality st
 	return out, nil
 }
 
+func (c *Client) listAssets(ctx context.Context, token string) ([]string, error) {
+	token = parseTokenValue(token)
+	if strings.TrimSpace(token) == "" {
+		return nil, fmt.Errorf("empty token")
+	}
+
+	params := url.Values{}
+	params.Set("pageSize", "50")
+	params.Set("orderBy", "ORDER_BY_LAST_USE_TIME")
+	params.Set("source", "SOURCE_ANY")
+	params.Set("isLatest", "true")
+
+	assetIDs := make([]string, 0, 64)
+	seenPageTokens := map[string]struct{}{}
+	nextPageToken := ""
+	for page := 0; page < 500; page++ {
+		if page > 0 {
+			if strings.TrimSpace(nextPageToken) == "" {
+				break
+			}
+			if _, exists := seenPageTokens[nextPageToken]; exists {
+				// Upstream returned a repeated page token; stop to avoid endless loop.
+				break
+			}
+			seenPageTokens[nextPageToken] = struct{}{}
+			params.Set("pageToken", nextPageToken)
+		} else {
+			params.Del("pageToken")
+		}
+
+		reqURL := c.baseURL() + defaultAssetsListPath + "?" + params.Encode()
+		headers := c.headers(token)
+		headers.Set("Origin", "https://grok.com")
+		headers.Set("Referer", "https://grok.com/files")
+		headers.Set("Content-Type", "application/json")
+
+		resp, err := c.doRequest(ctx, reqURL, http.MethodGet, nil, headers, http.StatusOK, false)
+		if err != nil {
+			return nil, err
+		}
+
+		var payload struct {
+			Assets []struct {
+				AssetID string `json:"assetId"`
+			} `json:"assets"`
+			NextPageToken string `json:"nextPageToken"`
+		}
+		decodeErr := json.NewDecoder(resp.Body).Decode(&payload)
+		resp.Body.Close()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+
+		for _, item := range payload.Assets {
+			id := strings.TrimSpace(item.AssetID)
+			if id == "" {
+				continue
+			}
+			assetIDs = append(assetIDs, id)
+		}
+		nextPageToken = strings.TrimSpace(payload.NextPageToken)
+		if nextPageToken == "" {
+			break
+		}
+	}
+
+	return assetIDs, nil
+}
+
+func (c *Client) countAssets(ctx context.Context, token string) (int, error) {
+	ids, err := c.listAssets(ctx, token)
+	if err != nil {
+		return 0, err
+	}
+	return len(ids), nil
+}
+
+func (c *Client) deleteAsset(ctx context.Context, token string, assetID string) error {
+	token = parseTokenValue(token)
+	assetID = strings.TrimSpace(assetID)
+	if token == "" {
+		return fmt.Errorf("empty token")
+	}
+	if assetID == "" {
+		return fmt.Errorf("empty asset id")
+	}
+
+	reqURL := c.baseURL() + defaultAssetsDeletePath + "/" + url.PathEscape(assetID)
+	headers := c.headers(token)
+	headers.Set("Origin", "https://grok.com")
+	headers.Set("Referer", "https://grok.com/files")
+	headers.Set("Content-Type", "application/json")
+
+	resp, err := c.doRequest(ctx, reqURL, http.MethodDelete, nil, headers, http.StatusOK, false)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 2048))
+	return nil
+}
+
+func (c *Client) clearAssets(ctx context.Context, token string) (total int, success int, failed int, err error) {
+	assetIDs, err := c.listAssets(ctx, token)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	total = len(assetIDs)
+	if total == 0 {
+		return 0, 0, 0, nil
+	}
+
+	type job struct {
+		assetID string
+	}
+	workerCount := 8
+	if total < workerCount {
+		workerCount = total
+	}
+
+	jobs := make(chan job)
+	results := make(chan bool, total)
+
+	for i := 0; i < workerCount; i++ {
+		go func() {
+			for item := range jobs {
+				if err := c.deleteAsset(ctx, token, item.assetID); err != nil {
+					results <- false
+				} else {
+					results <- true
+				}
+			}
+		}()
+	}
+
+	for _, id := range assetIDs {
+		jobs <- job{assetID: id}
+	}
+	close(jobs)
+
+	for i := 0; i < total; i++ {
+		if <-results {
+			success++
+		} else {
+			failed++
+		}
+	}
+	return total, success, failed, nil
+}
+
+func grpcWebEncode(payload []byte) []byte {
+	out := make([]byte, 5+len(payload))
+	out[0] = 0x00
+	binary.BigEndian.PutUint32(out[1:5], uint32(len(payload)))
+	copy(out[5:], payload)
+	return out
+}
+
+func parseGRPCStatus(headers http.Header, body []byte) (int, string) {
+	if headers != nil {
+		rawStatus := strings.TrimSpace(firstHeaderValue(headers, "grpc-status", "Grpc-Status"))
+		if rawStatus != "" {
+			if code, err := strconv.Atoi(rawStatus); err == nil {
+				return code, strings.TrimSpace(firstHeaderValue(headers, "grpc-message", "Grpc-Message"))
+			}
+		}
+	}
+
+	buf := body
+	for len(buf) >= 5 {
+		flag := buf[0]
+		frameLen := int(binary.BigEndian.Uint32(buf[1:5]))
+		buf = buf[5:]
+		if frameLen < 0 || frameLen > len(buf) {
+			break
+		}
+		frame := buf[:frameLen]
+		buf = buf[frameLen:]
+
+		// trailer frame
+		if flag&0x80 == 0 {
+			continue
+		}
+		lines := strings.Split(string(frame), "\r\n")
+		code := -1
+		msg := ""
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			kv := strings.SplitN(line, ":", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			k := strings.ToLower(strings.TrimSpace(kv[0]))
+			v := strings.TrimSpace(kv[1])
+			switch k {
+			case "grpc-status":
+				if n, err := strconv.Atoi(v); err == nil {
+					code = n
+				}
+			case "grpc-message":
+				msg = v
+			}
+		}
+		if code >= 0 {
+			return code, msg
+		}
+	}
+
+	// If grpc-status is absent, treat as success by default.
+	return -1, ""
+}
+
+func (c *Client) acceptTOS(ctx context.Context, token string) (int, error) {
+	headers := c.headers(token)
+	headers.Set("Origin", "https://accounts.x.ai")
+	headers.Set("Referer", "https://accounts.x.ai/accept-tos")
+	headers.Set("Content-Type", "application/grpc-web+proto")
+	headers.Set("Accept", "*/*")
+	headers.Set("Sec-Fetch-Dest", "empty")
+	headers.Set("x-grpc-web", "1")
+	headers.Set("x-user-agent", "connect-es/2.1.1")
+	headers.Set("Cache-Control", "no-cache")
+	headers.Set("Pragma", "no-cache")
+
+	payload := grpcWebEncode([]byte{0x10, 0x01})
+	resp, err := c.doRequest(ctx, defaultAcceptTOSURL, http.MethodPost, payload, headers, http.StatusOK, false)
+	if err != nil {
+		return parseUpstreamStatus(err), err
+	}
+	defer resp.Body.Close()
+
+	statusCode := resp.StatusCode
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	grpcStatus, grpcMsg := parseGRPCStatus(resp.Header, raw)
+	if grpcStatus != -1 && grpcStatus != 0 {
+		if grpcMsg == "" {
+			return statusCode, fmt.Errorf("accept tos failed grpc_status=%d", grpcStatus)
+		}
+		return statusCode, fmt.Errorf("accept tos failed grpc_status=%d message=%s", grpcStatus, grpcMsg)
+	}
+	return statusCode, nil
+}
+
+func randomAdultBirthDate() string {
+	now := time.Now().UTC()
+	year := now.Year() - (20 + rand.Intn(29)) // [20,48]
+	month := 1 + rand.Intn(12)
+	day := 1 + rand.Intn(28)
+	hour := rand.Intn(24)
+	minute := rand.Intn(60)
+	second := rand.Intn(60)
+	millis := rand.Intn(1000)
+	return fmt.Sprintf("%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", year, month, day, hour, minute, second, millis)
+}
+
+func (c *Client) setBirthDate(ctx context.Context, token string) (int, error) {
+	payload := map[string]string{
+		"birthDate": randomAdultBirthDate(),
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return 0, err
+	}
+
+	headers := c.headers(token)
+	headers.Set("Origin", "https://grok.com")
+	headers.Set("Referer", "https://grok.com/?_s=home")
+	headers.Set("Content-Type", "application/json")
+
+	reqURL := c.baseURL() + defaultSetBirthPath
+	resp, err := c.doRequest(ctx, reqURL, http.MethodPost, raw, headers, http.StatusOK, false)
+	if err != nil {
+		statusCode := parseUpstreamStatus(err)
+		// Upstream may return 204 No Content when already set.
+		if statusCode == http.StatusNoContent {
+			return statusCode, nil
+		}
+		return statusCode, err
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+	return resp.StatusCode, nil
+}
+
+func (c *Client) enableNSFWFeature(ctx context.Context, token string) (int, int, string, error) {
+	headers := c.headers(token)
+	headers.Set("Origin", "https://grok.com")
+	headers.Set("Referer", "https://grok.com/?_s=data")
+	headers.Set("Content-Type", "application/grpc-web+proto")
+	headers.Set("Accept", "*/*")
+	headers.Set("Sec-Fetch-Dest", "empty")
+	headers.Set("x-grpc-web", "1")
+	headers.Set("x-user-agent", "connect-es/2.1.1")
+	headers.Set("Cache-Control", "no-cache")
+	headers.Set("Pragma", "no-cache")
+
+	name := []byte("always_show_nsfw_content")
+	inner := append([]byte{0x0a, byte(len(name))}, name...)
+	protobuf := append([]byte{0x0a, 0x02, 0x10, 0x01, 0x12, byte(len(inner))}, inner...)
+	payload := grpcWebEncode(protobuf)
+
+	reqURL := c.baseURL() + defaultNSFWMgmtPath
+	resp, err := c.doRequest(ctx, reqURL, http.MethodPost, payload, headers, http.StatusOK, false)
+	if err != nil {
+		return parseUpstreamStatus(err), -1, "", err
+	}
+	defer resp.Body.Close()
+
+	statusCode := resp.StatusCode
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 512<<10))
+	grpcStatus, grpcMsg := parseGRPCStatus(resp.Header, raw)
+	if grpcStatus != -1 && grpcStatus != 0 {
+		if grpcMsg == "" {
+			return statusCode, grpcStatus, grpcMsg, fmt.Errorf("enable nsfw failed grpc_status=%d", grpcStatus)
+		}
+		return statusCode, grpcStatus, grpcMsg, fmt.Errorf("enable nsfw failed grpc_status=%d message=%s", grpcStatus, grpcMsg)
+	}
+	return statusCode, grpcStatus, grpcMsg, nil
+}
+
+func (c *Client) EnableNSFWDetailed(ctx context.Context, token string) NSFWEnableResult {
+	result := NSFWEnableResult{
+		Success:    false,
+		HTTPStatus: 0,
+		GRPCStatus: -1,
+	}
+	if strings.TrimSpace(token) == "" {
+		result.Error = "empty token"
+		return result
+	}
+
+	statusCode, err := c.acceptTOS(ctx, token)
+	if statusCode > 0 {
+		result.HTTPStatus = statusCode
+	}
+	if err != nil {
+		result.Error = fmt.Sprintf("Accept ToS failed: %v", err)
+		return result
+	}
+
+	statusCode, err = c.setBirthDate(ctx, token)
+	if statusCode > 0 {
+		result.HTTPStatus = statusCode
+	}
+	if err != nil {
+		result.Error = fmt.Sprintf("Set birth date failed: %v", err)
+		return result
+	}
+
+	statusCode, grpcStatus, grpcMsg, err := c.enableNSFWFeature(ctx, token)
+	if statusCode > 0 {
+		result.HTTPStatus = statusCode
+	}
+	result.GRPCStatus = grpcStatus
+	result.GRPCMessage = grpcMsg
+	if err != nil {
+		result.Error = fmt.Sprintf("NSFW enable failed: %v", err)
+		return result
+	}
+
+	result.Success = true
+	result.Error = ""
+	return result
+}
+
+func (c *Client) EnableNSFW(ctx context.Context, token string) error {
+	result := c.EnableNSFWDetailed(ctx, token)
+	if result.Success {
+		return nil
+	}
+	if strings.TrimSpace(result.Error) == "" {
+		return fmt.Errorf("enable nsfw failed")
+	}
+	return fmt.Errorf("%s", result.Error)
+}
+
 func getProxyField(cfg *config.Config, kind string) string {
 	if cfg == nil {
 		return ""
@@ -566,6 +960,30 @@ func parseRetryAfter(raw string) time.Duration {
 		}
 	}
 	return 0
+}
+
+func parseUpstreamStatus(err error) int {
+	if err == nil {
+		return 0
+	}
+	raw := err.Error()
+	idx := strings.Index(raw, "status=")
+	if idx < 0 {
+		return 0
+	}
+	rest := raw[idx+len("status="):]
+	n := 0
+	for n < len(rest) && rest[n] >= '0' && rest[n] <= '9' {
+		n++
+	}
+	if n == 0 {
+		return 0
+	}
+	code, convErr := strconv.Atoi(rest[:n])
+	if convErr != nil {
+		return 0
+	}
+	return code
 }
 
 func backoffDelay(baseDelay, retry429Delay, lastDelay time.Duration, attempt int, status int, retryAfter time.Duration) time.Duration {

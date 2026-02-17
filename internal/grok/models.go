@@ -41,7 +41,16 @@ var modelByID = func() map[string]ModelSpec {
 	return out
 }()
 
+func normalizeModelID(modelID string) string {
+	m := strings.ToLower(strings.TrimSpace(modelID))
+	// Common typo compatibility: gork-* -> grok-*
+	if strings.HasPrefix(m, "gork-") {
+		return "grok-" + strings.TrimPrefix(m, "gork-")
+	}
+	return m
+}
+
 func ResolveModel(modelID string) (ModelSpec, bool) {
-	m, ok := modelByID[strings.ToLower(strings.TrimSpace(modelID))]
+	m, ok := modelByID[normalizeModelID(modelID)]
 	return m, ok
 }

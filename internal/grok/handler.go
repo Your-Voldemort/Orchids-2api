@@ -171,13 +171,13 @@ func imageURLScore(raw string) int {
 		return -1
 	}
 	lu := strings.ToLower(u)
-	if strings.HasPrefix(lu, "/grok/v1/files/image/") {
+	if strings.HasPrefix(lu, "/grok/v1/files/image/") || strings.HasPrefix(lu, "/v1/files/image/") {
 		return 1000
 	}
 
 	score := 100
 	if strings.HasPrefix(lu, "http://127.0.0.1:") || strings.HasPrefix(lu, "http://localhost:") {
-		if strings.Contains(lu, "/grok/v1/files/image/") {
+		if strings.Contains(lu, "/grok/v1/files/image/") || strings.Contains(lu, "/v1/files/image/") {
 			score = 980
 		}
 	}
@@ -324,7 +324,7 @@ func isLikelyImageURL(u string) bool {
 	if u == "" {
 		return false
 	}
-	if strings.HasPrefix(u, "/grok/v1/files/image/") {
+	if strings.HasPrefix(u, "/grok/v1/files/image/") || strings.HasPrefix(u, "/v1/files/image/") {
 		return true
 	}
 	lu := strings.ToLower(u)
@@ -423,7 +423,7 @@ func (h *Handler) ensureModelEnabled(ctx context.Context, modelID string) error 
 	if h == nil || h.lb == nil || h.lb.Store == nil {
 		return nil
 	}
-	modelID = strings.TrimSpace(modelID)
+	modelID = normalizeModelID(modelID)
 	if modelID == "" {
 		return nil
 	}
@@ -442,6 +442,25 @@ func (h *Handler) ensureModelEnabled(ctx context.Context, modelID string) error 
 		return fmt.Errorf("model not found")
 	}
 	return nil
+}
+
+func modelNotFoundMessage(modelID string) string {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return "The model does not exist or you do not have access to it."
+	}
+	return fmt.Sprintf("The model `%s` does not exist or you do not have access to it.", modelID)
+}
+
+func modelValidationMessage(modelID string, err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := strings.TrimSpace(err.Error())
+	if strings.EqualFold(msg, "model not found") {
+		return modelNotFoundMessage(modelID)
+	}
+	return msg
 }
 
 func (h *Handler) trackAccount(acc *store.Account) func() {
@@ -636,6 +655,23 @@ func detectPublicBaseURL(r *http.Request) string {
 	return proto + "://" + host
 }
 
+func (h *Handler) defaultChatStream() bool {
+	if h == nil || h.cfg == nil {
+		return true
+	}
+	return h.cfg.ChatDefaultStream()
+}
+
+func (h *Handler) applyDefaultChatStream(req *ChatCompletionsRequest) {
+	if req == nil {
+		return
+	}
+	if req.StreamProvided {
+		return
+	}
+	req.Stream = h.defaultChatStream()
+}
+
 func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -651,18 +687,87 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	req.Model = normalizeModelID(req.Model)
+	if req.ImageConfig != nil {
+		req.ImageConfig.Normalize()
+	}
+	h.applyDefaultChatStream(&req)
 	if err := req.Validate(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	if err := h.ensureModelEnabled(r.Context(), req.Model); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, modelValidationMessage(req.Model, err), http.StatusBadRequest)
 		return
 	}
 
 	spec, ok := ResolveModel(req.Model)
 	if !ok {
-		http.Error(w, "model not found", http.StatusBadRequest)
+		http.Error(w, modelNotFoundMessage(req.Model), http.StatusBadRequest)
+		return
+	}
+
+	publicBase := detectPublicBaseURL(r)
+	if spec.IsImage {
+		prompt, imageURLs := extractPromptAndImageURLs(req.Messages)
+		prompt = strings.TrimSpace(prompt)
+		if prompt == "" {
+			http.Error(w, "prompt is required", http.StatusBadRequest)
+			return
+		}
+		imageCfg := req.ImageConfig
+		if imageCfg == nil {
+			imageCfg = &ImageConfig{}
+			imageCfg.Normalize()
+		}
+		if imageCfg.N < 1 || imageCfg.N > 10 {
+			http.Error(w, "image_config.n must be between 1 and 10", http.StatusBadRequest)
+			return
+		}
+		if req.Stream && imageCfg.N > 2 {
+			http.Error(w, "streaming is only supported when image_config.n=1 or n=2", http.StatusBadRequest)
+			return
+		}
+		if imageCfg.ResponseFormat == "" {
+			imageCfg.ResponseFormat = "url"
+		}
+		if imageCfg.ResponseFormat != "" {
+			imageCfg.ResponseFormat = normalizeImageResponseFormat(imageCfg.ResponseFormat)
+		}
+		if imageCfg.Size != "" {
+			size, err := normalizeImageSize(imageCfg.Size)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			imageCfg.Size = size
+		} else {
+			imageCfg.Size = "1024x1024"
+		}
+
+		if spec.ID == "grok-imagine-1.0-edit" {
+			if len(imageURLs) == 0 {
+				http.Error(w, "image_url is required for image edits", http.StatusBadRequest)
+				return
+			}
+			// Keep grok2api compatibility in chat mode: use the last provided image as edit source.
+			editInputs := imageURLs
+			if len(editInputs) > 1 {
+				editInputs = editInputs[len(editInputs)-1:]
+			}
+			h.handleChatImageEdit(r.Context(), w, req, spec, prompt, editInputs)
+			return
+		}
+
+		genReq := ImagesGenerationsRequest{
+			Model:          req.Model,
+			Prompt:         prompt,
+			N:              imageCfg.N,
+			Size:           imageCfg.Size,
+			Stream:         req.Stream,
+			ResponseFormat: imageCfg.ResponseFormat,
+		}
+		h.serveImagesGenerations(r.Context(), w, genReq, publicBase)
 		return
 	}
 
@@ -676,15 +781,63 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if spec.IsVideo {
+		if cfg, err := validateVideoConfig(req.VideoConfig); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		} else {
+			req.VideoConfig = cfg
+		}
+	}
+
 	// Scheme 1 (hard): if the user asks for images, prefer /images/generations and return images directly.
 	// This avoids Grok chat's frequent 502s and the imagine flow that reports imageAttachmentCount but returns no URLs.
-	publicBase := detectPublicBaseURL(r)
+	resolveImageOpts := func() (int, string) {
+		n := inferRequestedImageCount(text, 2)
+		size := "1024x1024"
+		if req.ImageConfig != nil {
+			if req.ImageConfig.N > 0 {
+				n = req.ImageConfig.N
+			}
+			if s := strings.TrimSpace(req.ImageConfig.Size); s != "" {
+				size = s
+			}
+		}
+		if n < 1 {
+			n = 1
+		}
+		if n > 10 {
+			n = 10
+		}
+		return n, size
+	}
+	rewritePublicBase := func(imgs []string) {
+		if publicBase == "" {
+			return
+		}
+		for i, u := range imgs {
+			u = strings.TrimSpace(u)
+			if u == "" {
+				continue
+			}
+			// Rewrite loopback URLs returned by local call to the public base.
+			if strings.HasPrefix(u, "http://127.0.0.1:") || strings.HasPrefix(u, "http://localhost:") {
+				if idx := strings.Index(u, "/grok/"); idx >= 0 {
+					u = publicBase + u[idx:]
+				}
+			} else if strings.HasPrefix(u, "/") {
+				u = publicBase + u
+			}
+			imgs[i] = u
+		}
+	}
+
 	if len(attachments) == 0 {
 		ld := strings.ToLower(text)
 		neg := strings.Contains(text, "不要图片") || strings.Contains(text, "不需要图片") || strings.Contains(text, "别发图片") || strings.Contains(text, "不要照片") || strings.Contains(text, "不需要照片") || strings.Contains(text, "别发照片")
 		looksLikeImageReq := !neg && strings.TrimSpace(text) != "" && (strings.Contains(text, "图片") || strings.Contains(text, "照片") || strings.Contains(ld, "image") || strings.Contains(ld, "picture"))
 		if looksLikeImageReq {
-			n := inferRequestedImageCount(text, 2)
+			n, size := resolveImageOpts()
 			ctx2, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 			defer cancel()
 			imgPrompt := strings.TrimSpace(text)
@@ -693,29 +846,13 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			}
 			var imgs []string
 			for attempt := 0; attempt < 3; attempt++ {
-				out, _ := h.callLocalImagesGenerations(ctx2, imgPrompt, n)
+				out, _ := h.callLocalImagesGenerationsWithOptions(ctx2, "grok-imagine-1.0", imgPrompt, n, size, "url", nil)
 				imgs = normalizeGeneratedImageURLs(out, n)
 				if len(imgs) > 0 {
 					break
 				}
 			}
-			if publicBase != "" {
-				for i, u := range imgs {
-					u = strings.TrimSpace(u)
-					if u == "" {
-						continue
-					}
-					// Rewrite loopback URLs returned by local call to the public base.
-					if strings.HasPrefix(u, "http://127.0.0.1:") || strings.HasPrefix(u, "http://localhost:") {
-						if idx := strings.Index(u, "/grok/"); idx >= 0 {
-							u = publicBase + u[idx:]
-						}
-					} else if strings.HasPrefix(u, "/") {
-						u = publicBase + u
-					}
-					imgs[i] = u
-				}
-			}
+			rewritePublicBase(imgs)
 
 			if len(imgs) > 0 {
 				// Keep image-mode deterministic: return images only.
@@ -737,11 +874,15 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	defer sess.Close()
 
 	buildPayload := func(token string) (map[string]interface{}, error) {
-		fileAttachments, upErr := h.uploadAttachmentInputs(r.Context(), token, attachments)
-		if upErr != nil {
-			return nil, fmt.Errorf("attachment upload failed: %w", upErr)
+		fileAttachments := []string(nil)
+		if !spec.IsVideo {
+			var upErr error
+			fileAttachments, upErr = h.uploadAttachmentInputs(r.Context(), token, attachments)
+			if upErr != nil {
+				return nil, fmt.Errorf("attachment upload failed: %w", upErr)
+			}
 		}
-		return h.buildChatPayload(r.Context(), token, spec, text, fileAttachments, req.VideoConfig)
+		return h.buildChatPayload(r.Context(), token, spec, text, fileAttachments, attachments, req.VideoConfig, &req)
 	}
 
 	payload, err := buildPayload(sess.token)
@@ -767,10 +908,48 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	h.collectChat(w, req.Model, spec, sess.token, publicBase, hasAttachments, text, resp.Body)
 }
 
-func (h *Handler) buildChatPayload(ctx context.Context, token string, spec ModelSpec, text string, fileAttachments []string, videoCfg *VideoConfig) (map[string]interface{}, error) {
+func (h *Handler) buildChatPayload(
+	ctx context.Context,
+	token string,
+	spec ModelSpec,
+	text string,
+	fileAttachments []string,
+	attachmentInputs []AttachmentInput,
+	videoCfg *VideoConfig,
+	req *ChatCompletionsRequest,
+) (map[string]interface{}, error) {
 	payload := h.client.chatPayload(spec, text, true, 0)
 	if len(fileAttachments) > 0 {
 		payload["fileAttachments"] = fileAttachments
+	}
+	if req != nil {
+		override := map[string]interface{}{}
+		if req.Temperature != nil {
+			override["temperature"] = *req.Temperature
+		}
+		if req.TopP != nil {
+			override["topP"] = *req.TopP
+		}
+		if req.ReasoningEffort != nil {
+			if v := strings.TrimSpace(*req.ReasoningEffort); v != "" {
+				override["reasoningEffort"] = strings.ToLower(v)
+			}
+		}
+		if len(override) > 0 {
+			responseMetadata, _ := payload["responseMetadata"].(map[string]interface{})
+			if responseMetadata == nil {
+				responseMetadata = map[string]interface{}{}
+				payload["responseMetadata"] = responseMetadata
+			}
+			modelConfigOverride, _ := responseMetadata["modelConfigOverride"].(map[string]interface{})
+			if modelConfigOverride == nil {
+				modelConfigOverride = map[string]interface{}{}
+				responseMetadata["modelConfigOverride"] = modelConfigOverride
+			}
+			for k, v := range override {
+				modelConfigOverride[k] = v
+			}
+		}
 	}
 
 	// If the user request looks like image generation, ask Grok to run its image generation tool
@@ -801,7 +980,34 @@ func (h *Handler) buildChatPayload(ctx context.Context, token string, spec Model
 	}
 	videoCfg.Normalize()
 
-	postID, err := h.client.createMediaPost(ctx, token, "MEDIA_POST_TYPE_VIDEO", text, "")
+	postType := "MEDIA_POST_TYPE_VIDEO"
+	postPrompt := text
+	postMediaURL := ""
+	for _, item := range attachmentInputs {
+		if !strings.EqualFold(strings.TrimSpace(item.Type), "image") {
+			continue
+		}
+		if strings.TrimSpace(item.Data) == "" {
+			continue
+		}
+		_, fileURI, upErr := h.uploadSingleInput(ctx, token, item.Data)
+		if upErr != nil {
+			return nil, fmt.Errorf("video image upload failed: %w", upErr)
+		}
+		u := strings.TrimSpace(fileURI)
+		if u == "" {
+			return nil, fmt.Errorf("video image upload failed: empty file uri")
+		}
+		if !strings.HasPrefix(strings.ToLower(u), "http://") && !strings.HasPrefix(strings.ToLower(u), "https://") {
+			u = "https://assets.grok.com/" + strings.TrimLeft(u, "/")
+		}
+		postType = "MEDIA_POST_TYPE_IMAGE"
+		postPrompt = ""
+		postMediaURL = u
+		break
+	}
+
+	postID, err := h.client.createMediaPost(ctx, token, postType, postPrompt, postMediaURL)
 	if err != nil {
 		return nil, fmt.Errorf("create video post failed: %w", err)
 	}
@@ -1613,8 +1819,19 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid json", http.StatusBadRequest)
 		return
 	}
+	req.Model = normalizeModelID(req.Model)
 	req.Normalize()
 	req.ResponseFormat = normalizeImageResponseFormat(req.ResponseFormat)
+	if req.Model != "grok-imagine-1.0" {
+		http.Error(w, "The model `grok-imagine-1.0` is required for image generation.", http.StatusBadRequest)
+		return
+	}
+	normalizedSize, sizeErr := normalizeImageSize(req.Size)
+	if sizeErr != nil {
+		http.Error(w, sizeErr.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Size = normalizedSize
 	req.Prompt = strings.TrimSpace(req.Prompt)
 	if req.Prompt == "" {
 		http.Error(w, "prompt is required", http.StatusBadRequest)
@@ -1628,27 +1845,42 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 		http.Error(w, "streaming is only supported when n=1 or n=2", http.StatusBadRequest)
 		return
 	}
-	if err := h.ensureModelEnabled(r.Context(), req.Model); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	h.serveImagesGenerations(r.Context(), w, req, detectPublicBaseURL(r))
+}
+
+func (h *Handler) serveImagesGenerations(ctx context.Context, w http.ResponseWriter, req ImagesGenerationsRequest, publicBase string) {
+	if err := h.ensureModelEnabled(ctx, req.Model); err != nil {
+		http.Error(w, modelValidationMessage(req.Model, err), http.StatusBadRequest)
 		return
 	}
 
 	spec, ok := ResolveModel(req.Model)
 	if !ok || !spec.IsImage || spec.ID == "grok-imagine-1.0-edit" {
-		http.Error(w, "image model not supported", http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("The model `%s` is not supported for image generation. Supported: [grok-imagine-1.0]", req.Model), http.StatusBadRequest)
 		return
 	}
 
-	sess, err := h.openChatAccountSession(r.Context())
+	sess, err := h.openChatAccountSession(ctx)
 	if err != nil {
 		http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
 		return
 	}
 	defer sess.Close()
 
+	nsfw := req.NSFW
+	if nsfw == nil {
+		v := true
+		if h != nil && h.cfg != nil {
+			v = h.cfg.PublicImagineNSFW()
+		}
+		nsfw = &v
+	}
+
 	onePayload := h.client.chatPayload(spec, req.Prompt, true, req.N)
+	ensureImageAspectRatio(onePayload, resolveAspectRatio(req.Size))
+	ensureImageNSFW(onePayload, nsfw)
 	if req.Stream {
-		resp, err := h.doChatWithAutoSwitch(r.Context(), sess, onePayload)
+		resp, err := h.doChatWithAutoSwitch(ctx, sess, onePayload)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -1662,8 +1894,6 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 	var urls []string
 	var debugHTTP []string
 	var debugAsset []string
-	attempts := 0
-	stoppedReason := ""
 
 	// Grok upstream may return only 2 images per call and may repeat.
 	// To reach N, request 1 image per call without rewriting the user's prompt.
@@ -1673,20 +1903,18 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 	}
 	deadline := time.Now().Add(60 * time.Second)
 	for i := 0; i < maxAttempts; i++ {
-		attempts++
 		cur := normalizeGeneratedImageURLs(urls, 0)
 		if len(cur) >= req.N {
 			urls = cur
-			stoppedReason = "enough"
 			break
 		}
 		if time.Now().After(deadline) {
-			stoppedReason = "deadline"
 			break
 		}
-		prompt2 := req.Prompt
-		payload := h.client.chatPayload(spec, strings.TrimSpace(prompt2), true, 1)
-		resp, err := h.doChatWithAutoSwitch(r.Context(), sess, payload)
+		payload := h.client.chatPayload(spec, strings.TrimSpace(req.Prompt), true, 1)
+		ensureImageAspectRatio(payload, resolveAspectRatio(req.Size))
+		ensureImageNSFW(payload, nsfw)
+		resp, err := h.doChatWithAutoSwitch(ctx, sess, payload)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -1708,13 +1936,8 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 			http.Error(w, "stream parse error: "+err.Error(), http.StatusBadGateway)
 			return
 		}
-		next := normalizeGeneratedImageURLs(urls, 0)
-		urls = next
+		urls = normalizeGeneratedImageURLs(urls, 0)
 	}
-	if stoppedReason == "" {
-		stoppedReason = "max-attempts"
-	}
-
 	urls = normalizeGeneratedImageURLs(urls, req.N)
 	if len(urls) == 0 {
 		urls = appendImageCandidates(urls, uniqueStrings(debugHTTP), uniqueStrings(debugAsset), req.N)
@@ -1725,10 +1948,9 @@ func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request
 	}
 
 	field := imageResponseField(req.ResponseFormat)
-	publicBase := detectPublicBaseURL(r)
 	data := make([]map[string]interface{}, 0, len(urls))
 	for _, u := range urls {
-		val, err := h.imageOutputValue(r.Context(), sess.token, u, req.ResponseFormat)
+		val, err := h.imageOutputValue(ctx, sess.token, u, req.ResponseFormat)
 		if err != nil {
 			slog.Warn("grok image convert failed", "url", u, "error", err)
 			if field == "url" {
@@ -1822,6 +2044,161 @@ func (h *Handler) buildImageEditRequestPayload(
 	return h.buildImageEditPayload(spec, prompt, imageURLs, parentPostID), nil
 }
 
+func (h *Handler) buildImageEditPayloadFromInputs(
+	ctx context.Context,
+	token string,
+	spec ModelSpec,
+	prompt string,
+	inputs []string,
+) (map[string]interface{}, error) {
+	imageURLs := make([]string, 0, len(inputs))
+	for _, in := range inputs {
+		raw := strings.TrimSpace(in)
+		if raw == "" {
+			continue
+		}
+		_, fileURI, err := h.uploadSingleInput(ctx, token, raw)
+		if err != nil {
+			return nil, fmt.Errorf("image upload failed: %w", err)
+		}
+		u := strings.TrimSpace(fileURI)
+		if u == "" {
+			return nil, fmt.Errorf("image upload failed: empty file uri")
+		}
+		if !strings.HasPrefix(strings.ToLower(u), "http://") && !strings.HasPrefix(strings.ToLower(u), "https://") {
+			u = "https://assets.grok.com/" + strings.TrimLeft(u, "/")
+		}
+		imageURLs = append(imageURLs, u)
+	}
+	if len(imageURLs) == 0 {
+		return nil, fmt.Errorf("image upload failed: empty image urls")
+	}
+
+	parentPostID := ""
+	if postID, err := h.client.createMediaPost(ctx, token, "MEDIA_POST_TYPE_IMAGE", "", imageURLs[0]); err == nil {
+		parentPostID = postID
+	} else {
+		slog.Warn("grok image edit create post failed, continue without parentPostId", "error", err)
+	}
+	return h.buildImageEditPayload(spec, prompt, imageURLs, parentPostID), nil
+}
+
+func (h *Handler) handleChatImageEdit(
+	ctx context.Context,
+	w http.ResponseWriter,
+	req ChatCompletionsRequest,
+	spec ModelSpec,
+	prompt string,
+	imageURLs []string,
+) {
+	if len(imageURLs) == 0 {
+		http.Error(w, "image_url is required for image edits", http.StatusBadRequest)
+		return
+	}
+	if len(imageURLs) > 16 {
+		http.Error(w, "too many images. maximum is 16", http.StatusBadRequest)
+		return
+	}
+
+	imageCfg := req.ImageConfig
+	if imageCfg == nil {
+		imageCfg = &ImageConfig{}
+	}
+	imageCfg.Normalize()
+	n := imageCfg.N
+	if n < 1 {
+		n = 1
+	}
+	if n > 10 {
+		n = 10
+	}
+	responseFormat := normalizeImageResponseFormat(imageCfg.ResponseFormat)
+
+	sess, err := h.openChatAccountSession(ctx)
+	if err != nil {
+		http.Error(w, "no available grok token: "+err.Error(), http.StatusServiceUnavailable)
+		return
+	}
+	defer sess.Close()
+
+	rawPayload, err := h.buildImageEditPayloadFromInputs(ctx, sess.token, spec, prompt, imageURLs)
+	if err != nil {
+		h.markAccountStatus(ctx, sess.acc, err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	rebuildPayload := func(token string) (map[string]interface{}, error) {
+		return h.buildImageEditPayloadFromInputs(ctx, token, spec, prompt, imageURLs)
+	}
+
+	if req.Stream {
+		resp, err := h.doChatWithAutoSwitchRebuild(ctx, sess, &rawPayload, rebuildPayload)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+		h.syncGrokQuota(sess.acc, resp.Header)
+		h.streamImageGeneration(w, resp.Body, sess.token, responseFormat, n)
+		return
+	}
+
+	callsNeeded := (n + 1) / 2
+	if callsNeeded < 1 {
+		callsNeeded = 1
+	}
+
+	var urls []string
+	for i := 0; i < callsNeeded; i++ {
+		resp, err := h.doChatWithAutoSwitchRebuild(ctx, sess, &rawPayload, rebuildPayload)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		h.syncGrokQuota(sess.acc, resp.Header)
+		err = parseUpstreamLines(resp.Body, func(line map[string]interface{}) error {
+			if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
+				urls = append(urls, extractImageURLs(mr)...)
+			}
+			return nil
+		})
+		resp.Body.Close()
+		if err != nil {
+			http.Error(w, "stream parse error: "+err.Error(), http.StatusBadGateway)
+			return
+		}
+	}
+
+	urls = normalizeGeneratedImageURLs(urls, n)
+	if len(urls) == 0 {
+		http.Error(w, "no image generated", http.StatusBadGateway)
+		return
+	}
+
+	field := imageResponseField(responseFormat)
+	data := make([]map[string]interface{}, 0, len(urls))
+	for _, u := range urls {
+		val, err := h.imageOutputValue(ctx, sess.token, u, responseFormat)
+		if err != nil {
+			slog.Warn("grok image edit convert failed", "url", u, "error", err)
+			if field == "url" {
+				val = u
+			} else {
+				val = ""
+			}
+		}
+		data = append(data, map[string]interface{}{field: val})
+	}
+
+	out := map[string]interface{}{
+		"created": time.Now().Unix(),
+		"data":    data,
+		"usage":   imageUsagePayload(),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
 func isAllowedEditImageMime(mime string) bool {
 	switch strings.ToLower(strings.TrimSpace(mime)) {
 	case "image/png", "image/jpeg", "image/webp":
@@ -1850,9 +2227,18 @@ func (h *Handler) HandleImagesEdits(w http.ResponseWriter, r *http.Request) {
 	if model == "" {
 		model = "grok-imagine-1.0-edit"
 	}
+	model = normalizeModelID(model)
+	if model != "grok-imagine-1.0-edit" {
+		http.Error(w, "The model `grok-imagine-1.0-edit` is required for image edits.", http.StatusBadRequest)
+		return
+	}
 	n := parseIntLoose(r.FormValue("n"), 1)
 	if n < 1 || n > 10 {
 		http.Error(w, "n must be between 1 and 10", http.StatusBadRequest)
+		return
+	}
+	if _, err := normalizeImageSize(r.FormValue("size")); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 	stream := parseBoolLoose(r.FormValue("stream"), false)
@@ -1864,11 +2250,11 @@ func (h *Handler) HandleImagesEdits(w http.ResponseWriter, r *http.Request) {
 
 	spec, ok := ResolveModel(model)
 	if !ok || !spec.IsImage || spec.ID != "grok-imagine-1.0-edit" {
-		http.Error(w, "image edit model not supported", http.StatusBadRequest)
+		http.Error(w, "The model `grok-imagine-1.0-edit` is required for image edits.", http.StatusBadRequest)
 		return
 	}
 	if err := h.ensureModelEnabled(r.Context(), model); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, modelValidationMessage(model, err), http.StatusBadRequest)
 		return
 	}
 
@@ -2021,10 +2407,16 @@ func sanitizeCachedFilename(raw string) string {
 }
 
 func parseFilesPath(rawPath string) (mediaType string, fileName string, ok bool) {
-	if !strings.HasPrefix(rawPath, "/grok/v1/files/") {
+	prefix := ""
+	switch {
+	case strings.HasPrefix(rawPath, "/grok/v1/files/"):
+		prefix = "/grok/v1/files/"
+	case strings.HasPrefix(rawPath, "/v1/files/"):
+		prefix = "/v1/files/"
+	default:
 		return "", "", false
 	}
-	path := strings.TrimPrefix(rawPath, "/grok/v1/files/")
+	path := strings.TrimPrefix(rawPath, prefix)
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", "", false

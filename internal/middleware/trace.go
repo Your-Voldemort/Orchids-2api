@@ -2,10 +2,13 @@
 package middleware
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -116,6 +119,15 @@ func (w *TracedResponseWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// Hijack 实现 http.Hijacker，保证 WebSocket 升级等场景可用。
+func (w *TracedResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hj, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	return hj.Hijack()
 }
 
 // LoggingMiddleware 记录请求日志，包含 trace ID 和耗时

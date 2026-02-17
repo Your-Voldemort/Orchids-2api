@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
+
 	"orchids-api/internal/auth"
 )
 
@@ -20,6 +22,34 @@ func SessionAuth(adminPass, adminToken string, next http.HandlerFunc) http.Handl
 				return
 			}
 			if r.Header.Get("X-Admin-Token") == adminToken {
+				next(w, r)
+				return
+			}
+		}
+		if adminPass != "" {
+			if authHeader == "Bearer "+adminPass || authHeader == adminPass {
+				next(w, r)
+				return
+			}
+			if r.Header.Get("X-Admin-Token") == adminPass {
+				next(w, r)
+				return
+			}
+		}
+
+		queryKeys := []string{
+			strings.TrimSpace(r.URL.Query().Get("app_key")),
+			strings.TrimSpace(r.URL.Query().Get("public_key")),
+		}
+		for _, queryKey := range queryKeys {
+			if queryKey == "" {
+				continue
+			}
+			if adminToken != "" && queryKey == adminToken {
+				next(w, r)
+				return
+			}
+			if adminPass != "" && queryKey == adminPass {
 				next(w, r)
 				return
 			}

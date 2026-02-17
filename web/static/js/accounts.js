@@ -428,6 +428,83 @@ async function batchDeleteAccounts() {
   }
 }
 
+function getSelectedAccountIDs() {
+  return Array.from(document.querySelectorAll(".row-checkbox:checked"))
+    .map((cb) => parseDataId(cb.dataset.id || ""))
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0);
+}
+
+// Enable NSFW for selected Grok accounts, or all Grok accounts when nothing selected.
+async function enableNSFW() {
+  const selectedIDs = getSelectedAccountIDs();
+  const selectedGrokIDs = selectedIDs.filter((id) => {
+    const acc = accounts.find((item) => item.id === id);
+    return !!acc && normalizeAccountType(acc) === "grok";
+  });
+
+  const payload = { concurrency: 5 };
+  let targetText = "全部 Grok 账号";
+
+  if (selectedIDs.length > 0) {
+    if (selectedGrokIDs.length === 0) {
+      showToast("选中的账号中没有 Grok 账号", "info");
+      return;
+    }
+    payload.account_ids = selectedGrokIDs;
+    targetText = `选中的 ${selectedGrokIDs.length} 个 Grok 账号`;
+    if (!confirm(`确认对${targetText}启用 NSFW 吗？`)) return;
+  } else if (!confirm("未选中账号，将对全部 Grok 账号启用 NSFW，是否继续？")) {
+    return;
+  }
+
+  try {
+    showToast(`正在为${targetText}启用 NSFW...`, "info");
+    const res = await fetch("/api/v1/admin/tokens/nsfw/enable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.status === 401) {
+      window.location.href = "./login.html";
+      return;
+    }
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+
+    const out = await res.json();
+    const summary = out && out.summary ? out.summary : {};
+    const total = Number(summary.total || 0);
+    const ok = Number(summary.ok || 0);
+    const fail = Number(summary.fail || Math.max(0, total - ok));
+
+    if (ok > 0) {
+      await loadAccounts();
+    }
+
+    if (fail > 0) {
+      const failedList = Object.entries(out && out.results ? out.results : {})
+        .filter(([, item]) => !item || item.success !== true)
+        .slice(0, 3)
+        .map(([token, item]) => {
+          const msg = item && item.error ? item.error : `HTTP ${item && item.http_status ? item.http_status : 0}`;
+          return `${token}: ${msg}`;
+        });
+      if (failedList.length > 0) {
+        console.warn("NSFW enable failures:", failedList.join(" | "));
+      }
+      showToast(`NSFW 启用完成：成功 ${ok}，失败 ${fail}`, "error");
+      return;
+    }
+
+    showToast(`NSFW 启用成功：共 ${ok}/${total}`, "success");
+  } catch (err) {
+    showToast(`NSFW 启用失败: ${err.message || err}`, "error");
+  }
+}
+
 // Render accounts table
 function renderAccounts() {
   const container = domCache.accountsList || document.getElementById("accountsList");
@@ -562,6 +639,11 @@ function renderAccounts() {
     tr.appendChild(tdQuota);
 
     const tdStatus = document.createElement("td");
+    const statusWrap = document.createElement("div");
+    statusWrap.style.display = "flex";
+    statusWrap.style.alignItems = "center";
+    statusWrap.style.gap = "6px";
+
     const statusSpan = document.createElement("span");
     statusSpan.className = "tag tag-status-normal";
     statusSpan.title = badge.tip || "";
@@ -569,7 +651,20 @@ function renderAccounts() {
     statusSpan.style.color = badge.color;
     statusSpan.style.border = "none";
     statusSpan.textContent = badge.text;
-    tdStatus.appendChild(statusSpan);
+    statusWrap.appendChild(statusSpan);
+
+    if (normalizeAccountType(acc) === "grok" && acc.nsfw_enabled === true) {
+      const nsfwSpan = document.createElement("span");
+      nsfwSpan.className = "tag";
+      nsfwSpan.title = "已开启 NSFW";
+      nsfwSpan.style.background = "rgba(239, 68, 68, 0.16)";
+      nsfwSpan.style.color = "#fda4af";
+      nsfwSpan.style.border = "none";
+      nsfwSpan.textContent = "NSFW";
+      statusWrap.appendChild(nsfwSpan);
+    }
+
+    tdStatus.appendChild(statusWrap);
     tr.appendChild(tdStatus);
 
     const tdCount = document.createElement("td");

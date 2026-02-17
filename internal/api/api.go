@@ -783,6 +783,9 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 		if acc.Email == "" {
 			acc.Email = existing.Email
 		}
+		if !acc.NSFWEnabled && existing.NSFWEnabled {
+			acc.NSFWEnabled = true
+		}
 
 		if err := a.store.UpdateAccount(r.Context(), &acc); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

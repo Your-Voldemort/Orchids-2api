@@ -2,10 +2,8 @@ package grok
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,8 +13,9 @@ import (
 )
 
 const (
-	imagineSessionTTL      = 10 * time.Minute
-	imagineBatchImageCount = 6
+	imagineSessionTTL = 10 * time.Minute
+	// Use single-image batches to improve "real-time waterfall" responsiveness.
+	imagineBatchImageCount = 1
 )
 
 var imagineUpgrader = websocket.Upgrader{
@@ -28,6 +27,7 @@ var imagineUpgrader = websocket.Upgrader{
 type imagineSession struct {
 	Prompt      string
 	AspectRatio string
+	NSFW        *bool
 	CreatedAt   time.Time
 }
 
@@ -39,6 +39,7 @@ var (
 type imagineStartRequest struct {
 	Prompt      string `json:"prompt"`
 	AspectRatio string `json:"aspect_ratio"`
+	NSFW        *bool  `json:"nsfw,omitempty"`
 }
 
 type imagineStopRequest struct {
@@ -50,6 +51,40 @@ type imagineImage struct {
 	URL string
 }
 
+func imagineImageSizeFromAspectRatio(ratio string) string {
+	switch resolveAspectRatio(strings.TrimSpace(ratio)) {
+	case "9:16":
+		return "720x1280"
+	case "16:9":
+		return "1280x720"
+	case "3:2":
+		return "1792x1024"
+	case "2:3":
+		return "1024x1792"
+	default:
+		return "1024x1024"
+	}
+}
+
+func normalizeImagineImageURL(raw string) string {
+	u := strings.TrimSpace(raw)
+	if u == "" {
+		return ""
+	}
+	if strings.HasPrefix(u, "/grok/v1/files/") || strings.HasPrefix(u, "/v1/files/") {
+		return u
+	}
+	if strings.HasPrefix(u, "http://127.0.0.1:") || strings.HasPrefix(u, "http://localhost:") {
+		if idx := strings.Index(u, "/grok/v1/files/"); idx >= 0 {
+			return u[idx:]
+		}
+		if idx := strings.Index(u, "/v1/files/"); idx >= 0 {
+			return u[idx:]
+		}
+	}
+	return u
+}
+
 func cleanupImagineSessionsLocked(now time.Time) {
 	for id, session := range imagineSessions {
 		if now.Sub(session.CreatedAt) > imagineSessionTTL {
@@ -58,7 +93,42 @@ func cleanupImagineSessionsLocked(now time.Time) {
 	}
 }
 
-func createImagineSession(prompt, aspectRatio string) string {
+func cloneBoolPtr(v *bool) *bool {
+	if v == nil {
+		return nil
+	}
+	out := *v
+	return &out
+}
+
+func parseOptionalBool(raw interface{}) *bool {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case bool:
+		out := v
+		return &out
+	case string:
+		s := strings.ToLower(strings.TrimSpace(v))
+		if s == "" {
+			return nil
+		}
+		switch s {
+		case "1", "true", "yes", "y", "on":
+			out := true
+			return &out
+		case "0", "false", "no", "n", "off":
+			out := false
+			return &out
+		default:
+			return nil
+		}
+	default:
+		return nil
+	}
+}
+
+func createImagineSession(prompt, aspectRatio string, nsfw *bool) string {
 	id := randomHex(16)
 	if id == "" {
 		id = fmt.Sprintf("%d", time.Now().UnixNano())
@@ -71,6 +141,7 @@ func createImagineSession(prompt, aspectRatio string) string {
 	imagineSessions[id] = imagineSession{
 		Prompt:      strings.TrimSpace(prompt),
 		AspectRatio: resolveAspectRatio(strings.TrimSpace(aspectRatio)),
+		NSFW:        cloneBoolPtr(nsfw),
 		CreatedAt:   now,
 	}
 	return id
@@ -147,12 +218,44 @@ func ensureImageAspectRatio(payload map[string]interface{}, ratio string) {
 		modelMap = map[string]interface{}{}
 		modelConfigOverride["modelMap"] = modelMap
 	}
-	modelMap["imageGenModelConfig"] = map[string]interface{}{
-		"aspectRatio": ratio,
+	imageGenCfg, _ := modelMap["imageGenModelConfig"].(map[string]interface{})
+	if imageGenCfg == nil {
+		imageGenCfg = map[string]interface{}{}
 	}
+	imageGenCfg["aspectRatio"] = ratio
+	modelMap["imageGenModelConfig"] = imageGenCfg
 }
 
-func (h *Handler) generateImagineBatch(ctx context.Context, prompt, aspectRatio string, n int) ([]imagineImage, int, error) {
+func ensureImageNSFW(payload map[string]interface{}, nsfw *bool) {
+	if payload == nil || nsfw == nil {
+		return
+	}
+	responseMetadata, _ := payload["responseMetadata"].(map[string]interface{})
+	if responseMetadata == nil {
+		responseMetadata = map[string]interface{}{}
+		payload["responseMetadata"] = responseMetadata
+	}
+	modelConfigOverride, _ := responseMetadata["modelConfigOverride"].(map[string]interface{})
+	if modelConfigOverride == nil {
+		modelConfigOverride = map[string]interface{}{}
+		responseMetadata["modelConfigOverride"] = modelConfigOverride
+	}
+	modelMap, _ := modelConfigOverride["modelMap"].(map[string]interface{})
+	if modelMap == nil {
+		modelMap = map[string]interface{}{}
+		modelConfigOverride["modelMap"] = modelMap
+	}
+	imageGenCfg, _ := modelMap["imageGenModelConfig"].(map[string]interface{})
+	if imageGenCfg == nil {
+		imageGenCfg = map[string]interface{}{}
+	}
+	// Keep both key styles for compatibility with different upstream parsers.
+	imageGenCfg["enableNsfw"] = *nsfw
+	imageGenCfg["enable_nsfw"] = *nsfw
+	modelMap["imageGenModelConfig"] = imageGenCfg
+}
+
+func (h *Handler) generateImagineBatch(ctx context.Context, prompt, aspectRatio string, n int, nsfw *bool) ([]imagineImage, int, error) {
 	if err := h.ensureModelEnabled(ctx, "grok-imagine-1.0"); err != nil {
 		return nil, 0, err
 	}
@@ -164,40 +267,20 @@ func (h *Handler) generateImagineBatch(ctx context.Context, prompt, aspectRatio 
 		n = 1
 	}
 
-	sess, err := h.openChatAccountSession(ctx)
-	if err != nil {
-		return nil, 0, fmt.Errorf("no available grok token: %w", err)
-	}
-	defer sess.Close()
-
-	payload := h.client.chatPayload(spec, "Image Generation: "+strings.TrimSpace(prompt), true, 2)
-	ensureImageAspectRatio(payload, aspectRatio)
-
-	callsNeeded := (n + 1) / 2
-	if callsNeeded < 1 {
-		callsNeeded = 1
-	}
-
 	startedAt := time.Now()
-	var urls []string
-	for i := 0; i < callsNeeded; i++ {
-		resp, err := h.doChatWithAutoSwitch(ctx, sess, payload)
-		if err != nil {
-			return nil, 0, err
-		}
-		h.syncGrokQuota(sess.acc, resp.Header)
-		parseErr := parseUpstreamLines(resp.Body, func(line map[string]interface{}) error {
-			if mr, ok := line["modelResponse"].(map[string]interface{}); ok {
-				urls = append(urls, extractImageURLs(mr)...)
-			}
-			return nil
-		})
-		resp.Body.Close()
-		if parseErr != nil {
-			return nil, 0, parseErr
-		}
+	size := imagineImageSizeFromAspectRatio(aspectRatio)
+	urls, err := h.callLocalImagesGenerationsWithOptions(
+		ctx,
+		"grok-imagine-1.0",
+		strings.TrimSpace(prompt),
+		n,
+		size,
+		"url",
+		nsfw,
+	)
+	if err != nil {
+		return nil, 0, err
 	}
-
 	urls = normalizeGeneratedImageURLs(urls, n)
 	if len(urls) == 0 {
 		return nil, 0, fmt.Errorf("no image generated")
@@ -205,21 +288,9 @@ func (h *Handler) generateImagineBatch(ctx context.Context, prompt, aspectRatio 
 
 	images := make([]imagineImage, 0, len(urls))
 	for _, u := range urls {
-		data, mimeType, err := h.client.downloadAsset(ctx, sess.token, u)
-		if err != nil {
-			slog.Warn("imagine image download failed", "url", u, "error", err)
-			continue
-		}
-		if len(data) == 0 {
-			continue
-		}
-		b64 := base64.StdEncoding.EncodeToString(data)
-		fileURL := ""
-		if name, err := h.cacheMediaBytes(u, "image", data, mimeType); err == nil && name != "" {
-			fileURL = "/grok/v1/files/image/" + name
-		}
-		if strings.TrimSpace(b64) != "" || fileURL != "" {
-			images = append(images, imagineImage{B64: b64, URL: fileURL})
+		imgURL := normalizeImagineImageURL(u)
+		if imgURL != "" {
+			images = append(images, imagineImage{URL: imgURL})
 		}
 	}
 	if len(images) == 0 {
@@ -249,6 +320,7 @@ func (h *Handler) runImagineLoop(
 	aspectRatio string,
 	taskID string,
 	deleteSessionOnExit bool,
+	nsfw *bool,
 	emit func(map[string]interface{}) bool,
 ) {
 	runID := randomHex(12)
@@ -287,7 +359,7 @@ func (h *Handler) runImagineLoop(
 			}
 		}
 
-		images, elapsedMS, err := h.generateImagineBatch(ctx, prompt, aspectRatio, imagineBatchImageCount)
+		images, elapsedMS, err := h.generateImagineBatch(ctx, prompt, aspectRatio, imagineBatchImageCount, nsfw)
 		if err != nil {
 			if !emit(map[string]interface{}{
 				"type":    "error",
@@ -337,7 +409,7 @@ func (h *Handler) HandleAdminImagineStart(w http.ResponseWriter, r *http.Request
 		return
 	}
 	ratio := resolveAspectRatio(strings.TrimSpace(req.AspectRatio))
-	taskID := createImagineSession(prompt, ratio)
+	taskID := createImagineSession(prompt, ratio, req.NSFW)
 	out := map[string]interface{}{
 		"task_id":      taskID,
 		"aspect_ratio": ratio,
@@ -373,6 +445,7 @@ func (h *Handler) HandleAdminImagineSSE(w http.ResponseWriter, r *http.Request) 
 	taskID := strings.TrimSpace(r.URL.Query().Get("task_id"))
 	prompt := strings.TrimSpace(r.URL.Query().Get("prompt"))
 	ratio := strings.TrimSpace(r.URL.Query().Get("aspect_ratio"))
+	nsfw := parseOptionalBool(r.URL.Query().Get("nsfw"))
 
 	if taskID != "" {
 		session, ok := getImagineSession(taskID)
@@ -382,6 +455,9 @@ func (h *Handler) HandleAdminImagineSSE(w http.ResponseWriter, r *http.Request) 
 		}
 		prompt = session.Prompt
 		ratio = session.AspectRatio
+		if nsfw == nil {
+			nsfw = cloneBoolPtr(session.NSFW)
+		}
 	}
 	if prompt == "" {
 		http.Error(w, "prompt cannot be empty", http.StatusBadRequest)
@@ -402,7 +478,7 @@ func (h *Handler) HandleAdminImagineSSE(w http.ResponseWriter, r *http.Request) 
 		return r.Context().Err() == nil
 	}
 
-	h.runImagineLoop(r.Context(), prompt, ratio, taskID, true, emit)
+	h.runImagineLoop(r.Context(), prompt, ratio, taskID, true, nsfw, emit)
 }
 
 func (h *Handler) HandleAdminImagineWS(w http.ResponseWriter, r *http.Request) {
@@ -458,7 +534,7 @@ func (h *Handler) HandleAdminImagineWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer stopRun()
 
-	startRun := func(prompt, ratio string) {
+	startRun := func(prompt, ratio string, nsfw *bool) {
 		stopRun()
 		runCtx, cancelFn := context.WithCancel(ctx)
 		done := make(chan struct{})
@@ -468,7 +544,7 @@ func (h *Handler) HandleAdminImagineWS(w http.ResponseWriter, r *http.Request) {
 		runMu.Unlock()
 		go func() {
 			defer close(done)
-			h.runImagineLoop(runCtx, prompt, ratio, taskID, false, send)
+			h.runImagineLoop(runCtx, prompt, ratio, taskID, false, nsfw, send)
 		}()
 	}
 
@@ -482,6 +558,7 @@ func (h *Handler) HandleAdminImagineWS(w http.ResponseWriter, r *http.Request) {
 		case "start":
 			prompt := strings.TrimSpace(fmt.Sprint(payload["prompt"]))
 			ratio := strings.TrimSpace(fmt.Sprint(payload["aspect_ratio"]))
+			nsfw := parseOptionalBool(payload["nsfw"])
 			if taskID != "" {
 				if session, ok := getImagineSession(taskID); ok {
 					if prompt == "" {
@@ -489,6 +566,9 @@ func (h *Handler) HandleAdminImagineWS(w http.ResponseWriter, r *http.Request) {
 					}
 					if ratio == "" {
 						ratio = session.AspectRatio
+					}
+					if nsfw == nil {
+						nsfw = cloneBoolPtr(session.NSFW)
 					}
 				}
 			}
@@ -504,7 +584,7 @@ func (h *Handler) HandleAdminImagineWS(w http.ResponseWriter, r *http.Request) {
 				ratio = "2:3"
 			}
 			ratio = resolveAspectRatio(ratio)
-			startRun(prompt, ratio)
+			startRun(prompt, ratio, nsfw)
 		case "stop":
 			stopRun()
 		case "ping":

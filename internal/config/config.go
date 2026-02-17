@@ -61,6 +61,13 @@ type Config struct {
 	WarpSplitToolResults      bool     `json:"warp_split_tool_results"`
 	OrchidsMaxToolResults     int      `json:"orchids_max_tool_results"`
 	OrchidsMaxHistoryMessages int      `json:"orchids_max_history_messages"`
+	// grok2api parity: app.stream default behavior
+	Stream    *bool `json:"stream,omitempty"`
+	AppStream *bool `json:"app_stream,omitempty"`
+	// grok2api parity: image.* public imagine config
+	ImageNSFW           *bool `json:"image_nsfw,omitempty"`
+	ImageFinalMinBytes  int   `json:"image_final_min_bytes"`
+	ImageMediumMinBytes int   `json:"image_medium_min_bytes"`
 
 	// New fields for UI
 	AdminToken           string `json:"admin_token"`
@@ -224,6 +231,20 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.OrchidsMaxHistoryMessages == 0 {
 		cfg.OrchidsMaxHistoryMessages = 20
 	}
+	if cfg.Stream == nil {
+		v := true
+		cfg.Stream = &v
+	}
+	if cfg.ImageNSFW == nil {
+		v := true
+		cfg.ImageNSFW = &v
+	}
+	if cfg.ImageFinalMinBytes <= 0 {
+		cfg.ImageFinalMinBytes = 100000
+	}
+	if cfg.ImageMediumMinBytes <= 0 {
+		cfg.ImageMediumMinBytes = 30000
+	}
 
 	// New defaults
 	if cfg.MaxRetries == 0 {
@@ -274,6 +295,43 @@ func (c *Config) GetCookies() string {
 		return "__client=" + c.ClientCookie + "; __session=" + c.SessionCookie
 	}
 	return "__client=" + c.ClientCookie + "; __client_uat=" + c.ClientUat
+}
+
+func (c *Config) ChatDefaultStream() bool {
+	if c == nil {
+		return true
+	}
+	if c.AppStream != nil {
+		return *c.AppStream
+	}
+	if c.Stream != nil {
+		return *c.Stream
+	}
+	return true
+}
+
+func (c *Config) PublicImagineNSFW() bool {
+	if c == nil {
+		return true
+	}
+	if c.ImageNSFW != nil {
+		return *c.ImageNSFW
+	}
+	return true
+}
+
+func (c *Config) PublicImagineFinalMinBytes() int {
+	if c == nil || c.ImageFinalMinBytes <= 0 {
+		return 100000
+	}
+	return c.ImageFinalMinBytes
+}
+
+func (c *Config) PublicImagineMediumMinBytes() int {
+	if c == nil || c.ImageMediumMinBytes <= 0 {
+		return 30000
+	}
+	return c.ImageMediumMinBytes
 }
 
 func (c *Config) Save(path string) error {

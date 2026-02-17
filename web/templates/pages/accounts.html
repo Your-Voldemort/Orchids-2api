@@ -64,6 +64,7 @@
           <div style="display: flex; gap: 8px;">
             <button class="btn btn-outline" id="batchDeleteBtn" disabled onclick="batchDeleteAccounts()">🗑️
               批量删除</button>
+            <button class="btn btn-outline" onclick="enableNSFW()">🔞 NSFW</button>
             <button class="btn btn-danger-outline" onclick="clearAbnormalAccounts()">🧹 清空异常</button>
           </div>
           <button class="btn btn-primary" style="background: var(--primary); border: none; padding: 8px 20px;"
@@ -111,7 +112,7 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <script src="{{.AdminPath}}/js/common.js?v=20260131"></script>
-  <script src="{{.AdminPath}}/js/accounts.js?v=20260131"></script>
+  <script src="{{.AdminPath}}/js/accounts.js?v=20260217-2"></script>
 </body>
 
 </html>

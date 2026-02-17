@@ -128,6 +128,7 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 	} else {
 		updated.AccountType = acc.AccountType
 	}
+	updated.NSFWEnabled = acc.NSFWEnabled
 	updated.SessionID = acc.SessionID
 	updated.ClientCookie = acc.ClientCookie
 	updated.RefreshToken = acc.RefreshToken
@@ -368,7 +369,7 @@ func (s *redisStore) getAccountsByIDsPipelined(ctx context.Context, keys []strin
 
 	pipe := s.client.Pipeline()
 	cmds := make([]*redis.StringCmd, len(keys))
-	
+
 	// 批量添加 GET 命令到 Pipeline
 	for i, key := range keys {
 		cmds[i] = pipe.Get(ctx, key)

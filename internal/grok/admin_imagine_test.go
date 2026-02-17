@@ -18,7 +18,7 @@ func TestImagineSessionLifecycle(t *testing.T) {
 	resetImagineSessionsForTest()
 	t.Cleanup(resetImagineSessionsForTest)
 
-	id := createImagineSession("test prompt", "16:9")
+	id := createImagineSession("test prompt", "16:9", nil)
 	if id == "" {
 		t.Fatal("expected task id")
 	}
@@ -52,6 +52,7 @@ func TestHandleAdminImagineStartStop(t *testing.T) {
 	startBody := map[string]interface{}{
 		"prompt":       "a cat on mars",
 		"aspect_ratio": "1024x576",
+		"nsfw":         false,
 	}
 	raw, _ := json.Marshal(startBody)
 	startReq := httptest.NewRequest(http.MethodPost, "/api/v1/admin/imagine/start", bytes.NewReader(raw))
@@ -71,6 +72,13 @@ func TestHandleAdminImagineStartStop(t *testing.T) {
 	}
 	if got, _ := startResp["aspect_ratio"].(string); got != "16:9" {
 		t.Fatalf("aspect_ratio=%q want=16:9", got)
+	}
+	session, ok := getImagineSession(taskID)
+	if !ok {
+		t.Fatal("expected imagine session")
+	}
+	if session.NSFW == nil || *session.NSFW != false {
+		t.Fatalf("session.NSFW=%v want=false", session.NSFW)
 	}
 
 	stopBody := map[string]interface{}{

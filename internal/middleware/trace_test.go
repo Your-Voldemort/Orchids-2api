@@ -1,11 +1,27 @@
 package middleware
 
 import (
+	"bufio"
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/gorilla/websocket"
 )
+
+type hijackableRecorder struct {
+	*httptest.ResponseRecorder
+	hijackErr error
+	hijacked  bool
+}
+
+func (h *hijackableRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h.hijacked = true
+	return nil, nil, h.hijackErr
+}
 
 func TestGenerateTraceID(t *testing.T) {
 	t.Run("generates unique IDs", func(t *testing.T) {
@@ -192,6 +208,32 @@ func TestTracedResponseWriter(t *testing.T) {
 		// Should not panic
 		traced.Flush()
 	})
+
+	t.Run("hijack delegates to underlying writer", func(t *testing.T) {
+		w := &hijackableRecorder{ResponseRecorder: httptest.NewRecorder()}
+		traced := NewTracedResponseWriter(w)
+
+		_, _, err := traced.Hijack()
+		if err != nil {
+			t.Fatalf("Hijack() error = %v, want nil", err)
+		}
+		if !w.hijacked {
+			t.Fatal("Hijack() should delegate to underlying writer")
+		}
+	})
+
+	t.Run("hijack fails when underlying writer does not support it", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		traced := NewTracedResponseWriter(w)
+
+		_, _, err := traced.Hijack()
+		if err == nil {
+			t.Fatal("Hijack() should fail when underlying writer is not hijackable")
+		}
+		if !strings.Contains(err.Error(), "does not support hijacking") {
+			t.Fatalf("Hijack() unexpected error: %v", err)
+		}
+	})
 }
 
 func TestLoggingMiddleware(t *testing.T) {
@@ -210,6 +252,40 @@ func TestLoggingMiddleware(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("status code = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestLoggingMiddleware_WebSocketUpgrade(t *testing.T) {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	handler := TraceMiddleware(LoggingMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("Upgrade() error = %v", err)
+			return
+		}
+		defer conn.Close()
+		_ = conn.WriteMessage(websocket.TextMessage, []byte("ok"))
+	})))
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("Dial() error = %v", err)
+	}
+	defer conn.Close()
+
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("ReadMessage() error = %v", err)
+	}
+	if string(msg) != "ok" {
+		t.Fatalf("message = %q, want %q", string(msg), "ok")
 	}
 }
 
