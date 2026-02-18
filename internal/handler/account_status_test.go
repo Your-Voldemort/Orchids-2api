@@ -21,6 +21,11 @@ func TestClassifyAccountStatus(t *testing.T) {
 			expected: "403",
 		},
 		{
+			name:     "Model not found should not mark account",
+			errStr:   "grok upstream status=403 body={\"error\":{\"code\":7,\"message\":\"Model is not found\",\"details\":[]}}",
+			expected: "",
+		},
+		{
 			name:     "Explicit 404",
 			errStr:   "HTTP 404 Not Found",
 			expected: "404",

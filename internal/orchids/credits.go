@@ -275,19 +275,6 @@ func parseRSCCredits(body string) (*CreditsInfo, error) {
 	return nil, fmt.Errorf("credits data not found in RSC response")
 }
 
-// FetchCreditsForAccount fetches credits for an Orchids account using its stored credentials.
-func FetchCreditsForAccount(ctx context.Context, acc interface{ GetSessionJWT() string; GetUserID() string }) (*CreditsInfo, error) {
-	jwt := strings.TrimSpace(acc.GetSessionJWT())
-	uid := strings.TrimSpace(acc.GetUserID())
-	if jwt == "" {
-		return nil, fmt.Errorf("no session JWT available")
-	}
-	if uid == "" {
-		return nil, fmt.Errorf("no user id available")
-	}
-	return FetchCredits(ctx, jwt, uid)
-}
-
 // PlanCreditLimit returns the monthly credit limit for a given plan name.
 func PlanCreditLimit(plan string) float64 {
 	if limit, ok := OrchidsPlanCredits[strings.ToUpper(plan)]; ok {

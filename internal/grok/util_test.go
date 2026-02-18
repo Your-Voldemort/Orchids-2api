@@ -2,7 +2,7 @@ package grok
 
 import "testing"
 
-func TestParseTokenValue(t *testing.T) {
+func TestNormalizeSSOToken(t *testing.T) {
 	tests := []struct {
 		in   string
 		want string
@@ -12,9 +12,9 @@ func TestParseTokenValue(t *testing.T) {
 		{in: "foo=1; sso=abc123; bar=2", want: "abc123"},
 	}
 	for _, tt := range tests {
-		got := parseTokenValue(tt.in)
+		got := NormalizeSSOToken(tt.in)
 		if got != tt.want {
-			t.Fatalf("parseTokenValue(%q)=%q want=%q", tt.in, got, tt.want)
+			t.Fatalf("NormalizeSSOToken(%q)=%q want=%q", tt.in, got, tt.want)
 		}
 	}
 }
@@ -69,4 +69,3 @@ func TestResolveAspectRatio(t *testing.T) {
 		t.Fatalf("resolveAspectRatio(unknown)=%q want=2:3", got)
 	}
 }
-

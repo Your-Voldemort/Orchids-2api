@@ -1,8 +1,6 @@
 package grok
 
 import (
-	"encoding/json"
-	"net/http"
 	"strings"
 )
 
@@ -49,6 +47,15 @@ var deprecatedModelIDSet = map[string]struct{}{
 	"grok-4.2": {},
 }
 
+func IsDeprecatedModelID(modelID string) bool {
+	id := normalizeModelID(modelID)
+	if id == "" {
+		return false
+	}
+	_, deprecated := deprecatedModelIDSet[id]
+	return deprecated
+}
+
 func normalizeModelID(modelID string) string {
 	m := strings.ToLower(strings.TrimSpace(modelID))
 	// Common typo compatibility: gork-* -> grok-*
@@ -91,7 +98,7 @@ func resolveDynamicTextModel(modelID string) (ModelSpec, bool) {
 	if id == "" {
 		return ModelSpec{}, false
 	}
-	if _, deprecated := deprecatedModelIDSet[id]; deprecated {
+	if IsDeprecatedModelID(id) {
 		return ModelSpec{}, false
 	}
 	// Keep image/video models explicit; only auto-resolve text models.
@@ -115,27 +122,4 @@ func ResolveModelOrDynamic(modelID string) (ModelSpec, bool) {
 		return spec, true
 	}
 	return resolveDynamicTextModel(modelID)
-}
-
-func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	resp := map[string]interface{}{
-		"object": "list",
-		"data":   make([]map[string]interface{}, 0, len(SupportedModels)),
-	}
-	data := resp["data"].([]map[string]interface{})
-	for _, m := range SupportedModels {
-		data = append(data, map[string]interface{}{
-			"id":       m.ID,
-			"object":   "model",
-			"created":  0,
-			"owned_by": "grok",
-		})
-	}
-	resp["data"] = data
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
 }

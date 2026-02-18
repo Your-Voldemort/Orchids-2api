@@ -45,9 +45,11 @@ func newRedisStore(addr, password string, db int, prefix string) (*redisStore, e
 	}
 
 	client := redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: password,
-		DB:       db,
+		Addr:         addr,
+		Password:     password,
+		DB:           db,
+		PoolSize:     200,
+		MinIdleConns: 20,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -60,6 +62,13 @@ func newRedisStore(addr, password string, db int, prefix string) (*redisStore, e
 		client: client,
 		prefix: prefix,
 	}, nil
+}
+
+func (s *redisStore) Client() *redis.Client {
+	if s == nil {
+		return nil
+	}
+	return s.client
 }
 
 func (s *redisStore) Close() error {
@@ -825,7 +834,7 @@ func apiKeyRecordFromKey(key *ApiKey) apiKeyRecord {
 		ID:         key.ID,
 		Name:       key.Name,
 		KeyHash:    key.KeyHash,
-		KeyFull:    key.KeyFull,
+		KeyFull:    "",
 		KeyPrefix:  key.KeyPrefix,
 		KeySuffix:  key.KeySuffix,
 		Enabled:    key.Enabled,
@@ -870,6 +879,9 @@ func (s *redisStore) CreateModel(ctx context.Context, m *Model) error {
 	pipe := s.client.Pipeline()
 	pipe.Set(ctx, s.modelsKey(m.ID), data, 0)
 	pipe.SAdd(ctx, s.modelsIDsKey(), m.ID)
+	if strings.TrimSpace(m.ModelID) != "" {
+		pipe.HSet(ctx, s.modelsModelIDMapKey(), m.ModelID, m.ID)
+	}
 	_, err = pipe.Exec(ctx)
 	return err
 }
@@ -890,6 +902,9 @@ func (s *redisStore) UpdateModel(ctx context.Context, m *Model) error {
 	pipe := s.client.Pipeline()
 	pipe.Set(ctx, s.modelsKey(m.ID), data, 0)
 	pipe.SAdd(ctx, s.modelsIDsKey(), m.ID)
+	if strings.TrimSpace(m.ModelID) != "" {
+		pipe.HSet(ctx, s.modelsModelIDMapKey(), m.ModelID, m.ID)
+	}
 	_, err = pipe.Exec(ctx)
 	return err
 }
@@ -902,9 +917,15 @@ func (s *redisStore) DeleteModel(ctx context.Context, id string) error {
 		return nil
 	}
 
+	// Fetch model to get ModelID for index cleanup
+	m, _ := s.GetModel(ctx, id)
+
 	pipe := s.client.Pipeline()
 	pipe.Del(ctx, s.modelsKey(id))
 	pipe.SRem(ctx, s.modelsIDsKey(), id)
+	if m != nil && strings.TrimSpace(m.ModelID) != "" {
+		pipe.HDel(ctx, s.modelsModelIDMapKey(), m.ModelID)
+	}
 	_, err := pipe.Exec(ctx)
 	return err
 }
@@ -992,4 +1013,42 @@ func (s *redisStore) modelsIDsKey() string {
 
 func (s *redisStore) modelsNextIDKey() string {
 	return s.prefix + "models:next_id"
+}
+
+func (s *redisStore) modelsModelIDMapKey() string {
+	return s.prefix + "models:model_id_map"
+}
+
+func (s *redisStore) GetModelByModelID(ctx context.Context, modelID string) (*Model, error) {
+	if s == nil || s.client == nil {
+		return nil, fmt.Errorf("redis store not configured")
+	}
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return nil, fmt.Errorf("model not found")
+	}
+
+	// Try hash index first for O(1) lookup
+	id, err := s.client.HGet(ctx, s.modelsModelIDMapKey(), modelID).Result()
+	if err == nil && id != "" {
+		m, err := s.GetModel(ctx, id)
+		if err == nil && m != nil {
+			return m, nil
+		}
+		// Index stale, fall through to scan
+	}
+
+	// Fallback to scan (for backward compatibility with existing data)
+	models, err := s.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range models {
+		if m.ModelID == modelID {
+			// Repair the index
+			s.client.HSet(ctx, s.modelsModelIDMapKey(), modelID, m.ID)
+			return m, nil
+		}
+	}
+	return nil, fmt.Errorf("model not found")
 }

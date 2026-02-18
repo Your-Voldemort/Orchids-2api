@@ -126,13 +126,13 @@ func collectAdminTokenEntries(payload map[string]interface{}) []adminTokenEntry 
 
 			switch v := item.(type) {
 			case string:
-				entry.Token = parseTokenValue(v)
+				entry.Token = NormalizeSSOToken(v)
 			case map[string]interface{}:
 				rawToken, ok := v["token"].(string)
 				if !ok {
 					continue
 				}
-				entry.Token = parseTokenValue(rawToken)
+				entry.Token = NormalizeSSOToken(rawToken)
 				if s, ok := v["status"].(string); ok {
 					entry.Status = normalizeAdminTokenStatus(s)
 				}

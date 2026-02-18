@@ -375,9 +375,9 @@ func startModelSyncLoop(ctx context.Context, cfg *config.Config, s *store.Store)
 				if !strings.EqualFold(acc.AccountType, "grok") {
 					continue
 				}
-				token = extractGrokSSOToken(acc.ClientCookie)
+				token = grok.NormalizeSSOToken(acc.ClientCookie)
 				if token == "" {
-					token = extractGrokSSOToken(acc.RefreshToken)
+					token = grok.NormalizeSSOToken(acc.RefreshToken)
 				}
 				if token != "" {
 					break
@@ -536,33 +536,6 @@ func startModelSyncLoop(ctx context.Context, cfg *config.Config, s *store.Store)
 }
 
 var grokModelIDPattern = regexp.MustCompile(`\bgrok-[a-z0-9][a-z0-9.-]*\b`)
-var deprecatedGrokModelIDs = map[string]struct{}{
-	"grok-4.2": {},
-}
-
-func isDeprecatedGrokModelID(id string) bool {
-	modelID := strings.ToLower(strings.TrimSpace(id))
-	if strings.HasPrefix(modelID, "grok-4-2") {
-		modelID = "grok-4.2"
-	}
-	_, ok := deprecatedGrokModelIDs[modelID]
-	return ok
-}
-
-func extractGrokSSOToken(raw string) string {
-	token := strings.TrimSpace(raw)
-	if token == "" {
-		return ""
-	}
-	lower := strings.ToLower(token)
-	if idx := strings.Index(lower, "sso="); idx >= 0 {
-		token = token[idx+len("sso="):]
-		if semi := strings.Index(token, ";"); semi >= 0 {
-			token = token[:semi]
-		}
-	}
-	return strings.TrimSpace(token)
-}
 
 func fetchPublicGrokModelIDs(ctx context.Context) ([]string, error) {
 	urls := []string{
@@ -643,7 +616,7 @@ func extractGrokModelIDsFromText(text string) []string {
 		if id == "" || !strings.HasPrefix(id, "grok-") {
 			continue
 		}
-		if isDeprecatedGrokModelID(id) {
+		if grok.IsDeprecatedModelID(id) {
 			continue
 		}
 		out[id] = struct{}{}
@@ -687,14 +660,14 @@ func buildGrokVersionProbes(models []*store.Model) []string {
 	for major := range seenMajor {
 		nextMinor := maxMinorByMajor[major] + 1
 		candidate := fmt.Sprintf("grok-%d.%d", major, nextMinor)
-		if isDeprecatedGrokModelID(candidate) {
+		if grok.IsDeprecatedModelID(candidate) {
 			continue
 		}
 		out[candidate] = struct{}{}
 	}
 	if maxMajor >= 0 {
 		candidate := fmt.Sprintf("grok-%d", maxMajor+1)
-		if !isDeprecatedGrokModelID(candidate) {
+		if !grok.IsDeprecatedModelID(candidate) {
 			out[candidate] = struct{}{}
 		}
 	}

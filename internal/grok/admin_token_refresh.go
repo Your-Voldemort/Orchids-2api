@@ -28,7 +28,7 @@ func normalizeTokenRefreshConcurrency(v int) int {
 func collectRefreshTokens(req adminTokenRefreshRequest) []string {
 	dedup := map[string]struct{}{}
 	add := func(raw string) {
-		token := parseTokenValue(raw)
+		token := NormalizeSSOToken(raw)
 		if strings.TrimSpace(token) == "" {
 			return
 		}

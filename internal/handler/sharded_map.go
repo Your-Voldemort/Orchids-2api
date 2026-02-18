@@ -79,3 +79,46 @@ func (m *ShardedMap[V]) Range(fn func(key string, value V) bool) {
 		m.shards[i].mu.RUnlock()
 	}
 }
+
+// Compute atomically reads, transforms, and writes a value under the shard lock.
+// fn receives the current value and whether it exists. It returns the new value
+// and whether to keep it (false = delete the key).
+// The returned values are the original value and whether the key existed before.
+func (m *ShardedMap[V]) Compute(key string, fn func(value V, exists bool) (V, bool)) (V, bool) {
+	idx := m.getShard(key)
+	m.shards[idx].mu.Lock()
+	old, existed := m.shards[idx].data[key]
+	newVal, keep := fn(old, existed)
+	if keep {
+		m.shards[idx].data[key] = newVal
+	} else if existed {
+		delete(m.shards[idx].data, key)
+	}
+	m.shards[idx].mu.Unlock()
+	return old, existed
+}
+
+// Len returns the total number of entries across all shards.
+func (m *ShardedMap[V]) Len() int {
+	n := 0
+	for i := 0; i < ShardCount; i++ {
+		m.shards[i].mu.RLock()
+		n += len(m.shards[i].data)
+		m.shards[i].mu.RUnlock()
+	}
+	return n
+}
+
+// RangeDelete iterates all entries with write locks and deletes entries
+// for which fn returns true.
+func (m *ShardedMap[V]) RangeDelete(fn func(key string, value V) bool) {
+	for i := 0; i < ShardCount; i++ {
+		m.shards[i].mu.Lock()
+		for k, v := range m.shards[i].data {
+			if fn(k, v) {
+				delete(m.shards[i].data, k)
+			}
+		}
+		m.shards[i].mu.Unlock()
+	}
+}

@@ -326,7 +326,11 @@ func (c *Client) fetchToken() (string, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Cookie", c.config.GetCookies())
+	if strings.TrimSpace(c.config.SessionCookie) != "" {
+		req.Header.Set("Cookie", "__client="+c.config.ClientCookie+"; __session="+c.config.SessionCookie)
+	} else {
+		req.Header.Set("Cookie", "__client="+c.config.ClientCookie+"; __client_uat="+c.config.ClientUat)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -682,7 +686,7 @@ func (c *Client) FetchUpstreamModels(ctx context.Context) ([]UpstreamModel, erro
 
 	// Replace /agent/coding-agent with /v1/models if needed, or just append /v1/models if base is different
 	baseURL := defaultUpstreamBaseURL
-	if c.config != nil && c.config.OrchidsAPIBaseURL != "" {
+	if c.config != nil {
 		baseURL = c.config.OrchidsAPIBaseURL
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")

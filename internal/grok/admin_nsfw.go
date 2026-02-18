@@ -91,7 +91,7 @@ func grokAccountToken(acc *store.Account) string {
 	if raw == "" {
 		raw = strings.TrimSpace(acc.RefreshToken)
 	}
-	return parseTokenValue(raw)
+	return NormalizeSSOToken(raw)
 }
 
 func collectNSFWTargets(req adminNSFWEnableRequest, accounts []*store.Account) []nsfwTarget {
@@ -121,9 +121,9 @@ func collectNSFWTargets(req adminNSFWEnableRequest, accounts []*store.Account) [
 	}
 
 	// Explicit token(s) have highest priority.
-	add(parseTokenValue(req.Token), nil)
+	add(NormalizeSSOToken(req.Token), nil)
 	for _, item := range req.Tokens {
-		add(parseTokenValue(item), nil)
+		add(NormalizeSSOToken(item), nil)
 	}
 
 	if len(req.AccountIDs) > 0 {
@@ -390,13 +390,13 @@ func (t *nsfwBatchTask) snapshot() map[string]interface{} {
 		results[k] = v
 	}
 	out := map[string]interface{}{
-		"task_id": t.ID,
-		"status":  t.status,
-		"total":   t.Total,
+		"task_id":   t.ID,
+		"status":    t.status,
+		"total":     t.Total,
 		"processed": t.done,
-		"done":    t.done,
-		"ok":      t.ok,
-		"fail":    t.fail,
+		"done":      t.done,
+		"ok":        t.ok,
+		"fail":      t.fail,
 		"summary": map[string]interface{}{
 			"total": t.Total,
 			"done":  t.done,

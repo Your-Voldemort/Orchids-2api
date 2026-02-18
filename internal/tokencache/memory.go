@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,12 +19,13 @@ type Cache interface {
 }
 
 type MemoryCache struct {
-	mu         sync.RWMutex
-	ttl        time.Duration
-	maxEntries int
-	items      map[string]cacheItem
-	sizeBytes  int64
-	done       chan struct{}
+	mu           sync.RWMutex
+	ttl          time.Duration
+	maxEntries   int
+	items        map[string]cacheItem
+	sizeBytes    int64
+	done         chan struct{}
+	accessCount  atomic.Uint64
 }
 
 type cacheItem struct {
@@ -104,15 +106,19 @@ func (c *MemoryCache) Get(ctx context.Context, key string) (int, bool) {
 		return 0, false
 	}
 	c.mu.RUnlock()
-	
-	// Update access timestamp
-	c.mu.Lock()
-	if item, ok := c.items[key]; ok {
-		item.accessedAt = time.Now()
-		c.items[key] = item
+
+	// Sampled LRU update: only update accessedAt ~12.5% of the time to avoid
+	// write-lock contention on every read. Approximate LRU ordering is
+	// sufficient for eviction decisions.
+	if c.accessCount.Add(1)%8 == 0 {
+		c.mu.Lock()
+		if item, ok := c.items[key]; ok {
+			item.accessedAt = time.Now()
+			c.items[key] = item
+		}
+		c.mu.Unlock()
 	}
-	c.mu.Unlock()
-	
+
 	return item.tokens, true
 }
 

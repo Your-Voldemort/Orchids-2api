@@ -2,13 +2,12 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"context"
 
 	"orchids-api/internal/config"
 	"orchids-api/internal/debug"
@@ -146,9 +145,9 @@ func TestHandleMessages_Warp_StreamAndJSON(t *testing.T) {
 		}
 	}
 
-	// ensure upstream conversation id stored
+	// ensure upstream conversation id stored via SessionStore
 	convKey := conversationKeyForRequest(httptest.NewRequest(http.MethodPost, "http://x/warp/v1/messages", nil), ClaudeRequest{ConversationID: "c1"})
-	got, _ := h.sessionConvIDs.Get(convKey)
+	got, _ := h.sessionStore.GetConvID(context.Background(), convKey)
 	if got != "conv1" {
 		t.Fatalf("expected stored upstream conversation id conv1, got %q", got)
 	}

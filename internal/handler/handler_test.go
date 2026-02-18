@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -37,15 +38,18 @@ func TestComputeRequestHash_ChangesWithAuthPathBody(t *testing.T) {
 }
 
 func TestRegisterRequest_DedupWindowAndInFlight(t *testing.T) {
-	h := &Handler{recentRequests: make(map[string]*recentRequest)}
+	h := &Handler{
+		dedupStore: NewMemoryDedupStore(duplicateWindow, duplicateCleanupWindow),
+	}
 	key := "k"
+	ctx := context.Background()
 
-	dup, inFlight := h.registerRequest(key)
+	dup, inFlight := h.dedupStore.Register(ctx, key)
 	if dup || inFlight {
 		t.Fatalf("first request should not be dup/inflight, got dup=%v inflight=%v", dup, inFlight)
 	}
 
-	dup, inFlight = h.registerRequest(key)
+	dup, inFlight = h.dedupStore.Register(ctx, key)
 	if !dup {
 		t.Fatalf("second immediate request should be treated as duplicate")
 	}
@@ -53,8 +57,8 @@ func TestRegisterRequest_DedupWindowAndInFlight(t *testing.T) {
 		t.Fatalf("expected inflight=true while original is in flight")
 	}
 
-	h.finishRequest(key)
-	dup, inFlight = h.registerRequest(key)
+	h.dedupStore.Finish(ctx, key)
+	dup, inFlight = h.dedupStore.Register(ctx, key)
 	if !dup {
 		t.Fatalf("request within dedup window should still be treated as duplicate")
 	}
@@ -63,16 +67,17 @@ func TestRegisterRequest_DedupWindowAndInFlight(t *testing.T) {
 	}
 }
 
-func TestCleanupRecentLocked_RemovesOldFinished(t *testing.T) {
-	h := &Handler{recentRequests: make(map[string]*recentRequest)}
-	now := time.Now()
-	h.recentRequests["old"] = &recentRequest{last: now.Add(-2 * duplicateCleanupWindow), inFlight: 0}
-	h.recentRequests["new"] = &recentRequest{last: now, inFlight: 0}
-	h.cleanupRecentLocked(now)
-	if _, ok := h.recentRequests["old"]; ok {
-		t.Fatalf("expected old key to be removed")
-	}
-	if _, ok := h.recentRequests["new"]; !ok {
-		t.Fatalf("expected new key to be kept")
+func TestDedupStore_WindowExpiry(t *testing.T) {
+	store := NewMemoryDedupStore(100*time.Millisecond, 10*time.Second)
+	ctx := context.Background()
+
+	store.Register(ctx, "hash1")
+	store.Finish(ctx, "hash1")
+
+	time.Sleep(150 * time.Millisecond)
+
+	dup, _ := store.Register(ctx, "hash1")
+	if dup {
+		t.Fatal("should not be duplicate after window expiry")
 	}
 }

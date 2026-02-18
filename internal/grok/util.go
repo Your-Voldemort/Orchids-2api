@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	apperrors "orchids-api/internal/errors"
 )
 
 func randomHex(n int) string {
@@ -104,10 +106,6 @@ func extractImageURLs(value interface{}) []string {
 // extractRenderableImageLinks is a broad fallback for Grok tool/card payloads.
 // Some Grok responses include image card/tool metadata where URLs aren't under the known keys.
 // We conservatively collect http(s) links that look like images and point to Grok-related hosts.
-type SearchImagesArgs struct {
-	ImageDescription string `json:"image_description"`
-	NumberOfImages   int    `json:"number_of_images"`
-}
 
 func collectHTTPStrings(value interface{}, limit int) []string {
 	out := make([]string, 0, 16)
@@ -175,41 +173,6 @@ func collectAssetLikeStrings(value interface{}, limit int) []string {
 		}
 	}
 	walk(value)
-	return out
-}
-
-func parseSearchImagesArgsFromText(text string) []SearchImagesArgs {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return nil
-	}
-	// Match tool cards like: xai:tool_name search_images ... xai:tool_args<![CDATA[{...}]]></xai:tool_args>
-	re := regexp.MustCompile(`(?is)xai:tool_name\s*search_images.*?xai:tool_args\s*<!\[CDATA\[(\{.*?\})\]\]>\s*</xai:tool_args>`)
-	matches := re.FindAllStringSubmatch(text, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-	out := make([]SearchImagesArgs, 0, len(matches))
-	for _, m := range matches {
-		if len(m) < 2 {
-			continue
-		}
-		raw := strings.TrimSpace(m[1])
-		if raw == "" {
-			continue
-		}
-		var args SearchImagesArgs
-		if err := json.Unmarshal([]byte(raw), &args); err != nil {
-			continue
-		}
-		args.ImageDescription = strings.TrimSpace(args.ImageDescription)
-		if args.NumberOfImages <= 0 {
-			args.NumberOfImages = 4
-		}
-		if args.ImageDescription != "" {
-			out = append(out, args)
-		}
-	}
 	return out
 }
 
@@ -436,18 +399,17 @@ func writeSSE(w http.ResponseWriter, event, data string) {
 	fmt.Fprintf(w, "data: %s\n\n", data)
 }
 
-func parseTokenValue(raw string) string {
+// NormalizeSSOToken extracts the raw SSO token from a cookie-like string.
+func NormalizeSSOToken(raw string) string {
 	token := strings.TrimSpace(raw)
 	if token == "" {
 		return ""
 	}
-	if strings.Contains(token, "sso=") {
-		idx := strings.Index(token, "sso=")
-		if idx >= 0 {
-			token = token[idx+len("sso="):]
-			if semi := strings.Index(token, ";"); semi >= 0 {
-				token = token[:semi]
-			}
+	lower := strings.ToLower(token)
+	if idx := strings.Index(lower, "sso="); idx >= 0 {
+		token = token[idx+len("sso="):]
+		if semi := strings.Index(token, ";"); semi >= 0 {
+			token = token[:semi]
 		}
 	}
 	return strings.TrimSpace(token)
@@ -568,55 +530,9 @@ func parseRateLimitPayload(payload map[string]interface{}) *RateLimitInfo {
 	return info
 }
 
+// classifyAccountStatusFromError delegates to the centralized errors package.
 func classifyAccountStatusFromError(errStr string) string {
-	lower := strings.ToLower(errStr)
-	switch {
-	case hasExplicitHTTPStatus(lower, "401") || strings.Contains(lower, "signed out") || strings.Contains(lower, "signed_out") || strings.Contains(lower, "unauthorized"):
-		return "401"
-	case hasExplicitHTTPStatus(lower, "403") || strings.Contains(lower, "forbidden"):
-		return "403"
-	case hasExplicitHTTPStatus(lower, "404"):
-		return "404"
-	case hasExplicitHTTPStatus(lower, "429") ||
-		strings.Contains(lower, "too many requests") ||
-		strings.Contains(lower, "rate limit") ||
-		strings.Contains(lower, "no remaining quota") ||
-		strings.Contains(lower, "out of credits") ||
-		strings.Contains(lower, "credits exhausted") ||
-		strings.Contains(lower, "run out of credits"):
-		return "429"
-	default:
-		return ""
-	}
-}
-
-func hasExplicitHTTPStatus(lower string, code string) bool {
-	code = strings.TrimSpace(code)
-	if code == "" || lower == "" {
-		return false
-	}
-	patterns := []string{
-		"http " + code,
-		"http/1.1 " + code,
-		"http/2 " + code,
-		"status " + code,
-		"status=" + code,
-		"status:" + code,
-		"statuscode " + code,
-		"statuscode=" + code,
-		"status code " + code,
-		"code " + code,
-		"code=" + code,
-		"code:" + code,
-		"response status " + code,
-		"response code " + code,
-	}
-	for _, p := range patterns {
-		if strings.Contains(lower, p) {
-			return true
-		}
-	}
-	return false
+	return apperrors.ClassifyAccountStatus(errStr)
 }
 
 func findNumberByKeys(value interface{}, keys map[string]struct{}) (int64, bool) {
@@ -1109,16 +1025,16 @@ func validateVideoConfig(cfg *VideoConfig) (*VideoConfig, error) {
 	cfg.Normalize()
 
 	aspectRatioMap := map[string]string{
-		"1280x720": "16:9",
-		"720x1280": "9:16",
+		"1280x720":  "16:9",
+		"720x1280":  "9:16",
 		"1792x1024": "3:2",
 		"1024x1792": "2:3",
 		"1024x1024": "1:1",
-		"16:9":     "16:9",
-		"9:16":     "9:16",
-		"3:2":      "3:2",
-		"2:3":      "2:3",
-		"1:1":      "1:1",
+		"16:9":      "16:9",
+		"9:16":      "9:16",
+		"3:2":       "3:2",
+		"2:3":       "2:3",
+		"1:1":       "1:1",
 	}
 	ar := strings.TrimSpace(cfg.AspectRatio)
 	if ar == "" {

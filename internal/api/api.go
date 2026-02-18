@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,12 +14,15 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"orchids-api/internal/auth"
 	"orchids-api/internal/clerk"
 	"orchids-api/internal/config"
+	apperrors "orchids-api/internal/errors"
 	"orchids-api/internal/grok"
+	"orchids-api/internal/middleware"
 	"orchids-api/internal/orchids"
 	"orchids-api/internal/store"
 	"orchids-api/internal/tokencache"
@@ -26,13 +30,12 @@ import (
 )
 
 type API struct {
-	store      *store.Store
-	tokenCache tokencache.Cache
-	adminUser  string
-	adminPass  string
-	configMu   sync.RWMutex
-	config     interface{} // Using interface{} to avoid circular dependency if any, or just use *config.Config
-	configPath string      // Path to config.json
+	store        *store.Store
+	tokenCache   tokencache.Cache
+	adminUser    string
+	adminPass    string
+	loginLimiter *middleware.RateLimiter
+	config       atomic.Pointer[config.Config]
 
 	// Account check backoff / storm control
 	checkMu          sync.Mutex
@@ -76,76 +79,9 @@ func normalizeWarpTokenOutput(acc *store.Account) *store.Account {
 	return &copyAcc
 }
 
-func parseGrokSSOToken(raw string) string {
-	token := strings.TrimSpace(raw)
-	if token == "" {
-		return ""
-	}
-	if strings.Contains(strings.ToLower(token), "sso=") {
-		parts := strings.Split(token, ";")
-		for _, part := range parts {
-			part = strings.TrimSpace(part)
-			if strings.HasPrefix(strings.ToLower(part), "sso=") {
-				kv := strings.SplitN(part, "=", 2)
-				if len(kv) == 2 {
-					token = strings.TrimSpace(kv[1])
-				}
-				break
-			}
-		}
-	}
-	return strings.TrimSpace(token)
-}
-
+// classifyAccountStatusFromError delegates to the centralized errors package.
 func classifyAccountStatusFromError(errStr string) string {
-	lower := strings.ToLower(errStr)
-	switch {
-	case hasExplicitHTTPStatus(lower, "401") || strings.Contains(lower, "signed out") || strings.Contains(lower, "signed_out") || strings.Contains(lower, "unauthorized"):
-		return "401"
-	case hasExplicitHTTPStatus(lower, "403") || strings.Contains(lower, "forbidden"):
-		return "403"
-	case hasExplicitHTTPStatus(lower, "404"):
-		return "404"
-	case hasExplicitHTTPStatus(lower, "429") ||
-		strings.Contains(lower, "too many requests") ||
-		strings.Contains(lower, "rate limit") ||
-		strings.Contains(lower, "no remaining quota") ||
-		strings.Contains(lower, "out of credits") ||
-		strings.Contains(lower, "credits exhausted") ||
-		strings.Contains(lower, "run out of credits"):
-		return "429"
-	default:
-		return ""
-	}
-}
-
-func hasExplicitHTTPStatus(lower string, code string) bool {
-	code = strings.TrimSpace(code)
-	if code == "" || lower == "" {
-		return false
-	}
-	patterns := []string{
-		"http " + code,
-		"http/1.1 " + code,
-		"http/2 " + code,
-		"status " + code,
-		"status=" + code,
-		"status:" + code,
-		"statuscode " + code,
-		"statuscode=" + code,
-		"status code " + code,
-		"code " + code,
-		"code=" + code,
-		"code:" + code,
-		"response status " + code,
-		"response code " + code,
-	}
-	for _, p := range patterns {
-		if strings.Contains(lower, p) {
-			return true
-		}
-	}
-	return false
+	return apperrors.ClassifyAccountStatus(errStr)
 }
 
 func httpStatusFromAccountStatus(status string) int {
@@ -171,7 +107,7 @@ func normalizeGrokTokenInput(acc *store.Account) {
 	if raw == "" {
 		raw = strings.TrimSpace(acc.RefreshToken)
 	}
-	acc.ClientCookie = parseGrokSSOToken(raw)
+	acc.ClientCookie = grok.NormalizeSSOToken(raw)
 	// Grok only needs SSO token; clear unrelated fields.
 	acc.RefreshToken = ""
 	acc.SessionCookie = ""
@@ -218,24 +154,37 @@ type UpdateKeyRequest struct {
 	Enabled *bool `json:"enabled"`
 }
 
-func New(s *store.Store, adminUser, adminPass string, cfg interface{}, cfgPath string) *API {
-	return &API{
-		store:      s,
-		adminUser:  adminUser,
-		adminPass:  adminPass,
-		config:     cfg,
-		configPath: cfgPath,
+func New(s *store.Store, adminUser, adminPass string, cfg *config.Config) *API {
+	a := &API{
+		store:        s,
+		adminUser:    adminUser,
+		adminPass:    adminPass,
+		loginLimiter: middleware.NewRateLimiter(5, 15*time.Minute),
 
 		checkInFlight:    map[int64]bool{},
 		checkFailCount:   map[int64]int{},
 		checkNextAllowed: map[int64]time.Time{},
 		checkSem:         make(chan struct{}, 2),
 	}
+	if cfg != nil {
+		a.config.Store(cfg)
+	}
+	return a
+}
+
+func secureCompare(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func (a *API) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ip := middleware.ExtractIP(r.RemoteAddr, r.Header.Get("X-Forwarded-For"), r.Header.Get("X-Real-IP"))
+	if a.loginLimiter != nil && !a.loginLimiter.Allow(ip) {
+		http.Error(w, "Too many login attempts, try again later", http.StatusTooManyRequests)
 		return
 	}
 
@@ -248,7 +197,7 @@ func (a *API) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Username != a.adminUser || req.Password != a.adminPass {
+	if !secureCompare(req.Username, a.adminUser) || !secureCompare(req.Password, a.adminPass) {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -301,36 +250,32 @@ func (a *API) HandleConfig(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		a.configMu.RLock()
-		json.NewEncoder(w).Encode(a.config)
-		a.configMu.RUnlock()
+		json.NewEncoder(w).Encode(a.config.Load())
 	case http.MethodPost:
-		// Update config under write lock
-		a.configMu.Lock()
-		if err := json.NewDecoder(r.Body).Decode(a.config); err != nil {
-			a.configMu.Unlock()
+		// Copy current config, decode into copy, then atomically store
+		current := a.config.Load()
+		newCfg := *current
+		if err := json.NewDecoder(r.Body).Decode(&newCfg); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		config.ApplyHardcoded(&newCfg)
 
 		// Save to Redis
-		data, err := json.Marshal(a.config)
+		data, err := json.Marshal(&newCfg)
 		if err != nil {
-			a.configMu.Unlock()
 			http.Error(w, "Failed to marshal config: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		a.configMu.Unlock()
+		a.config.Store(&newCfg)
 
 		if err := a.store.SetSetting(r.Context(), "config", string(data)); err != nil {
 			http.Error(w, "Failed to save config to Redis: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		a.configMu.RLock()
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(a.config)
-		a.configMu.RUnlock()
+		json.NewEncoder(w).Encode(&newCfg)
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -541,12 +486,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}()
 
 			if strings.EqualFold(acc.AccountType, "warp") {
-				var cfg *config.Config
-				a.configMu.RLock()
-				if raw, ok := a.config.(*config.Config); ok {
-					cfg = raw
-				}
-				a.configMu.RUnlock()
+				cfg := a.config.Load()
 				warpClient := warp.NewFromAccount(acc, cfg)
 				jwt, err := warpClient.RefreshAccount(r.Context())
 				if err != nil {
@@ -595,12 +535,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-				var cfg *config.Config
-				a.configMu.RLock()
-				if raw, ok := a.config.(*config.Config); ok {
-					cfg = raw
-				}
-				a.configMu.RUnlock()
+				cfg := a.config.Load()
 				client := grok.New(cfg)
 
 				verifyCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -643,12 +578,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 					refreshErr := err
 					// Fallback: when Clerk cannot enumerate active sessions, try session-id token endpoint.
 					if strings.Contains(strings.ToLower(err.Error()), "no active sessions found") && strings.TrimSpace(acc.SessionID) != "" {
-						var cfg *config.Config
-						a.configMu.RLock()
-						if raw, ok := a.config.(*config.Config); ok {
-							cfg = raw
-						}
-						a.configMu.RUnlock()
+						cfg := a.config.Load()
 
 						orchidsClient := orchids.NewFromAccount(acc, cfg)
 						jwt, jwtErr := orchidsClient.GetToken()
@@ -1174,10 +1104,8 @@ func (a *API) HandleCacheClear(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) cacheTokenCountEnabled() bool {
-	a.configMu.RLock()
-	cfg, ok := a.config.(*config.Config)
-	a.configMu.RUnlock()
-	if !ok || cfg == nil {
+	cfg := a.config.Load()
+	if cfg == nil {
 		return false
 	}
 	return cfg.CacheTokenCount

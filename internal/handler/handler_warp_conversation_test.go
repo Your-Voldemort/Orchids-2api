@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"orchids-api/internal/audit"
 	"orchids-api/internal/config"
 	"orchids-api/internal/debug"
 	"orchids-api/internal/prompt"
@@ -79,20 +80,23 @@ func makeWarpRequestBody(t *testing.T, text, conversationID string) []byte {
 	return body
 }
 
+func newTestHandler(client UpstreamClient) *Handler {
+	return &Handler{
+		config:       &config.Config{DebugEnabled: false},
+		client:       client,
+		sessionStore: NewMemorySessionStore(30*time.Minute, 1024),
+		dedupStore:   NewMemoryDedupStore(duplicateWindow, duplicateCleanupWindow),
+		auditLogger:  audit.NewNopLogger(),
+	}
+}
+
 func TestWarpConversationID_NotPersistedWithoutConversationKey(t *testing.T) {
 	t.Parallel()
 
 	client := &fakePayloadClient{
 		conversationIDsByOp: []string{"warp_upstream_conv_1", "warp_upstream_conv_2"},
 	}
-	h := &Handler{
-		config:            &config.Config{DebugEnabled: false},
-		client:            client,
-		sessionWorkdirs:   NewShardedMap[string](),
-		sessionConvIDs:    NewShardedMap[string](),
-		sessionLastAccess: NewShardedMap[time.Time](),
-		recentRequests:    map[string]*recentRequest{},
-	}
+	h := newTestHandler(client)
 
 	req1 := httptest.NewRequest(http.MethodPost, "/warp/v1/messages", bytes.NewReader(makeWarpRequestBody(t, "first", "")))
 	rec1 := httptest.NewRecorder()
@@ -122,7 +126,8 @@ func TestWarpConversationID_NotPersistedWithoutConversationKey(t *testing.T) {
 	if calls[1].ChatSessionID == "warp_upstream_conv_1" {
 		t.Fatalf("second request unexpectedly reused upstream conversation id: %q", calls[1].ChatSessionID)
 	}
-	if _, ok := h.sessionConvIDs.Get(""); ok {
+	// Verify empty conversation key does not store convID
+	if _, ok := h.sessionStore.GetConvID(context.Background(), ""); ok {
 		t.Fatalf("unexpected cached conversation id for empty conversation key")
 	}
 }
@@ -133,14 +138,7 @@ func TestWarpConversationID_PersistedWithConversationKey(t *testing.T) {
 	client := &fakePayloadClient{
 		conversationIDsByOp: []string{"warp_upstream_conv_persist"},
 	}
-	h := &Handler{
-		config:            &config.Config{DebugEnabled: false},
-		client:            client,
-		sessionWorkdirs:   NewShardedMap[string](),
-		sessionConvIDs:    NewShardedMap[string](),
-		sessionLastAccess: NewShardedMap[time.Time](),
-		recentRequests:    map[string]*recentRequest{},
-	}
+	h := newTestHandler(client)
 
 	const conversationID = "local_conversation_key_1"
 
@@ -182,11 +180,10 @@ func TestWarpPassthrough_DoesNotTrimMessagesOrSanitizeSystem(t *testing.T) {
 			WarpMaxToolResults:      1,
 			OrchidsCCEntrypointMode: "strip",
 		},
-		client:            client,
-		sessionWorkdirs:   NewShardedMap[string](),
-		sessionConvIDs:    NewShardedMap[string](),
-		sessionLastAccess: NewShardedMap[time.Time](),
-		recentRequests:    map[string]*recentRequest{},
+		client:       client,
+		sessionStore: NewMemorySessionStore(30*time.Minute, 1024),
+		dedupStore:   NewMemoryDedupStore(duplicateWindow, duplicateCleanupWindow),
+		auditLogger:  audit.NewNopLogger(),
 	}
 
 	reqPayload := ClaudeRequest{

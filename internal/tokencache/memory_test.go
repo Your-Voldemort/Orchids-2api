@@ -21,16 +21,20 @@ func TestLRUEviction(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 	cache.Put(ctx, "key3", 300)
 	
-	// Access key1 to update its access time (making it more recently used)
+	// Access key1 multiple times to ensure accessedAt is updated (sampled LRU updates 1-in-8)
 	time.Sleep(10 * time.Millisecond)
-	if val, ok := cache.Get(ctx, "key1"); !ok || val != 100 {
-		t.Fatalf("Expected key1=100, got %v, %v", val, ok)
+	for i := 0; i < 8; i++ {
+		if val, ok := cache.Get(ctx, "key1"); !ok || val != 100 {
+			t.Fatalf("Expected key1=100, got %v, %v", val, ok)
+		}
 	}
-	
-	// Access key2 to update its access time
+
+	// Access key2 multiple times to ensure accessedAt is updated
 	time.Sleep(10 * time.Millisecond)
-	if val, ok := cache.Get(ctx, "key2"); !ok || val != 200 {
-		t.Fatalf("Expected key2=200, got %v, %v", val, ok)
+	for i := 0; i < 8; i++ {
+		if val, ok := cache.Get(ctx, "key2"); !ok || val != 200 {
+			t.Fatalf("Expected key2=200, got %v, %v", val, ok)
+		}
 	}
 	
 	// Now key3 is the least recently accessed (only Put, no Get)

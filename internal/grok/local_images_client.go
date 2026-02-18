@@ -16,10 +16,6 @@ type imagesGenerationsResp struct {
 	} `json:"data"`
 }
 
-func (h *Handler) callLocalImagesGenerations(ctx context.Context, prompt string, n int) ([]string, error) {
-	return h.callLocalImagesGenerationsWithOptions(ctx, "grok-imagine-1.0", prompt, n, "1024x1024", "url", nil)
-}
-
 func (h *Handler) callLocalImagesGenerationsWithOptions(
 	ctx context.Context,
 	model string,

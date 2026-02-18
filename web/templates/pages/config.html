@@ -15,7 +15,7 @@
   <main class="main-content">
     <section class="header-section" id="configHeader">
       <h1>配置管理</h1>
-      <p>管理系统基础配置、负载均衡、授权等设置</p>
+      <p>管理系统基础配置和 API Key</p>
     </section>
 
     <div class="content-card">
@@ -24,7 +24,6 @@
         style="padding: 16px 24px 0; border-bottom: 1px solid var(--border-color);">
         <button class="tab-item active" onclick="switchConfigTab('basic')">基础配置</button>
         <button class="tab-item" onclick="switchConfigTab('auth')">API Key 管理</button>
-        <button class="tab-item" onclick="switchConfigTab('proxy')">代理配置</button>
       </div>
 
       <!-- Configuration Sections -->
@@ -53,52 +52,6 @@
           </div>
         </div>
 
-        <!-- Retry and Performance -->
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-bottom: 32px;">
-          <div>
-            <label class="form-label">最大重试次数</label>
-            <input type="number" id="cfg_max_retries" class="form-input">
-          </div>
-          <div>
-            <label class="form-label">重试延迟 (ms)</label>
-            <input type="number" id="cfg_retry_delay" class="form-input">
-          </div>
-          <div>
-            <label class="form-label">账号轮换阈值</label>
-            <input type="number" id="cfg_switch_count" class="form-input">
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 32px;">
-          <div>
-            <label class="form-label">请求超时 (秒)</label>
-            <input type="number" id="cfg_request_timeout" class="form-input">
-          </div>
-          <div>
-            <label class="form-label">Token 刷新间隔 (分)</label>
-            <input type="number" id="cfg_refresh_interval" class="form-input">
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 32px;">
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <label class="toggle">
-              <input type="checkbox" id="cfg_auto_refresh_token" onchange="updateSwitchLabel(this, '自动刷新Token')">
-              <span class="toggle-slider"></span>
-              <span id="label_cfg_auto_refresh_token" style="margin-left: 12px; font-size: 0.9rem; color: var(--text-main);">自动刷新
-                Token</span>
-            </label>
-          </div>
-          <div style="display: flex; flex-direction: column; gap: 16px;">
-            <label class="toggle">
-              <input type="checkbox" id="cfg_output_token_count" onchange="updateSwitchLabel(this, '输出Token计数')">
-              <span class="toggle-slider"></span>
-              <span id="label_cfg_output_token_count" style="margin-left: 12px; font-size: 0.9rem; color: var(--text-main);">输出
-                Token 计数</span>
-            </label>
-          </div>
-        </div>
-
         <!-- Token Usage Cache Config -->
         <div
           style="padding: 20px; background: rgba(139, 146, 168, 0.05); border: 1px solid var(--border-color); border-radius: 12px;">
@@ -109,8 +62,7 @@
                 style="font-size: 0.8rem; color: var(--accent-blue); background: rgba(34, 211, 238, 0.1); padding: 2px 6px; border-radius: 4px;">Beta</span>
             </div>
             <label class="toggle">
-              <input type="checkbox" id="cfg_cache_token_count"
-                onchange="updateSwitchLabel(this, '缓存Token计数'); toggleCacheConfig(this.checked)">
+              <input type="checkbox" id="cfg_cache_token_count" onchange="toggleCacheConfig(this.checked)">
               <span class="toggle-slider"></span>
             </label>
           </div>
@@ -171,48 +123,7 @@
           <h2 style="font-size: 1.25rem; font-weight: 700;">API Key 管理</h2>
           <button class="btn btn-primary" onclick="openCreateKeyModal()">+ 创建 API Key</button>
         </div>
-        <div id="keysList">
-          <!-- API Keys table will be rendered here -->
-        </div>
-      </div>
-
-      <div id="proxyConfig" class="config-section" style="padding: 24px; display: none;">
-        <div style="margin-bottom: 24px;">
-          <h2 style="font-size: 1.25rem; font-weight: 700; margin-bottom: 8px;">代理服务器配置</h2>
-          <p style="color: var(--text-secondary); font-size: 0.9rem;">为系统设置外网请求代理，用于访问被墙的 API 接口。</p>
-        </div>
-
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 24px;">
-          <div>
-            <label class="form-label">HTTP 代理</label>
-            <input type="text" id="cfg_proxy_http" class="form-input" placeholder="http://127.0.0.1:7890">
-          </div>
-          <div>
-            <label class="form-label">HTTPS 代理</label>
-            <input type="text" id="cfg_proxy_https" class="form-input" placeholder="http://127.0.0.1:7890">
-          </div>
-        </div>
-
-        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-bottom: 24px;">
-          <div>
-            <label class="form-label">代理用户名</label>
-            <input type="text" id="cfg_proxy_user" class="form-input" placeholder="可选">
-          </div>
-          <div>
-            <label class="form-label">代理密码</label>
-            <input type="password" id="cfg_proxy_pass" class="form-input" placeholder="可选">
-          </div>
-        </div>
-
-        <div style="margin-bottom: 24px;">
-          <label class="form-label">不使用代理的地址 (Bypass)</label>
-          <textarea id="cfg_proxy_bypass" class="form-input"
-            style="height: 100px; font-family: monospace; resize: vertical;"
-            placeholder="每行一个，例如: 127.0.0.1, localhost"></textarea>
-          <small style="color: var(--text-secondary); display: block; margin-top: 8px;">
-            提示: 系统将自动包含默认的本地回环地址。
-          </small>
-        </div>
+        <div id="keysList"></div>
       </div>
 
       <!-- Global Save Footer -->

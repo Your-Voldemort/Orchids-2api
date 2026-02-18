@@ -277,7 +277,7 @@ func (c *Client) VerifyToken(ctx context.Context, token, modelID string) (*RateL
 	if model == "" {
 		model = "grok-3"
 	}
-	spec, ok := ResolveModel(model)
+	spec, ok := ResolveModelOrDynamic(model)
 	if !ok {
 		spec, ok = ResolveModel("grok-3")
 		if !ok {
@@ -299,7 +299,7 @@ func (c *Client) GetUsage(ctx context.Context, token, modelID string) (*RateLimi
 	if model == "" {
 		model = "grok-3"
 	}
-	spec, ok := ResolveModel(model)
+	spec, ok := ResolveModelOrDynamic(model)
 	if !ok {
 		spec, ok = ResolveModel("grok-3")
 		if !ok {
@@ -500,7 +500,7 @@ func (c *Client) getVoiceToken(ctx context.Context, token, voice, personality st
 }
 
 func (c *Client) listAssets(ctx context.Context, token string) ([]string, error) {
-	token = parseTokenValue(token)
+	token = NormalizeSSOToken(token)
 	if strings.TrimSpace(token) == "" {
 		return nil, fmt.Errorf("empty token")
 	}
@@ -577,7 +577,7 @@ func (c *Client) countAssets(ctx context.Context, token string) (int, error) {
 }
 
 func (c *Client) deleteAsset(ctx context.Context, token string, assetID string) error {
-	token = parseTokenValue(token)
+	token = NormalizeSSOToken(token)
 	assetID = strings.TrimSpace(assetID)
 	if token == "" {
 		return fmt.Errorf("empty token")
@@ -866,17 +866,6 @@ func (c *Client) EnableNSFWDetailed(ctx context.Context, token string) NSFWEnabl
 	result.Success = true
 	result.Error = ""
 	return result
-}
-
-func (c *Client) EnableNSFW(ctx context.Context, token string) error {
-	result := c.EnableNSFWDetailed(ctx, token)
-	if result.Success {
-		return nil
-	}
-	if strings.TrimSpace(result.Error) == "" {
-		return fmt.Errorf("enable nsfw failed")
-	}
-	return fmt.Errorf("%s", result.Error)
 }
 
 func getProxyField(cfg *config.Config, kind string) string {

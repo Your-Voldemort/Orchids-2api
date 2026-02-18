@@ -4,13 +4,14 @@ import (
 	"slices"
 	"testing"
 
+	"orchids-api/internal/grok"
 	"orchids-api/internal/store"
 )
 
-func TestExtractGrokSSOToken(t *testing.T) {
+func TestNormalizeGrokSSOToken(t *testing.T) {
 	raw := "foo=1; sso=abc123; sso-rw=abc123"
-	if got := extractGrokSSOToken(raw); got != "abc123" {
-		t.Fatalf("extractGrokSSOToken()=%q want abc123", got)
+	if got := grok.NormalizeSSOToken(raw); got != "abc123" {
+		t.Fatalf("NormalizeSSOToken()=%q want abc123", got)
 	}
 }
 

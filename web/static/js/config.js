@@ -8,23 +8,13 @@ function switchConfigTab(tab) {
   document.querySelectorAll("#configTabs .tab-item").forEach(btn => {
     btn.classList.toggle("active",
       (tab === 'basic' && btn.textContent.includes('基础')) ||
-      (tab === 'auth' && btn.textContent.includes('API Key')) ||
-      (tab === 'proxy' && btn.textContent.includes('代理'))
+      (tab === 'auth' && btn.textContent.includes('API Key'))
     );
   });
   document.getElementById("basicConfig").style.display = tab === 'basic' ? 'block' : 'none';
   document.getElementById("authConfig").style.display = tab === 'auth' ? 'block' : 'none';
-  document.getElementById("proxyConfig").style.display = tab === 'proxy' ? 'block' : 'none';
 
   if (tab === 'auth') loadApiKeys();
-}
-
-// Update switch label
-function updateSwitchLabel(el, text) {
-  const span = document.getElementById("label_" + el.id);
-  if (span) {
-    span.textContent = text + (el.checked ? " (已开启)" : " (已关闭)");
-  }
 }
 
 // Toggle password visibility
@@ -55,33 +45,15 @@ async function loadConfiguration() {
 
     document.getElementById("cfg_admin_pass").value = cfg.admin_pass || "";
     document.getElementById("cfg_admin_token").value = cfg.admin_token || "";
-    document.getElementById("cfg_max_retries").value = cfg.max_retries || 3;
-    document.getElementById("cfg_retry_delay").value = cfg.retry_delay || 1000;
-    document.getElementById("cfg_switch_count").value = cfg.account_switch_count || 5;
-    document.getElementById("cfg_request_timeout").value = cfg.request_timeout || 120;
-    document.getElementById("cfg_refresh_interval").value = cfg.token_refresh_interval || 30;
-
-    // Proxy Config Loading
-    document.getElementById("cfg_proxy_http").value = cfg.proxy_http || "";
-    document.getElementById("cfg_proxy_https").value = cfg.proxy_https || "";
-    document.getElementById("cfg_proxy_user").value = cfg.proxy_user || "";
-    document.getElementById("cfg_proxy_pass").value = cfg.proxy_pass || "";
-    document.getElementById("cfg_proxy_bypass").value = (cfg.proxy_bypass || []).join("\n");
-
-	const autoToken = document.getElementById("cfg_auto_refresh_token");
-	autoToken.checked = cfg.auto_refresh_token || false;
-	updateSwitchLabel(autoToken, "自动刷新Token");
-
-    const outputTokenCount = document.getElementById("cfg_output_token_count");
-    outputTokenCount.checked = cfg.output_token_count || false;
-    updateSwitchLabel(outputTokenCount, "输出Token计数");
 
     const cacheTokenCount = document.getElementById("cfg_cache_token_count");
-    cacheTokenCount.checked = cfg.cache_token_count || false;
-    updateSwitchLabel(cacheTokenCount, "缓存Token计数");
+    const cacheEnabled = typeof cfg.cache_token_count === "boolean" ? cfg.cache_token_count : true;
+    cacheTokenCount.checked = cacheEnabled;
+
     document.getElementById("cfg_cache_ttl").value = cfg.cache_ttl || 5;
-    const cacheStrategy = (cfg.cache_strategy || "split").toLowerCase();
-    document.getElementById("cfg_cache_strategy").value = cacheStrategy === "mixed" ? "mix" : cacheStrategy;
+
+    const rawStrategy = String(cfg.cache_strategy || "mix").toLowerCase();
+    document.getElementById("cfg_cache_strategy").value = rawStrategy === "split" ? "split" : "mix";
 
   } catch (err) {
     showToast("加载配置失败", "error");
@@ -93,23 +65,9 @@ async function saveConfiguration() {
   const data = {
     admin_pass: document.getElementById("cfg_admin_pass").value,
     admin_token: document.getElementById("cfg_admin_token").value,
-    max_retries: parseInt(document.getElementById("cfg_max_retries").value),
-    retry_delay: parseInt(document.getElementById("cfg_retry_delay").value),
-    account_switch_count: parseInt(document.getElementById("cfg_switch_count").value),
-	request_timeout: parseInt(document.getElementById("cfg_request_timeout").value),
-	token_refresh_interval: parseInt(document.getElementById("cfg_refresh_interval").value),
-	auto_refresh_token: document.getElementById("cfg_auto_refresh_token").checked,
-	output_token_count: document.getElementById("cfg_output_token_count").checked,
     cache_token_count: document.getElementById("cfg_cache_token_count").checked,
-    cache_ttl: parseInt(document.getElementById("cfg_cache_ttl").value),
+    cache_ttl: parseInt(document.getElementById("cfg_cache_ttl").value, 10) || 5,
     cache_strategy: document.getElementById("cfg_cache_strategy").value,
-
-    // Proxy Config Saving
-    proxy_http: document.getElementById("cfg_proxy_http").value,
-    proxy_https: document.getElementById("cfg_proxy_https").value,
-    proxy_user: document.getElementById("cfg_proxy_user").value,
-    proxy_pass: document.getElementById("cfg_proxy_pass").value,
-    proxy_bypass: document.getElementById("cfg_proxy_bypass").value.split("\n").filter(line => line.trim() !== "")
   };
 
   try {
@@ -475,27 +433,45 @@ function decodeData(value) {
   }
 }
 
-// Toggle cache config details
+function formatBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1024 * 1024) {
+    return (n / (1024 * 1024)).toFixed(2) + " MB";
+  }
+  if (n >= 1024) {
+    return (n / 1024).toFixed(2) + " KB";
+  }
+  return n + " B";
+}
+
 function toggleCacheConfig(checked) {
   const details = document.getElementById("cacheConfigDetails");
-  if (details) {
-    details.style.display = checked ? "block" : "none";
-    if (checked) {
-       loadCacheStats();
-    }
+  if (!details) return;
+  details.style.display = checked ? "block" : "none";
+  if (checked) {
+    updateMemoryEstimation();
+    loadCacheStats();
   }
 }
 
-// Update memory estimation
 function updateMemoryEstimation() {
-  const ttlMin = parseInt(document.getElementById("cfg_cache_ttl").value) || 5;
-  const strategy = document.getElementById("cfg_cache_strategy").value;
+  const ttlInput = document.getElementById("cfg_cache_ttl");
+  const strategyInput = document.getElementById("cfg_cache_strategy");
+  if (!ttlInput || !strategyInput) return;
+
+  const ttlMin = parseInt(ttlInput.value, 10) || 5;
+  const strategy = strategyInput.value;
   const mult = strategy === "split" ? 2 : 1;
   const ttlSec = ttlMin * 60;
 
-  document.getElementById("estTTLSeconds").textContent = ttlSec;
-  document.getElementById("estStrategyMult").textContent = mult === 2 ? "× 2" : "× 1";
-  document.getElementById("memoryEstTitle").textContent = `内存估算 (当前: TTL=${ttlMin}分钟, ${strategy === "split" ? "分离缓存×2" : "混合缓存×1"})`;
+  const ttlEl = document.getElementById("estTTLSeconds");
+  const multEl = document.getElementById("estStrategyMult");
+  const titleEl = document.getElementById("memoryEstTitle");
+  if (ttlEl) ttlEl.textContent = String(ttlSec);
+  if (multEl) multEl.textContent = mult === 2 ? "× 2" : "× 1";
+  if (titleEl) {
+    titleEl.textContent = `内存估算 (当前: TTL=${ttlMin}分钟, ${strategy === "split" ? "分离缓存×2" : "混合缓存×1"})`;
+  }
 
   const calc = (qps) => {
     const kb = qps * ttlSec * 0.5 * mult;
@@ -503,36 +479,38 @@ function updateMemoryEstimation() {
     return kb.toFixed(1) + "KB";
   };
 
-  document.getElementById("estLow").textContent = calc(10);
-  document.getElementById("estMid").textContent = calc(50);
-  document.getElementById("estHigh").textContent = calc(100);
+  const lowEl = document.getElementById("estLow");
+  const midEl = document.getElementById("estMid");
+  const highEl = document.getElementById("estHigh");
+  if (lowEl) lowEl.textContent = calc(10);
+  if (midEl) midEl.textContent = calc(50);
+  if (highEl) highEl.textContent = calc(100);
 }
 
-// Load cache stats
 async function loadCacheStats() {
+  const statsEl = document.getElementById("cacheStatsText");
+  if (!statsEl) return;
+
   try {
     const res = await fetch("/api/config/cache/stats");
-    if (!res.ok) return;
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
     const data = await res.json();
 
     if (data.status === "disabled") {
-      document.getElementById("cacheStatsText").textContent = "缓存未启用";
+      statsEl.textContent = "缓存未启用";
       return;
     }
 
-    const sizeStr = data.size_bytes > 1024 * 1024
-      ? (data.size_bytes / (1024 * 1024)).toFixed(2) + " MB"
-      : (data.size_bytes / 1024).toFixed(2) + " KB";
-
-    document.getElementById("cacheStatsText").textContent = `缓存条目: ${data.count} 条，占用内存: ${sizeStr}`; // Note: size is approximate
+    statsEl.textContent = `缓存条目: ${Number(data.count) || 0} 条，占用内存: ${formatBytes(data.size_bytes)}`;
   } catch (err) {
-    console.error("Failed to load cache stats", err);
+    statsEl.textContent = "缓存统计加载失败";
   }
 }
 
-// Clear cache
 async function clearCache() {
-  if (!confirm("确定要清空所有缓存吗？")) return;
+  if (!confirm("确定要清空 Token 用量缓存吗？")) return;
   try {
     const res = await fetch("/api/config/cache/clear", { method: "POST" });
     if (!res.ok) throw new Error(await res.text());
@@ -546,14 +524,12 @@ async function clearCache() {
 // Load configuration on page load
 document.addEventListener('DOMContentLoaded', () => {
   loadConfiguration().then(() => {
-    // Initialize UI states after config load
-    const cacheEnabled = document.getElementById("cfg_cache_token_count").checked;
+    const cacheEnabled = !!document.getElementById("cfg_cache_token_count")?.checked;
     toggleCacheConfig(cacheEnabled);
     updateMemoryEstimation();
     if (cacheEnabled) {
       loadCacheStats();
     }
-    // Load API keys as they are now part of the basic configuration tab
     loadApiKeys();
   });
 });

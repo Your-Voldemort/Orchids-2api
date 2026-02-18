@@ -1,11 +1,10 @@
 package config
 
 import (
-	"encoding/json"
 	"testing"
 )
 
-func TestConfigDefaultsForGrok2APIParity(t *testing.T) {
+func TestConfigDefaults(t *testing.T) {
 	var cfg Config
 	ApplyDefaults(&cfg)
 
@@ -29,52 +28,70 @@ func TestConfigDefaultsForGrok2APIParity(t *testing.T) {
 	}
 }
 
-func TestConfigDotKeyAliasesAndPrecedence(t *testing.T) {
-	raw := []byte(`{
-		"stream": false,
-		"app_stream": true,
-		"app.stream": false,
-		"image_nsfw": false,
-		"image.nsfw": true,
-		"image_final_min_bytes": 11111,
-		"image.final_min_bytes": 22222,
-		"image_medium_min_bytes": 33333,
-		"image.medium_min_bytes": 44444,
-		"public_key": "raw-public",
-		"app_public_key": "app-public",
-		"app.public_key": "dot-public",
-		"public_enabled": false,
-		"app_public_enabled": true,
-		"app.public_enabled": false
-	}`)
+func TestApplyDefaultsGeneratesRandomPassword(t *testing.T) {
 	var cfg Config
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		t.Fatalf("unmarshal config failed: %v", err)
+	ApplyDefaults(&cfg)
+
+	if cfg.AdminPass == "" {
+		t.Fatal("AdminPass should not be empty after ApplyDefaults")
+	}
+	if cfg.AdminPass == "admin123" {
+		t.Fatal("AdminPass should not be the old default 'admin123'")
+	}
+	if len(cfg.AdminPass) < 16 {
+		t.Fatalf("AdminPass too short: got %d chars, want at least 16", len(cfg.AdminPass))
+	}
+
+	// Verify each call generates a different password.
+	var cfg2 Config
+	ApplyDefaults(&cfg2)
+	if cfg.AdminPass == cfg2.AdminPass {
+		t.Fatal("Two calls to ApplyDefaults should generate different passwords")
+	}
+}
+
+func TestApplyHardcodedOverridesValues(t *testing.T) {
+	cfg := Config{
+		ContextMaxTokens: 999,
+		MaxRetries:       999,
+		RequestTimeout:   999,
+	}
+	ApplyHardcoded(&cfg)
+
+	if cfg.ContextMaxTokens != 100000 {
+		t.Fatalf("ContextMaxTokens=%d want=100000", cfg.ContextMaxTokens)
+	}
+	if cfg.MaxRetries != 3 {
+		t.Fatalf("MaxRetries=%d want=3", cfg.MaxRetries)
+	}
+	if cfg.RequestTimeout != 600 {
+		t.Fatalf("RequestTimeout=%d want=600", cfg.RequestTimeout)
+	}
+}
+
+func TestApplyDefaultsPreservesConfigurableFields(t *testing.T) {
+	cfg := Config{
+		Port:      "8080",
+		AdminUser: "myuser",
+		AdminPass: "mypass",
+		AdminPath: "/myadmin",
+		RedisAddr: "redis:6380",
 	}
 	ApplyDefaults(&cfg)
 
-	// app.stream > app_stream > stream
-	if got := cfg.ChatDefaultStream(); got != false {
-		t.Fatalf("ChatDefaultStream()=%v want=false", got)
+	if cfg.Port != "8080" {
+		t.Fatalf("Port=%q want=8080", cfg.Port)
 	}
-	// image.nsfw > image_nsfw
-	if got := cfg.PublicImagineNSFW(); got != true {
-		t.Fatalf("PublicImagineNSFW()=%v want=true", got)
+	if cfg.AdminUser != "myuser" {
+		t.Fatalf("AdminUser=%q want=myuser", cfg.AdminUser)
 	}
-	// image.final_min_bytes > image_final_min_bytes
-	if got := cfg.PublicImagineFinalMinBytes(); got != 22222 {
-		t.Fatalf("PublicImagineFinalMinBytes()=%d want=22222", got)
+	if cfg.AdminPass != "mypass" {
+		t.Fatalf("AdminPass=%q want=mypass", cfg.AdminPass)
 	}
-	// image.medium_min_bytes > image_medium_min_bytes
-	if got := cfg.PublicImagineMediumMinBytes(); got != 44444 {
-		t.Fatalf("PublicImagineMediumMinBytes()=%d want=44444", got)
+	if cfg.AdminPath != "/myadmin" {
+		t.Fatalf("AdminPath=%q want=/myadmin", cfg.AdminPath)
 	}
-	// app.public_key > app_public_key > public_key
-	if got := cfg.PublicAPIKey(); got != "dot-public" {
-		t.Fatalf("PublicAPIKey()=%q want=dot-public", got)
-	}
-	// app.public_enabled > app_public_enabled > public_enabled
-	if got := cfg.PublicAPIEnabled(); got != false {
-		t.Fatalf("PublicAPIEnabled()=%v want=false", got)
+	if cfg.RedisAddr != "redis:6380" {
+		t.Fatalf("RedisAddr=%q want=redis:6380", cfg.RedisAddr)
 	}
 }

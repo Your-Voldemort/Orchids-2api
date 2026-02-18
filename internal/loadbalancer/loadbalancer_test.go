@@ -7,7 +7,7 @@ import (
 )
 
 func TestSelectAccount_Distribution(t *testing.T) {
-	lb := &LoadBalancer{}
+	lb := &LoadBalancer{connTracker: NewMemoryConnTracker()}
 	accounts := []*store.Account{
 		{ID: 1, Name: "Acc1", Weight: 1},
 		{ID: 2, Name: "Acc2", Weight: 1},
@@ -40,7 +40,7 @@ func TestSelectAccount_Distribution(t *testing.T) {
 }
 
 func TestSelectAccount_WeightedDistribution(t *testing.T) {
-	lb := &LoadBalancer{}
+	lb := &LoadBalancer{connTracker: NewMemoryConnTracker()}
 	// Acc1 has weight 10, Acc2 has weight 1
 	// With 0 active conns, the score for both is 0/10 = 0 and 0/1 = 0.
 	// So they should still be tied and picked randomly.
@@ -63,7 +63,7 @@ func TestSelectAccount_WeightedDistribution(t *testing.T) {
 }
 
 func TestSelectAccount_ActiveConnections(t *testing.T) {
-	lb := &LoadBalancer{}
+	lb := &LoadBalancer{connTracker: NewMemoryConnTracker()}
 	acc1 := &store.Account{ID: 1, Name: "Acc1", Weight: 1}
 	acc2 := &store.Account{ID: 2, Name: "Acc2", Weight: 1}
 	accounts := []*store.Account{acc1, acc2}

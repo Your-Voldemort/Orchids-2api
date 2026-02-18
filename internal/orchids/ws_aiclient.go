@@ -708,10 +708,7 @@ func (c *Client) buildWSURLAIClient(token string) string {
 	if c.config == nil {
 		return ""
 	}
-	wsURL := strings.TrimSpace(c.config.OrchidsWSURL)
-	if wsURL == "" {
-		wsURL = orchidsWSDefaultURL
-	}
+	wsURL := c.config.OrchidsWSURL
 	sep := "?"
 	if strings.Contains(wsURL, "?") {
 		sep = "&"

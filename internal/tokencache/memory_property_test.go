@@ -114,9 +114,11 @@ func TestLRUAccessTimeUpdate(t *testing.T) {
 		cache.Put(ctx, "second", 200)
 		time.Sleep(5 * time.Millisecond)
 		
-		// Access the first item to update its access time
-		if _, ok := cache.Get(ctx, "first"); !ok {
-			return false
+		// Access the first item multiple times to ensure accessedAt is updated (sampled LRU)
+		for i := 0; i < 8; i++ {
+			if _, ok := cache.Get(ctx, "first"); !ok {
+				return false
+			}
 		}
 		time.Sleep(5 * time.Millisecond)
 		
@@ -169,9 +171,12 @@ func TestLRUEvictionWithRandomAccess(t *testing.T) {
 			
 			// Perform operation based on pattern
 			if pattern%3 == 0 && keyExists[key] {
-				// Get operation (33% chance if key exists)
+				// Get operation - do 8 Gets to ensure sampled LRU updates accessedAt
 				if _, ok := cache.Get(ctx, key); ok {
 					keyLastAccess[key] = i
+					for j := 0; j < 7; j++ {
+						cache.Get(ctx, key)
+					}
 				}
 			} else {
 				// Put operation

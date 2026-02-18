@@ -1,12 +1,17 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
 
 	"orchids-api/internal/auth"
 )
+
+func secureCompare(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
 
 func bearerToken(r *http.Request) string {
 	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
@@ -39,21 +44,21 @@ func SessionAuth(adminPass, adminToken string, next http.HandlerFunc) http.Handl
 
 		authHeader := r.Header.Get("Authorization")
 		if adminToken != "" {
-			if authHeader == "Bearer "+adminToken || authHeader == adminToken {
+			if secureCompare(authHeader, "Bearer "+adminToken) || secureCompare(authHeader, adminToken) {
 				next(w, r)
 				return
 			}
-			if r.Header.Get("X-Admin-Token") == adminToken {
+			if secureCompare(r.Header.Get("X-Admin-Token"), adminToken) {
 				next(w, r)
 				return
 			}
 		}
 		if adminPass != "" {
-			if authHeader == "Bearer "+adminPass || authHeader == adminPass {
+			if secureCompare(authHeader, "Bearer "+adminPass) || secureCompare(authHeader, adminPass) {
 				next(w, r)
 				return
 			}
-			if r.Header.Get("X-Admin-Token") == adminPass {
+			if secureCompare(r.Header.Get("X-Admin-Token"), adminPass) {
 				next(w, r)
 				return
 			}
@@ -67,18 +72,18 @@ func SessionAuth(adminPass, adminToken string, next http.HandlerFunc) http.Handl
 			if queryKey == "" {
 				continue
 			}
-			if adminToken != "" && queryKey == adminToken {
+			if adminToken != "" && secureCompare(queryKey, adminToken) {
 				next(w, r)
 				return
 			}
-			if adminPass != "" && queryKey == adminPass {
+			if adminPass != "" && secureCompare(queryKey, adminPass) {
 				next(w, r)
 				return
 			}
 		}
 
 		_, pass, ok := r.BasicAuth()
-		if ok && pass == adminPass {
+		if ok && secureCompare(pass, adminPass) {
 			next(w, r)
 			return
 		}
@@ -101,7 +106,7 @@ func PublicKeyAuth(publicKey string, _ bool, next http.HandlerFunc) http.Handler
 			writeBearerUnauthorized(w, "Missing authentication token")
 			return
 		}
-		if token != key {
+		if !secureCompare(token, key) {
 			writeBearerUnauthorized(w, "Invalid authentication token")
 			return
 		}
@@ -126,14 +131,14 @@ func PublicImagineStreamAuth(publicKey string, _ bool, next http.HandlerFunc) ht
 
 		queryKey := strings.TrimSpace(r.URL.Query().Get("public_key"))
 		if queryKey == "" {
-			if token := bearerToken(r); token == key {
+			if token := bearerToken(r); secureCompare(token, key) {
 				next(w, r)
 				return
 			}
 			writeBearerUnauthorized(w, "Missing authentication token")
 			return
 		}
-		if queryKey != key {
+		if !secureCompare(queryKey, key) {
 			writeBearerUnauthorized(w, "Invalid authentication token")
 			return
 		}

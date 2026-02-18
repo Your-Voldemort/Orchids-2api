@@ -187,7 +187,7 @@ func (h *Handler) listCacheOnlineAccounts(r *http.Request) []map[string]interfac
 }
 
 func normalizeOnlineToken(raw string) string {
-	return parseTokenValue(raw)
+	return NormalizeSSOToken(raw)
 }
 
 func normalizeOnlineTokenList(tokens []string) []string {
