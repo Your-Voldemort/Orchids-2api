@@ -72,6 +72,11 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if req.ImageConfig != nil && req.Model != "grok-imagine-1.0" && req.Model != "grok-imagine-1.0-edit" {
+		originalModel := req.Model
+		req.Model = "grok-imagine-1.0"
+		slog.Info("Auto mapped image_config request to image model", "from", originalModel, "to", req.Model)
+	}
 	if err := h.ensureModelEnabled(r.Context(), req.Model); err != nil {
 		msg := strings.TrimSpace(err.Error())
 		if strings.EqualFold(msg, "model not found") && h.tryAutoRegisterModel(r.Context(), req.Model) {
