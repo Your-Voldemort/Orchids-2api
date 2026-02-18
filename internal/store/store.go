@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 var ErrNoRows = fmt.Errorf("no rows in result set")
@@ -49,7 +51,7 @@ type ApiKey struct {
 	ID         int64      `json:"id"`
 	Name       string     `json:"name"`
 	KeyHash    string     `json:"-"`
-	KeyFull    string     `json:"key_full,omitempty"`
+	KeyFull    string     `json:"-"`
 	KeyPrefix  string     `json:"key_prefix"`
 	KeySuffix  string     `json:"key_suffix"`
 	Enabled    bool       `json:"enabled"`
@@ -105,6 +107,11 @@ type modelStore interface {
 	DeleteModel(ctx context.Context, id string) error
 	GetModel(ctx context.Context, id string) (*Model, error)
 	ListModels(ctx context.Context) ([]*Model, error)
+	GetModelByModelID(ctx context.Context, modelID string) (*Model, error)
+}
+
+type redisClientStore interface {
+	Client() *redis.Client
 }
 
 type closeableStore interface {
@@ -180,9 +187,9 @@ func (s *Store) seedModels() error {
 		{ID: "101", Channel: "Grok", ModelID: "grok-4.1-expert", Name: "Grok 4.1 Expert", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 11},
 		{ID: "102", Channel: "Grok", ModelID: "grok-4.1-thinking", Name: "Grok 4.1 Thinking", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 12},
 		{ID: "103", Channel: "Grok", ModelID: "grok-4.1", Name: "Grok 4.1", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 13},
-		{ID: "104", Channel: "Grok", ModelID: "grok-imagine-1.0", Name: "Grok Imagine 1.0", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 14},
-		{ID: "105", Channel: "Grok", ModelID: "grok-imagine-1.0-edit", Name: "Grok Imagine 1.0 Edit", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 15},
-		{ID: "106", Channel: "Grok", ModelID: "grok-imagine-1.0-video", Name: "Grok Imagine 1.0 Video", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 16},
+		{ID: "104", Channel: "Grok", ModelID: "grok-imagine-1.0", Name: "Grok Imagine 1.0", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 15},
+		{ID: "105", Channel: "Grok", ModelID: "grok-imagine-1.0-edit", Name: "Grok Imagine 1.0 Edit", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 16},
+		{ID: "106", Channel: "Grok", ModelID: "grok-imagine-1.0-video", Name: "Grok Imagine 1.0 Video", Status: ModelStatusAvailable, IsDefault: false, SortOrder: 17},
 	}
 
 	for _, m := range models {
@@ -196,6 +203,20 @@ func (s *Store) seedModels() error {
 			}
 		}
 	}
+
+	deprecatedModelIDs := []string{"grok-4.2"}
+	for _, modelID := range deprecatedModelIDs {
+		m, err := s.GetModelByModelID(ctx, modelID)
+		if err != nil || m == nil {
+			continue
+		}
+		if err := s.DeleteModel(ctx, m.ID); err != nil {
+			slog.Warn("Failed to remove deprecated model", "model_id", modelID, "error", err)
+			continue
+		}
+		slog.Info("Removed deprecated model", "model_id", modelID)
+	}
+
 	return nil
 }
 
@@ -206,6 +227,26 @@ func (s *Store) Close() error {
 		}
 	}
 	return nil
+}
+
+// RedisClient returns the underlying Redis client, or nil if not using Redis.
+func (s *Store) RedisClient() *redis.Client {
+	if s.accounts != nil {
+		if rs, ok := s.accounts.(redisClientStore); ok {
+			return rs.Client()
+		}
+	}
+	return nil
+}
+
+// RedisPrefix returns the configured key prefix.
+func (s *Store) RedisPrefix() string {
+	if s.accounts != nil {
+		if rs, ok := s.accounts.(*redisStore); ok {
+			return rs.prefix
+		}
+	}
+	return "orchids:"
 }
 
 func (s *Store) CreateAccount(ctx context.Context, acc *Account) error {
@@ -367,16 +408,7 @@ func (s *Store) GetModel(ctx context.Context, id string) (*Model, error) {
 
 func (s *Store) GetModelByModelID(ctx context.Context, modelID string) (*Model, error) {
 	if s.models != nil {
-		models, err := s.models.ListModels(ctx)
-		if err != nil {
-			return nil, err
-		}
-		for _, m := range models {
-			if m.ModelID == modelID {
-				return m, nil
-			}
-		}
-		return nil, fmt.Errorf("model not found")
+		return s.models.GetModelByModelID(ctx, modelID)
 	}
 	return nil, fmt.Errorf("models store not configured")
 }

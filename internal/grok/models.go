@@ -1,6 +1,10 @@
 package grok
 
-import "strings"
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+)
 
 // ModelSpec defines one public model and how it maps to Grok upstream fields.
 type ModelSpec struct {
@@ -41,16 +45,97 @@ var modelByID = func() map[string]ModelSpec {
 	return out
 }()
 
+var deprecatedModelIDSet = map[string]struct{}{
+	"grok-4.2": {},
+}
+
 func normalizeModelID(modelID string) string {
 	m := strings.ToLower(strings.TrimSpace(modelID))
 	// Common typo compatibility: gork-* -> grok-*
 	if strings.HasPrefix(m, "gork-") {
-		return "grok-" + strings.TrimPrefix(m, "gork-")
+		m = "grok-" + strings.TrimPrefix(m, "gork-")
+	}
+	// Version alias compatibility: grok-4-2 -> grok-4.2, grok-4-1-thinking -> grok-4.1-thinking.
+	if strings.HasPrefix(m, "grok-") {
+		rest := strings.TrimPrefix(m, "grok-")
+		parts := strings.SplitN(rest, "-", 3)
+		if len(parts) >= 2 && isDigits(parts[0]) && isDigits(parts[1]) {
+			if len(parts) == 2 {
+				return "grok-" + parts[0] + "." + parts[1]
+			}
+			return "grok-" + parts[0] + "." + parts[1] + "-" + parts[2]
+		}
 	}
 	return m
+}
+
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func ResolveModel(modelID string) (ModelSpec, bool) {
 	m, ok := modelByID[normalizeModelID(modelID)]
 	return m, ok
+}
+
+func resolveDynamicTextModel(modelID string) (ModelSpec, bool) {
+	id := normalizeModelID(modelID)
+	if id == "" {
+		return ModelSpec{}, false
+	}
+	if _, deprecated := deprecatedModelIDSet[id]; deprecated {
+		return ModelSpec{}, false
+	}
+	// Keep image/video models explicit; only auto-resolve text models.
+	if strings.HasPrefix(id, "grok-imagine-") {
+		return ModelSpec{}, false
+	}
+	if !strings.HasPrefix(id, "grok-") {
+		return ModelSpec{}, false
+	}
+	return ModelSpec{
+		ID:            id,
+		Name:          id,
+		UpstreamModel: id,
+	}, true
+}
+
+// ResolveModelOrDynamic first resolves built-in model specs, then falls back to
+// dynamic text-model passthrough for newly introduced grok-* models.
+func ResolveModelOrDynamic(modelID string) (ModelSpec, bool) {
+	if spec, ok := ResolveModel(modelID); ok {
+		return spec, true
+	}
+	return resolveDynamicTextModel(modelID)
+}
+
+func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	resp := map[string]interface{}{
+		"object": "list",
+		"data":   make([]map[string]interface{}, 0, len(SupportedModels)),
+	}
+	data := resp["data"].([]map[string]interface{})
+	for _, m := range SupportedModels {
+		data = append(data, map[string]interface{}{
+			"id":       m.ID,
+			"object":   "model",
+			"created":  0,
+			"owned_by": "grok",
+		})
+	}
+	resp["data"] = data
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }

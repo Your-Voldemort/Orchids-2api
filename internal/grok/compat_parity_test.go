@@ -21,6 +21,43 @@ func TestResolveModel_AcceptsGorkAlias(t *testing.T) {
 	}
 }
 
+func TestNormalizeModelID_AcceptsHyphenVersionAlias(t *testing.T) {
+	if got := normalizeModelID("grok-4-2"); got != "grok-4.2" {
+		t.Fatalf("normalizeModelID(grok-4-2)=%q want grok-4.2", got)
+	}
+	if got := normalizeModelID("grok-4-1-thinking"); got != "grok-4.1-thinking" {
+		t.Fatalf("normalizeModelID(grok-4-1-thinking)=%q want grok-4.1-thinking", got)
+	}
+}
+
+func TestResolveModelOrDynamic_Grok42Rejected(t *testing.T) {
+	if _, ok := ResolveModel("grok-4.2"); ok {
+		t.Fatalf("ResolveModel(grok-4.2) should fail")
+	}
+	if _, ok := ResolveModelOrDynamic("grok-4.2"); ok {
+		t.Fatalf("ResolveModelOrDynamic(grok-4.2) should fail")
+	}
+	if _, ok := ResolveModelOrDynamic("grok-4-2"); ok {
+		t.Fatalf("ResolveModelOrDynamic(grok-4-2) should fail")
+	}
+}
+
+func TestResolveModelOrDynamic_AcceptsUnknownGrokTextModel(t *testing.T) {
+	spec, ok := ResolveModelOrDynamic("grok-5")
+	if !ok {
+		t.Fatalf("ResolveModelOrDynamic(grok-5) should succeed")
+	}
+	if spec.ID != "grok-5" || spec.UpstreamModel != "grok-5" {
+		t.Fatalf("unexpected spec: %+v", spec)
+	}
+}
+
+func TestResolveModelOrDynamic_RejectsUnknownImagineModel(t *testing.T) {
+	if _, ok := ResolveModelOrDynamic("grok-imagine-2.0"); ok {
+		t.Fatalf("ResolveModelOrDynamic(grok-imagine-2.0) should fail")
+	}
+}
+
 func TestChatCompletionsRequestValidate_CompatFields(t *testing.T) {
 	temp := 0.7
 	topP := 0.9
@@ -211,13 +248,11 @@ func TestChatCompletionsRequest_StreamProvidedFlagAndDefault(t *testing.T) {
 	}
 }
 
-func TestApplyDefaultChatStream_AppStreamOverridesStream(t *testing.T) {
-	stream := true
-	appStream := false
+func TestApplyDefaultChatStream_StreamFalseOverride(t *testing.T) {
+	stream := false
 	h := &Handler{
 		cfg: &config.Config{
-			Stream:    &stream,
-			AppStream: &appStream,
+			Stream: &stream,
 		},
 	}
 	req := ChatCompletionsRequest{
@@ -225,7 +260,7 @@ func TestApplyDefaultChatStream_AppStreamOverridesStream(t *testing.T) {
 	}
 	h.applyDefaultChatStream(&req)
 	if req.Stream != false {
-		t.Fatalf("stream=%v want=false (app_stream override)", req.Stream)
+		t.Fatalf("stream=%v want=false (config override)", req.Stream)
 	}
 }
 
