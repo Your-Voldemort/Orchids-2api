@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	apperrors "orchids-api/internal/errors"
+	"orchids-api/internal/grok"
 )
 
 type PublicModelResponse struct {
@@ -44,12 +45,17 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 
 	var publicModels []PublicModelResponse
 	for _, m := range allModels {
+		mChannel := m.Channel
+		if strings.TrimSpace(mChannel) == "" {
+			mChannel = "orchids" // Default assumption
+		}
+
+		if strings.EqualFold(mChannel, "grok") && !grok.IsSupportedModelID(m.ModelID) {
+			continue
+		}
+
 		// If filtering is active (e.g. /orchids/v1/models), skip models from other channels
 		if filterChannel != "" {
-			mChannel := m.Channel
-			if strings.TrimSpace(mChannel) == "" {
-				mChannel = "orchids" // Default assumption
-			}
 			if !strings.EqualFold(mChannel, filterChannel) {
 				continue
 			}
