@@ -562,6 +562,65 @@ func validUTF8Prefix(s string) string {
 	return ""
 }
 
+func collapseDuplicatedLongChunk(text string) string {
+	original := strings.TrimSpace(stripZeroWidth(text))
+	if original == "" {
+		return text
+	}
+	current := original
+	for {
+		next, ok := collapseDuplicatedLongChunkOnce(current)
+		if !ok {
+			break
+		}
+		current = next
+	}
+	if current == original {
+		return text
+	}
+	return current
+}
+
+func collapseDuplicatedLongChunkOnce(trimmed string) (string, bool) {
+	runes := []rune(trimmed)
+	if len(runes) < 24 {
+		return "", false
+	}
+
+	for sep := 0; sep <= 3; sep++ {
+		total := len(runes) - sep
+		if total <= 0 || total%2 != 0 {
+			continue
+		}
+		half := total / 2
+		first := strings.TrimSpace(stripZeroWidth(string(runes[:half])))
+		second := strings.TrimSpace(stripZeroWidth(string(runes[half+sep:])))
+		mid := strings.TrimSpace(stripZeroWidth(string(runes[half : half+sep])))
+		if first == "" || second == "" || first != second || mid != "" {
+			continue
+		}
+		if utf8.RuneCountInString(first) < 12 {
+			return "", false
+		}
+		return first, true
+	}
+	return "", false
+}
+
+func stripZeroWidth(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '\u200b', '\u200c', '\u200d', '\ufeff':
+			return -1
+		default:
+			return r
+		}
+	}, s)
+}
+
 // NOTE: streamMarkupFilter.feed is implemented earlier in this file.
 
 func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec, token string, publicBase string, hasAttachments bool, userPrompt string, body io.Reader) {
@@ -581,6 +640,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 	emitted := map[string]bool{}
 	sawModelMessage := false
 	emittedFromToken := false
+	lastTextChunkNorm := ""
 
 	var mf *streamMarkupFilter
 	if !hasAttachments {
@@ -607,6 +667,32 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 			flusher.Flush()
 		}
 		sentAny = true
+	}
+
+	emitTextChunk := func(content string) {
+		collapsed := collapseDuplicatedLongChunk(content)
+		if collapsed != content && h != nil && h.cfg != nil && h.cfg.DebugEnabled {
+			slog.Debug("grok stream collapsed duplicated text chunk",
+				"before_chars", utf8.RuneCountInString(strings.TrimSpace(content)),
+				"after_chars", utf8.RuneCountInString(strings.TrimSpace(collapsed)))
+		}
+		content = collapsed
+		norm := strings.TrimSpace(content)
+		if norm == "" {
+			return
+		}
+		if norm == lastTextChunkNorm && utf8.RuneCountInString(norm) >= 12 {
+			if h != nil && h.cfg != nil && h.cfg.DebugEnabled {
+				slog.Debug("grok stream skip duplicate text chunk", "chars", utf8.RuneCountInString(norm))
+			}
+			return
+		}
+		emitChunk(map[string]interface{}{"content": content}, nil)
+		if utf8.RuneCountInString(norm) >= 12 {
+			lastTextChunkNorm = norm
+		} else {
+			lastTextChunkNorm = ""
+		}
 	}
 
 	emitImageURL := func(raw string) {
@@ -657,14 +743,14 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 				cleaned := stripToolAndRenderMarkup(tokenDelta)
 				cleaned = stripLeadingAngleNoise(sanitizeText(cleaned))
 				if cleaned != "" {
-					emitChunk(map[string]interface{}{"content": cleaned}, nil)
+					emitTextChunk(cleaned)
 				}
 			} else if !sawModelMessage {
 				// Fallback path: use token deltas only until we observe modelResponse.
 				if cleaned := mf.feed(tokenDelta); cleaned != "" {
 					cleaned = stripLeadingAngleNoise(cleaned)
 					if cleaned != "" {
-						emitChunk(map[string]interface{}{"content": cleaned}, nil)
+						emitTextChunk(cleaned)
 						emittedFromToken = true
 					}
 				}
@@ -679,14 +765,14 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 					cleaned := stripToolAndRenderMarkup(msg)
 					cleaned = stripLeadingAngleNoise(sanitizeText(cleaned))
 					if cleaned != "" {
-						emitChunk(map[string]interface{}{"content": cleaned}, nil)
+						emitTextChunk(cleaned)
 					}
 				} else if !emittedFromToken {
 					// Text streaming path: feed full messages into the filter (handles tool/render blocks) and emit the cleaned text.
 					if cleaned := mf.feed(msg); cleaned != "" {
 						cleaned = stripLeadingAngleNoise(cleaned)
 						if cleaned != "" {
-							emitChunk(map[string]interface{}{"content": cleaned}, nil)
+							emitTextChunk(cleaned)
 						}
 					}
 				}
@@ -768,7 +854,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 		if tail := mf.flush(); tail != "" {
 			tail = stripLeadingAngleNoise(tail)
 			if tail != "" {
-				emitChunk(map[string]interface{}{"content": tail}, nil)
+				emitTextChunk(tail)
 			}
 		}
 		if emittedFromToken && !sawModelMessage && h != nil && h.cfg != nil && h.cfg.DebugEnabled {
@@ -858,6 +944,7 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 	if strings.TrimSpace(finalContent) == "" {
 		finalContent = tokenClean
 	}
+	finalContent = collapseDuplicatedLongChunk(finalContent)
 
 	if videoURL != "" {
 		if name, err := h.cacheMediaURL(context.Background(), token, videoURL, "video"); err == nil && name != "" {
