@@ -243,10 +243,10 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 	hasAttachments := len(attachments) > 0
 	if req.Stream {
-		h.streamChat(w, req.Model, spec, sess.token, publicBase, hasAttachments, text, resp.Body)
+		h.streamChat(w, req.Model, spec, sess.token, publicBase, hasAttachments, resp.Body)
 		return
 	}
-	h.collectChat(w, req.Model, spec, sess.token, publicBase, hasAttachments, text, resp.Body)
+	h.collectChat(w, req.Model, spec, sess.token, publicBase, resp.Body)
 }
 
 func (h *Handler) buildChatPayload(
@@ -621,9 +621,42 @@ func stripZeroWidth(s string) string {
 	}, s)
 }
 
+func emitImageCandidatesFromValue(value interface{}, assetLimit int, emitURL func(string)) {
+	if emitURL == nil {
+		return
+	}
+	for _, u := range extractImageURLs(value) {
+		emitURL(u)
+	}
+	for _, u := range extractRenderableImageLinks(value) {
+		emitURL(u)
+	}
+	for _, p := range collectAssetLikeStrings(value, assetLimit) {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if isLikelyImageURL(p) {
+			emitURL(p)
+			continue
+		}
+		if isLikelyImageAssetPath(p) {
+			emitURL("https://assets.grok.com/" + strings.TrimPrefix(p, "/"))
+		}
+	}
+}
+
+func appendImageCandidatesFromValue(dst []string, value interface{}, includeStructured bool) []string {
+	if includeStructured {
+		dst = append(dst, extractImageURLs(value)...)
+	}
+	dst = append(dst, extractRenderableImageLinks(value)...)
+	return dst
+}
+
 // NOTE: streamMarkupFilter.feed is implemented earlier in this file.
 
-func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec, token string, publicBase string, hasAttachments bool, userPrompt string, body io.Reader) {
+func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec, token string, publicBase string, hasAttachments bool, body io.Reader) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -641,6 +674,9 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 	sawModelMessage := false
 	emittedFromToken := false
 	lastTextChunkNorm := ""
+	var emittedText strings.Builder
+	var replayBaseRunes []rune
+	replayCursor := -1
 
 	var mf *streamMarkupFilter
 	if !hasAttachments {
@@ -681,6 +717,45 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 		if norm == "" {
 			return
 		}
+
+		if replayCursor >= 0 && len(replayBaseRunes) > 0 {
+			chunkRunes := []rune(content)
+			matched := replayCursor+len(chunkRunes) <= len(replayBaseRunes)
+			if matched {
+				for i := range chunkRunes {
+					if replayBaseRunes[replayCursor+i] != chunkRunes[i] {
+						matched = false
+						break
+					}
+				}
+			}
+			if matched {
+				replayCursor += len(chunkRunes)
+				if h != nil && h.cfg != nil && h.cfg.DebugEnabled {
+					slog.Debug("grok stream skip replayed text chunk", "cursor", replayCursor, "total", len(replayBaseRunes))
+				}
+				if replayCursor >= len(replayBaseRunes) {
+					replayCursor = -1
+					replayBaseRunes = nil
+				}
+				return
+			}
+			replayCursor = -1
+			replayBaseRunes = nil
+		}
+
+		if replayCursor < 0 &&
+			utf8.RuneCountInString(norm) >= 24 &&
+			utf8.RuneCountInString(strings.TrimSpace(emittedText.String())) >= 120 &&
+			strings.HasPrefix(strings.TrimSpace(emittedText.String()), norm) {
+			replayBaseRunes = []rune(strings.TrimSpace(emittedText.String()))
+			replayCursor = len([]rune(norm))
+			if h != nil && h.cfg != nil && h.cfg.DebugEnabled {
+				slog.Debug("grok stream detected replay from start", "replay_len", replayCursor, "base_len", len(replayBaseRunes))
+			}
+			return
+		}
+
 		if norm == lastTextChunkNorm && utf8.RuneCountInString(norm) >= 12 {
 			if h != nil && h.cfg != nil && h.cfg.DebugEnabled {
 				slog.Debug("grok stream skip duplicate text chunk", "chars", utf8.RuneCountInString(norm))
@@ -688,6 +763,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 			return
 		}
 		emitChunk(map[string]interface{}{"content": content}, nil)
+		emittedText.WriteString(content)
 		if utf8.RuneCountInString(norm) >= 12 {
 			lastTextChunkNorm = norm
 		} else {
@@ -780,50 +856,10 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 					slog.Debug("grok message contains render/tool markup", "has_modelResponse", true)
 				}
 			}
-			for _, u := range extractImageURLs(mr) {
-				emitImageURL(u)
-			}
-			// Fallback: tool/card payloads may include image URLs outside of the known keys.
-			for _, u := range extractRenderableImageLinks(mr) {
-				emitImageURL(u)
-			}
-			// Extra fallback: scan for asset-like strings inside cards / embedded JSON.
-			for _, p := range collectAssetLikeStrings(mr, 80) {
-				p = strings.TrimSpace(p)
-				if p == "" {
-					continue
-				}
-				if isLikelyImageURL(p) {
-					emitImageURL(p)
-					continue
-				}
-				if isLikelyImageAssetPath(p) {
-					emitImageURL("https://assets.grok.com/" + strings.TrimPrefix(p, "/"))
-					continue
-				}
-			}
+			emitImageCandidatesFromValue(mr, 80, emitImageURL)
 		}
 		// Broader fallback: sometimes URLs live outside modelResponse.
-		for _, u := range extractImageURLs(resp) {
-			emitImageURL(u)
-		}
-		for _, u := range extractRenderableImageLinks(resp) {
-			emitImageURL(u)
-		}
-		for _, p := range collectAssetLikeStrings(resp, 120) {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
-			if isLikelyImageURL(p) {
-				emitImageURL(p)
-				continue
-			}
-			if isLikelyImageAssetPath(p) {
-				emitImageURL("https://assets.grok.com/" + strings.TrimPrefix(p, "/"))
-				continue
-			}
-		}
+		emitImageCandidatesFromValue(resp, 120, emitImageURL)
 		if spec.IsVideo {
 			if progress, videoURL, _, ok := extractVideoProgress(resp); ok {
 				if progress > 0 && progress < 100 {
@@ -898,7 +934,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, model string, spec ModelSpec
 	}
 }
 
-func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpec, token string, publicBase string, hasAttachments bool, userPrompt string, body io.Reader) {
+func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpec, token string, publicBase string, body io.Reader) {
 	id := "chatcmpl_" + randomHex(8)
 	lastMessage := ""
 	videoURL := ""
@@ -921,10 +957,9 @@ func (h *Handler) collectChat(w http.ResponseWriter, model string, spec ModelSpe
 					slog.Debug("grok message contains render/tool markup", "has_modelResponse", true)
 				}
 			}
-			imageCandidates = append(imageCandidates, extractImageURLs(mr)...)
-			imageCandidates = append(imageCandidates, extractRenderableImageLinks(mr)...)
+			imageCandidates = appendImageCandidatesFromValue(imageCandidates, mr, true)
 		}
-		imageCandidates = append(imageCandidates, extractRenderableImageLinks(resp)...)
+		imageCandidates = appendImageCandidatesFromValue(imageCandidates, resp, false)
 		if spec.IsVideo {
 			if progress, vurl, _, ok := extractVideoProgress(resp); ok && progress >= 100 && strings.TrimSpace(vurl) != "" {
 				videoURL = strings.TrimSpace(vurl)
