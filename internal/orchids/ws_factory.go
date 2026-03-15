@@ -21,7 +21,7 @@ func (c *Client) createWSConnection() (*websocket.Conn, error) {
 		return nil, fmt.Errorf("failed to get ws token: %w", err)
 	}
 
-	wsURL := c.buildWSURLAIClient(token)
+	wsURL := c.buildWSURL(token)
 	if wsURL == "" {
 		return nil, fmt.Errorf("ws url not configured")
 	}

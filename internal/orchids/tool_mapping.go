@@ -2,6 +2,7 @@
 package orchids
 
 import (
+	"github.com/goccy/go-json"
 	"strings"
 	"sync"
 )
@@ -9,8 +10,9 @@ import (
 // ToolMapper handles bidirectional tool name mapping.
 type ToolMapper struct {
 	// Claude Code → Orchids 标准名
-	toOrchids map[string]string
-	mu        sync.RWMutex
+	toOrchids   map[string]string
+	fromOrchids map[string]string
+	mu          sync.RWMutex
 }
 
 // DefaultToolMapper is the global tool mapper instance.
@@ -19,7 +21,8 @@ var DefaultToolMapper = NewToolMapper()
 // NewToolMapper creates a new ToolMapper with default mappings.
 func NewToolMapper() *ToolMapper {
 	tm := &ToolMapper{
-		toOrchids: make(map[string]string),
+		toOrchids:   make(map[string]string),
+		fromOrchids: make(map[string]string),
 	}
 
 	// Claude Code → Orchids 映射
@@ -91,12 +94,37 @@ func NewToolMapper() *ToolMapper {
 	tm.addMapping("mcp__context7__query-docs", "mcp__context7__query-docs")
 	tm.addMapping("mcp__context7__resolve-library-id", "mcp__context7__resolve-library-id")
 
+	tm.addCanonical("Bash")
+	tm.addCanonical("Read")
+	tm.addCanonical("Edit")
+	tm.addCanonical("Write")
+	tm.addCanonical("Glob")
+	tm.addCanonical("Grep")
+	tm.addCanonical("TodoWrite")
+	tm.addCanonical("AskUserQuestion")
+	tm.addCanonical("EnterPlanMode")
+	tm.addCanonical("ExitPlanMode")
+	tm.addCanonical("Task")
+	tm.addCanonical("TaskOutput")
+	tm.addCanonical("TaskStop")
+	tm.addCanonical("Skill")
+	tm.addCanonical("WebFetch")
+	tm.addCanonical("mcp__context7__query-docs")
+	tm.addCanonical("mcp__context7__resolve-library-id")
+
 	return tm
 }
 
 func (tm *ToolMapper) addMapping(from, to string) {
 	tm.toOrchids[from] = to
 	tm.toOrchids[strings.ToLower(from)] = to
+}
+
+func (tm *ToolMapper) addCanonical(name string) {
+	if strings.TrimSpace(name) == "" {
+		return
+	}
+	tm.fromOrchids[strings.ToLower(name)] = name
 }
 
 // ToOrchids maps a Claude Code tool name to Orchids standard name.
@@ -111,6 +139,16 @@ func (tm *ToolMapper) ToOrchids(name string) string {
 		return mapped
 	}
 	return name // 未知工具保持原名
+}
+
+func (tm *ToolMapper) FromOrchids(name string) string {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	if mapped, ok := tm.fromOrchids[strings.ToLower(strings.TrimSpace(name))]; ok {
+		return mapped
+	}
+	return name
 }
 
 // IsBlocked checks if a tool should be blocked.
@@ -136,4 +174,196 @@ func (tm *ToolMapper) IsBlocked(name string) bool {
 // NormalizeToolName standardizes tool name for consistent handling.
 func NormalizeToolName(name string) string {
 	return DefaultToolMapper.ToOrchids(name)
+}
+
+func MapToolNameToClient(orchidsName string, clientTools []interface{}) string {
+	rawName := strings.TrimSpace(orchidsName)
+	if rawName == "" {
+		return rawName
+	}
+
+	standardName := DefaultToolMapper.ToOrchids(rawName)
+	rawLower := strings.ToLower(rawName)
+	rawSnake := toSnakeCase(rawLower)
+
+	for _, tool := range toolMapsFromInterfaces(clientTools) {
+		name, _, _ := extractToolSpecFields(tool)
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		if name == rawName {
+			return name
+		}
+		if strings.EqualFold(name, rawName) {
+			return name
+		}
+		if strings.EqualFold(DefaultToolMapper.ToOrchids(name), standardName) {
+			return name
+		}
+		nameLower := strings.ToLower(strings.TrimSpace(name))
+		if nameLower == rawLower || toSnakeCase(nameLower) == rawSnake {
+			return name
+		}
+	}
+
+	return DefaultToolMapper.FromOrchids(standardName)
+}
+
+func TransformToolInput(toolName, clientName string, input map[string]interface{}) map[string]interface{} {
+	if input == nil {
+		return nil
+	}
+
+	standardName := strings.ToLower(strings.TrimSpace(DefaultToolMapper.ToOrchids(toolName)))
+	if standardName == "" {
+		standardName = strings.ToLower(strings.TrimSpace(DefaultToolMapper.ToOrchids(clientName)))
+	}
+	if standardName == "" {
+		return copyToolInput(input)
+	}
+
+	switch standardName {
+	case "read":
+		filePath := mapStringValue(input, "file_path", "path", "filePath", "filepath", "content")
+		result := copyToolInput(input)
+		if filePath != "" {
+			result["file_path"] = filePath
+			delete(result, "path")
+			delete(result, "filePath")
+			delete(result, "filepath")
+		}
+		return result
+
+	case "write":
+		result := copyToolInput(input)
+		if filePath := mapStringValue(input, "file_path", "path", "filePath", "filepath"); filePath != "" {
+			result["file_path"] = filePath
+			delete(result, "path")
+			delete(result, "filePath")
+			delete(result, "filepath")
+		}
+		if content := mapStringValue(input, "content", "text", "new_string", "newText", "new_text"); content != "" {
+			result["content"] = content
+		}
+		return result
+
+	case "edit":
+		result := copyToolInput(input)
+		if filePath := mapStringValue(input, "file_path", "path", "filePath", "filepath"); filePath != "" {
+			result["file_path"] = filePath
+			delete(result, "path")
+			delete(result, "filePath")
+			delete(result, "filepath")
+		}
+		if oldString := mapStringValue(input, "old_string", "oldText", "old_text"); oldString != "" {
+			result["old_string"] = oldString
+		}
+		if newString := mapStringValue(input, "new_string", "newText", "new_text", "content", "text"); newString != "" {
+			result["new_string"] = newString
+		}
+		return result
+
+	case "glob":
+		result := copyToolInput(input)
+		if pattern := mapStringValue(input, "pattern", "glob", "query"); pattern != "" {
+			result["pattern"] = pattern
+		}
+		if path := mapStringValue(input, "path", "root", "file_path"); path != "" {
+			result["path"] = path
+			delete(result, "root")
+			delete(result, "file_path")
+		}
+		return result
+
+	case "grep":
+		result := copyToolInput(input)
+		if pattern := mapStringValue(input, "pattern", "query", "regexp"); pattern != "" {
+			result["pattern"] = pattern
+		}
+		if path := mapStringValue(input, "path", "root", "file_path"); path != "" {
+			result["path"] = path
+			delete(result, "root")
+			delete(result, "file_path")
+		}
+		return result
+
+	case "bash":
+		result := copyToolInput(input)
+		if command := mapStringValue(input, "command", "content", "text", "cmd"); command != "" {
+			result["command"] = command
+		}
+		return result
+	}
+
+	return copyToolInput(input)
+}
+
+func transformToolInputJSON(toolName, clientName, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+
+	var input map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &input); err != nil {
+		return raw
+	}
+
+	normalized := TransformToolInput(toolName, clientName, input)
+	if normalized == nil {
+		return raw
+	}
+	encoded, err := json.Marshal(normalized)
+	if err != nil {
+		return raw
+	}
+	return string(encoded)
+}
+
+func toolMapsFromInterfaces(clientTools []interface{}) []map[string]interface{} {
+	if len(clientTools) == 0 {
+		return nil
+	}
+
+	out := make([]map[string]interface{}, 0, len(clientTools))
+	for _, raw := range clientTools {
+		if tool, ok := raw.(map[string]interface{}); ok {
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
+func copyToolInput(input map[string]interface{}) map[string]interface{} {
+	if input == nil {
+		return nil
+	}
+	cloned := make(map[string]interface{}, len(input))
+	for key, value := range input {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func toSnakeCase(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	var out strings.Builder
+	for i, r := range value {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				out.WriteByte('_')
+			}
+			out.WriteByte(byte(r - 'A' + 'a'))
+			continue
+		}
+		if r == '-' || r == ' ' {
+			out.WriteByte('_')
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
