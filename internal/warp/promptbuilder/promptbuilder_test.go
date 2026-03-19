@@ -36,7 +36,7 @@ func TestBuildWithMetaAndTools_UsesDeclaredToolList(t *testing.T) {
 		},
 	}
 
-	promptText, _, _ := BuildWithMetaAndTools(messages, nil, "claude-opus-4-6", true, "/tmp/project", 12000, tools)
+	promptText, _, _ := BuildWithMetaAndTools(messages, nil, "claude-opus-4-6", true, "/tmp/project", tools)
 	if !strings.Contains(promptText, "Allowed tools only: Read, Bash.") {
 		t.Fatalf("expected prompt to list only declared tools, got: %s", promptText)
 	}
@@ -75,7 +75,7 @@ func TestBuildWithMeta_ToolResultOnlyPromptIncludesQuestionAndResult(t *testing.
 		},
 	}
 
-	promptText, chatHistory, meta := BuildWithMeta(messages, nil, "claude-opus-4-6", false, "/Users/dailin/Documents/GitHub/TEST", 12000)
+	promptText, chatHistory, meta := BuildWithMeta(messages, nil, "claude-opus-4-6", false, "/Users/dailin/Documents/GitHub/TEST")
 	for _, want := range []string{
 		"<user>",
 		"Original user request:",
@@ -115,7 +115,7 @@ func TestBuildWithMeta_StripsLocalCommandMetadata(t *testing.T) {
 		},
 	}
 
-	promptText, _, meta := BuildWithMeta(messages, nil, "claude-opus-4-6", false, "/Users/dailin/Documents/GitHub/TEST", 12000)
+	promptText, _, meta := BuildWithMeta(messages, nil, "claude-opus-4-6", false, "/Users/dailin/Documents/GitHub/TEST")
 	if strings.Contains(promptText, "<local-command-caveat>") || strings.Contains(promptText, "/model") || strings.Contains(promptText, "Set model to opus") {
 		t.Fatalf("prompt should strip local command metadata: %q", promptText)
 	}
@@ -253,7 +253,7 @@ func TestBuildWithMeta_UltraMinDisablesThinking(t *testing.T) {
 		},
 	}
 
-	promptText, _, meta := BuildWithMeta(messages, nil, "claude-opus-4-6", false, "/Users/dailin/Documents/GitHub/TEST", 12000)
+	promptText, _, meta := BuildWithMeta(messages, nil, "claude-opus-4-6", false, "/Users/dailin/Documents/GitHub/TEST")
 	if meta.Profile != "ultra-min" {
 		t.Fatalf("expected ultra-min profile, got %#v", meta)
 	}
@@ -276,7 +276,7 @@ func TestBuildWithMeta_PreservesLargeHistoryWithoutBudgetCompression(t *testing.
 		{Role: "user", Content: prompt.MessageContent{Text: "请继续分析上面的上下文"}},
 	}
 
-	promptText, chatHistory, _ := BuildWithMeta(messages, nil, "claude-opus-4-6", false, "/tmp/project", 12000)
+	promptText, chatHistory, _ := BuildWithMeta(messages, nil, "claude-opus-4-6", false, "/tmp/project")
 	if strings.Contains(promptText, "<context_budget_note>") {
 		t.Fatalf("prompt should not include budget note: %q", promptText)
 	}
@@ -294,15 +294,6 @@ func TestBuildWithMeta_PreservesLargeHistoryWithoutBudgetCompression(t *testing.
 	}
 	if got := chatHistory[1]["content"]; !strings.Contains(got, "delta epsilon zeta") || !strings.Contains(got, "older-assistant") {
 		t.Fatalf("older assistant message lost key content: %q", got)
-	}
-}
-
-func TestTrimSystemContextToBudget_Passthrough(t *testing.T) {
-	t.Parallel()
-
-	input := strings.TrimSpace(strings.Repeat("system context line\n", 500))
-	if got := trimSystemContextToBudget(input, 12000); got != input {
-		t.Fatalf("trimSystemContextToBudget should preserve full system context")
 	}
 }
 

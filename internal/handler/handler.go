@@ -856,7 +856,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		var warpMeta warpprompt.Meta
-		builtPrompt, promptHistory, warpMeta = warpprompt.BuildWithMetaAndTools(req.Messages, req.System, mappedModel, noThinking, effectiveWorkdir, h.config.ContextMaxTokens, effectiveTools)
+		builtPrompt, promptHistory, warpMeta = warpprompt.BuildWithMetaAndTools(req.Messages, req.System, mappedModel, noThinking, effectiveWorkdir, effectiveTools)
 		promptMeta = orchids.PromptBuildMeta{
 			Profile:    warpMeta.Profile,
 			NoThinking: warpMeta.NoThinking,

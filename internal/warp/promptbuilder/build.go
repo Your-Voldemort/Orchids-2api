@@ -41,7 +41,7 @@ func injectThinkingPrefix(prompt string) string {
 	return prefix + "\n" + prompt
 }
 
-func buildLocalAssistantPromptWithProfileAndTools(systemText string, userText string, model string, workdir string, maxTokens int, profile string, tools []interface{}) string {
+func buildLocalAssistantPromptWithProfileAndTools(systemText string, userText string, model string, workdir string, profile string, tools []interface{}) string {
 	var b strings.Builder
 	dateStr := time.Now().Format("2006-01-02")
 	b.WriteString("<env>\n")
@@ -237,6 +237,10 @@ func isLikelySmallEditRequest(text string) bool {
 		}
 	}
 	return false
+}
+
+func runeLen(text string) int {
+	return len([]rune(text))
 }
 
 func hasCodeSignal(text string) bool {
@@ -534,11 +538,6 @@ func containsAnyFold(text string, needles ...string) bool {
 		}
 	}
 	return false
-}
-
-func trimSystemContextToBudget(text string, maxTokens int) string {
-	text = strings.TrimSpace(text)
-	return text
 }
 
 func isSuggestionModeText(text string) bool {
