@@ -6,7 +6,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{.Title}}</title>
-  <link rel="stylesheet" href="{{.AdminPath}}/css/main.css">
+  <link rel="stylesheet" href="{{.AdminPath}}/css/main.css?v=20260328-3">
   <style>
     .main-content.grok-tools-page {
       padding-top: 16px;
@@ -3118,6 +3118,232 @@
         flex: 1 1 calc(50% - 8px);
       }
     }
+
+    @media (max-width: 640px) {
+      .grok-tools-page .header-section {
+        padding-top: 0;
+        margin-bottom: 8px;
+      }
+
+      .grok-tools-page .header-section h1 {
+        font-size: 1.55rem;
+      }
+
+      .grok-tools-page .header-section p {
+        font-size: 0.92rem;
+      }
+
+      .grok-tools-page .grok-function-card,
+      .grok-tools-page .grok-panel {
+        padding: 14px;
+        border-radius: 16px;
+      }
+
+      .grok-tools-page .platform-tabs {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0;
+        border: none;
+        box-shadow: none;
+        background: transparent;
+      }
+
+      .grok-tools-page .platform-tabs .tab-item {
+        flex: 1 1 calc(50% - 4px);
+        min-width: 0;
+        padding: 10px 12px;
+      }
+
+      .grok-tools-page .function-header-row,
+      .grok-tools-page .video-header-row,
+      .grok-tools-page .voice-header-row,
+      .grok-tools-page .voice-log-header,
+      .grok-tools-page .voice-status-header {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .grok-tools-page .function-actions,
+      .grok-tools-page .video-actions,
+      .grok-tools-page .voice-actions,
+      .grok-tools-page .voice-log-actions {
+        width: 100%;
+      }
+
+      .grok-tools-page .function-actions .btn,
+      .grok-tools-page .video-actions .btn,
+      .grok-tools-page .voice-actions .btn,
+      .grok-tools-page .voice-log-actions .btn {
+        flex: 1 1 100%;
+        width: 100%;
+      }
+
+      .grok-tools-page .meta-grid,
+      .grok-tools-page .grok-form-grid,
+      .grok-tools-page .toggle-grid,
+      .grok-tools-page .imagine-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .grok-tools-page .chat-composer-row,
+      .grok-tools-page .chat-toolbar,
+      .grok-tools-page .chat-toolbar-actions,
+      .grok-tools-page .video-item-actions {
+        flex-wrap: wrap;
+      }
+
+      .grok-tools-page .chat-composer-row > *,
+      .grok-tools-page .chat-toolbar .btn,
+      .grok-tools-page .chat-toolbar-actions .btn,
+      .grok-tools-page .video-item-actions .btn {
+        width: 100%;
+      }
+
+      .grok-tools-page .chat-shell,
+      .grok-tools-page .chat-main-card,
+      .grok-tools-page .chat-sidebar {
+        border-radius: 16px;
+      }
+
+      .grok-tools-page .chat-thread {
+        padding: 12px;
+      }
+
+      .grok-tools-page .chat-message {
+        max-width: 100%;
+      }
+
+      .grok-tools-page .chat-composer {
+        padding: 12px;
+      }
+
+      .grok-tools-page .voice-log {
+        min-height: 180px;
+        max-height: 280px;
+      }
+
+      .grok-tools-page .visualizer {
+        height: 64px;
+      }
+
+      .grok-tools-page .audio-root {
+        min-height: 56px;
+      }
+
+      .grok-tools-page .video-stage,
+      .grok-tools-page .preview-stage,
+      .grok-tools-page .cache-list {
+        border-radius: 14px;
+      }
+
+      .grok-tools-page .cache-list {
+        overflow-x: auto;
+      }
+
+      .grok-tools-page .cache-list table {
+        min-width: 640px;
+      }
+
+      .grok-tools-page #grokCacheSection > .grok-panel > div[style*="display:flex"],
+      .grok-tools-page #grokCacheSection .grok-form-grid > div[style*="display:flex"] {
+        flex-direction: column;
+        align-items: stretch !important;
+      }
+
+      .grok-tools-page #grokCacheSection > .grok-panel > div[style*="display:flex"] .btn,
+      .grok-tools-page #grokCacheSection .grok-form-grid > div[style*="display:flex"] .btn {
+        width: 100%;
+      }
+
+      .grok-tools-page progress {
+        width: 100% !important;
+      }
+    }
+
+    @media (max-width: 420px) {
+      .grok-tools-page .platform-tabs .tab-item {
+        flex-basis: 100%;
+      }
+
+      .grok-tools-page .header-section h1 {
+        font-size: 1.28rem;
+      }
+
+      .grok-tools-page .header-section p,
+      .grok-tools-page .function-subtitle,
+      .grok-tools-page .voice-hint {
+        font-size: 0.86rem;
+      }
+
+      .grok-tools-page .function-title {
+        font-size: 1.2rem;
+      }
+
+      .grok-tools-page .grok-function-card,
+      .grok-tools-page .grok-panel,
+      .grok-tools-page .chat-shell,
+      .grok-tools-page .chat-main-card,
+      .grok-tools-page .chat-sidebar {
+        border-radius: 14px;
+      }
+
+      .grok-tools-page .meta-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .grok-tools-page .waterfall-header,
+      .grok-tools-page .waterfall-actions,
+      .grok-tools-page .selection-toolbar,
+      .grok-tools-page .preview-actions,
+      .grok-tools-page .composer-actions,
+      .grok-tools-page .ref-controls,
+      .grok-tools-page .progress-meta {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .grok-tools-page .waterfall-actions .btn,
+      .grok-tools-page .selection-toolbar .btn,
+      .grok-tools-page .preview-actions .btn,
+      .grok-tools-page .composer-actions .btn,
+      .grok-tools-page .ref-controls .btn {
+        width: 100%;
+      }
+
+      .grok-tools-page .status-header,
+      .grok-tools-page .video-preview-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+      }
+
+      .grok-tools-page .range-value,
+      .grok-tools-page .status-text {
+        align-self: flex-start;
+      }
+
+      .grok-tools-page .grok-form-grid > div[style*="display:flex"],
+      .grok-tools-page .function-settings-block[style*="margin-top:14px"] .function-header-row,
+      .grok-tools-page [style*="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"],
+      .grok-tools-page [style*="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px"] {
+        flex-direction: column;
+        align-items: stretch !important;
+      }
+
+      .grok-tools-page #cacheOnlineBatchBar {
+        width: 100% !important;
+      }
+
+      .grok-tools-page #cacheOnlineBatchProgress {
+        align-self: flex-start;
+      }
+
+      .grok-tools-page .cache-list table {
+        min-width: 560px;
+      }
+    }
   </style>
 </head>
 
@@ -3709,8 +3935,8 @@
   <div class="toast-container" id="toastContainer"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-  <script src="{{.AdminPath}}/js/common.js?v=20260319-1"></script>
-  <script src="{{.AdminPath}}/js/grok-tools.js?v=20260319-2"></script>
+  <script src="{{.AdminPath}}/js/common.js?v=20260328-1"></script>
+  <script src="{{.AdminPath}}/js/grok-tools.js?v=20260328-1"></script>
 </body>
 
 </html>
