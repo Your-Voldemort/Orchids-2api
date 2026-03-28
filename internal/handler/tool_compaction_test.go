@@ -385,3 +385,29 @@ func TestSupportedToolNames_MapsOpenClawExecToBash(t *testing.T) {
 		}
 	}
 }
+
+func TestSupportedToolNames_MapsCommonOpenClawAliases(t *testing.T) {
+	tools := []interface{}{
+		map[string]interface{}{"name": "read_files"},
+		map[string]interface{}{"name": "write"},
+		map[string]interface{}{"name": "edit"},
+		map[string]interface{}{"name": "shell"},
+		map[string]interface{}{"name": "glob"},
+		map[string]interface{}{"name": "grep"},
+		map[string]interface{}{"name": "sessions_spawn"},
+		map[string]interface{}{"name": "use_skill"},
+		map[string]interface{}{"name": "process"},
+		map[string]interface{}{"name": "browser"},
+	}
+
+	got := supportedToolNames(tools)
+	want := []string{"Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task", "Skill"}
+	if len(got) != len(want) {
+		t.Fatalf("supportedToolNames(common aliases) len=%d want=%d (%#v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("supportedToolNames(common aliases)[%d]=%q want %q (%#v)", i, got[i], want[i], got)
+		}
+	}
+}
