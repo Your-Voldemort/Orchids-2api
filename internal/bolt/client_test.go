@@ -3818,6 +3818,31 @@ func TestSupportedBoltToolNames_MapsAgentToTask(t *testing.T) {
 	}
 }
 
+func TestSupportedBoltToolNames_MapsCommonOpenClawAliases(t *testing.T) {
+	tools := []interface{}{
+		map[string]interface{}{"name": "read"},
+		map[string]interface{}{"name": "write"},
+		map[string]interface{}{"name": "edit"},
+		map[string]interface{}{"name": "exec"},
+		map[string]interface{}{"name": "glob"},
+		map[string]interface{}{"name": "grep"},
+		map[string]interface{}{"name": "sessions_spawn"},
+		map[string]interface{}{"name": "use_skill"},
+		map[string]interface{}{"name": "browser"},
+	}
+
+	got := supportedBoltToolNames(tools)
+	want := []string{"Read", "Write", "Edit", "Bash", "Glob", "Grep", "Task", "Skill"}
+	if len(got) != len(want) {
+		t.Fatalf("supportedBoltToolNames(common aliases) len=%d want=%d (%#v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("supportedBoltToolNames(common aliases)[%d]=%q want %q (%#v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestPrepareRequest_AdvertisesTaskWhenClientDeclaresAgent(t *testing.T) {
 	req := upstream.UpstreamRequest{
 		Model:    "claude-sonnet-4-6",
