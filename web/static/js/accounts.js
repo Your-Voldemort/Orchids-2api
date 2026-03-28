@@ -513,6 +513,12 @@ function isAccountAbnormal(acc) {
   return !evaluateAccountStatus(acc).normal;
 }
 
+function matchesCurrentPlatform(acc) {
+  if (!currentPlatform) return true;
+  const key = String(currentPlatform || "").toLowerCase();
+  return normalizeAccountType(acc).includes(key);
+}
+
 // Get status badge for account
 function statusBadge(acc) {
   return evaluateAccountStatus(acc);
@@ -572,17 +578,18 @@ async function deleteAllAccounts() {
 
 // Clear abnormal accounts
 async function clearAbnormalAccounts() {
-  const abnormal = accounts.filter(isAccountAbnormal);
+  const abnormal = accounts.filter((acc) => matchesCurrentPlatform(acc) && isAccountAbnormal(acc));
   if (abnormal.length === 0) {
-    showToast("没有异常账号", "info");
+    showToast(currentPlatform ? `当前 ${currentPlatform} 页面没有异常账号` : "没有异常账号", "info");
     return;
   }
-  if (confirm(`确定要清空 ${abnormal.length} 个异常账号吗？`)) {
+  const scopeText = currentPlatform ? `当前 ${currentPlatform} 页面中的 ` : "";
+  if (confirm(`确定要清空 ${scopeText}${abnormal.length} 个异常账号吗？`)) {
     for (const acc of abnormal) {
       await fetch(`/api/accounts/${acc.id}`, { method: "DELETE" });
     }
     loadAccounts();
-    showToast("已清空异常账号");
+    showToast(`已清空${scopeText}异常账号`);
   }
 }
 
@@ -679,11 +686,7 @@ async function enableNSFW() {
 // Render accounts table
 function renderAccounts() {
   const container = domCache.accountsList || document.getElementById("accountsList");
-  const filtered = accounts.filter(acc => {
-    if (!currentPlatform) return true;
-    const key = currentPlatform.toLowerCase();
-    return normalizeAccountType(acc).includes(key);
-  });
+  const filtered = accounts.filter(matchesCurrentPlatform);
 
   const total = filtered.length;
   const totalPages = Math.ceil(total / pageSize) || 1;
