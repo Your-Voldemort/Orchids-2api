@@ -1588,10 +1588,18 @@ func sanitizeBoltAssistantText(text string) string {
 	text = stripBoltEnvironmentLines(text)
 	text = stripBoltToolTranscript(text)
 	text = collapseBoltBlankLines(text)
+	if isBoltNoReplySentinel(text) {
+		return ""
+	}
 	if strings.TrimSpace(text) == "" {
 		return ""
 	}
 	return text
+}
+
+func isBoltNoReplySentinel(text string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(text))
+	return normalized == "NO_REPLY" || normalized == "NOREPLY"
 }
 
 func sanitizeBoltToolResultText(text string) string {
