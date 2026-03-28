@@ -240,11 +240,12 @@ func TestSupportedToolNames_NormalizesAndOrdersTools(t *testing.T) {
 		map[string]interface{}{"name": "run_command"},
 		map[string]interface{}{"name": "View"},
 		map[string]interface{}{"name": "Agent"},
+		map[string]interface{}{"name": "Skill"},
 		map[string]interface{}{"name": "Read"},
 	}
 
 	got := supportedToolNames(tools)
-	want := []string{"Read", "Bash", "Task"}
+	want := []string{"Read", "Bash", "Task", "Skill"}
 	if len(got) != len(want) {
 		t.Fatalf("supportedToolNames len=%d want=%d (%#v)", len(got), len(want), got)
 	}
@@ -279,12 +280,13 @@ func TestPassthroughAllowedToolNames_BoltDropsUnsupportedMetaTools(t *testing.T)
 		map[string]interface{}{"name": "Read"},
 		map[string]interface{}{"name": "run_command"},
 		map[string]interface{}{"name": "Agent"},
+		map[string]interface{}{"name": "Skill"},
 		map[string]interface{}{"name": "new_task"},
 		map[string]interface{}{"name": "task_output"},
 	}
 
 	got := passthroughAllowedToolNames(tools, true)
-	want := []string{"Read", "Bash", "Task"}
+	want := []string{"Read", "Bash", "Task", "Skill"}
 	if len(got) != len(want) {
 		t.Fatalf("passthroughAllowedToolNames len=%d want=%d (%#v)", len(got), len(want), got)
 	}
