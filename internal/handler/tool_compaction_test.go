@@ -303,3 +303,22 @@ func TestPassthroughAllowedToolNames_BoltReturnsNilWhenRequestOmitsTools(t *test
 		t.Fatalf("passthroughAllowedToolNames(nil, true) = %#v want nil", got)
 	}
 }
+
+func TestSupportedToolNames_MapsOpenClawSubagentsToTask(t *testing.T) {
+	tools := []interface{}{
+		map[string]interface{}{"name": "read"},
+		map[string]interface{}{"name": "subagents"},
+		map[string]interface{}{"name": "sessions_spawn"},
+	}
+
+	got := supportedToolNames(tools)
+	want := []string{"Read", "Task"}
+	if len(got) != len(want) {
+		t.Fatalf("supportedToolNames(subagents) len=%d want=%d (%#v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("supportedToolNames(subagents)[%d]=%q want %q (%#v)", i, got[i], want[i], got)
+		}
+	}
+}
