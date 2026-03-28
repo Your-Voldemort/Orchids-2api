@@ -33,7 +33,7 @@ const (
 	defaultRateLimitsURL    = "https://bolt.new/api/rate-limits/user"
 	defaultTeamsRateURL     = "https://bolt.new/api/rate-limits/teams"
 	defaultProjectsURL      = "https://stackblitz.com/api/projects/sb1/fork"
-	defaultAdapterPrompt    = "你正在通过 Orchids 的 Bolt 适配层处理代码任务。能直接回答就直接回答；需要工具时直接返回 JSON，不要先解释计划。"
+	defaultAdapterPrompt    = "你正在通过 Orchids 的 Bolt 适配层转发对话。若已有上下文足够就直接回答；只有在当前请求确实需要已声明的工具时才返回 JSON 工具调用，不要先解释计划。"
 	maxBoltFocusedFileCount = 2
 	maxBoltReadResultRunes  = 480
 	maxBoltFocusedReadRunes = 2200
@@ -826,7 +826,7 @@ func buildBoltToolPrompt(workdir string, tools []interface{}, noTools bool, mess
 		return strings.Join(parts, "\n")
 	}
 
-	parts = append(parts, buildBoltToolUsagePrompt(toolNames)...)
+	parts = append(parts, buildBoltToolUsagePrompt(toolNames, messages)...)
 	parts = append(parts, buildBoltHistoryRecoveryPrompt(workdir, messages)...)
 	if hasBoltToolName(toolNames, "Bash") {
 		parts = append(parts, buildBoltGitExecutionPrompt(messages)...)
@@ -872,7 +872,7 @@ func isBoltGitRepository(workdir string) bool {
 	return err == nil
 }
 
-func buildBoltToolUsagePrompt(toolNames []string) []string {
+func buildBoltToolUsagePrompt(toolNames []string, messages []prompt.Message) []string {
 	toolHints := make([]string, 0, len(toolNames))
 	for _, name := range toolNames {
 		toolHints = append(toolHints, supportedToolHint(name))
@@ -881,11 +881,17 @@ func buildBoltToolUsagePrompt(toolNames []string) []string {
 	parts := []string{
 		"可用工具: " + strings.Join(toolHints, "; "),
 		"只能使用上面列出的工具；需要工具时输出纯 JSON，不要加解释、不要先解释计划；第一个非空输出字符应当直接是 `{`。",
-		"不要解释当前运行在什么系统或沙箱；路径优先用项目内相对路径。若某次工具结果提示路径不存在，不要据此断言项目为空；优先改用 `.`、README.md、go.mod、package.json 等项目内路径继续调用工具。",
-		"如果文件名已经明确出现，优先直接对该路径 Read 或 Edit；不要先对 `.` 做宽泛 Glob。若刚读过同一文件要继续修改，优先沿用同一路径继续 Edit，不要重新从 Glob 开始。路径已明确时也不要重新从 Glob 开始。",
-		"如果目标文件已经存在，优先使用 Edit 做最小修改；只有在创建新文件，或你明确打算整文件重写且确实需要一次性替换全文时才使用 Write。对“添加支持/添加功能/X”这类请求，要让功能真正可用，不要只加显示开关、提示文案或空包装函数；如果用户明确要求修改、创建或继续完善代码，不要声称“已经完成”，也不要停在现状总结。",
-		"如果 Write/Edit 的工具结果出现 `Hook PreToolUse` 或 `denied this tool`，继续坚持项目内相对路径，不要改写成 `/tmp/cc-agent/...` 之类的沙箱绝对路径。如果最近一轮 Write/Edit 已经成功返回，优先直接总结已完成的修改；不要仅为了确认结果就再次 Read 同一文件。若最近一轮 Write/Edit 明确报错，说明修改尚未完成；不要沿用更早的成功 Write/Edit 来声称已经更新完成。",
-		"连续编程对话里，用户后续补充的技术说明、约束或示例默认都是追加需求；要落地到代码时继续调用工具修改。若刚通过 Glob/Read/Bash 确认项目根目录为空，优先直接使用 Write 创建首个文件；例如用户说“帮我用python写一个计算器”，默认直接在项目根目录创建 `calculator.py`。",
+		"若当前问题不需要工具，直接正常回答；若当前问题需要的能力并不在上面的工具列表里，直接说明限制，不要假装已经完成。",
+		"不要解释当前运行在什么系统或沙箱；只有在确实需要工具时才调用，且优先复用已经明确给出的路径、文件名或参数。",
+	}
+	if shouldUseBoltCodingToolGuidance(toolNames, messages) {
+		parts = append(parts,
+			"若某次工具结果提示路径不存在，不要据此断言项目为空；优先改用 `.`、README.md、go.mod、package.json 等项目内路径继续调用工具。",
+			"如果文件名已经明确出现，优先直接对该路径 Read 或 Edit；不要先对 `.` 做宽泛 Glob。若刚读过同一文件要继续修改，优先沿用同一路径继续 Edit，不要重新从 Glob 开始。路径已明确时也不要重新从 Glob 开始。",
+			"如果目标文件已经存在，优先使用 Edit 做最小修改；只有在创建新文件，或你明确打算整文件重写且确实需要一次性替换全文时才使用 Write。对“添加支持/添加功能/X”这类请求，要让功能真正可用，不要只加显示开关、提示文案或空包装函数；如果用户明确要求修改、创建或继续完善代码，不要声称“已经完成”，也不要停在现状总结。",
+			"如果 Write/Edit 的工具结果出现 `Hook PreToolUse` 或 `denied this tool`，继续坚持项目内相对路径，不要改写成 `/tmp/cc-agent/...` 之类的沙箱绝对路径。如果最近一轮 Write/Edit 已经成功返回，优先直接总结已完成的修改；不要仅为了确认结果就再次 Read 同一文件。若最近一轮 Write/Edit 明确报错，说明修改尚未完成；不要沿用更早的成功 Write/Edit 来声称已经更新完成。",
+			"连续编程对话里，用户后续补充的技术说明、约束或示例默认都是追加需求；要落地到代码时继续调用工具修改。若刚通过 Glob/Read/Bash 确认项目根目录为空，优先直接使用 Write 创建首个文件；例如用户说“帮我用python写一个计算器”，默认直接在项目根目录创建 `calculator.py`。",
+		)
 	}
 	if hasBoltToolName(toolNames, "Task") {
 		parts = append(parts,
@@ -893,6 +899,20 @@ func buildBoltToolUsagePrompt(toolNames []string) []string {
 		)
 	}
 	return parts
+}
+
+func shouldUseBoltCodingToolGuidance(toolNames []string, messages []prompt.Message) bool {
+	if !hasBoltToolName(toolNames, "Write") && !hasBoltToolName(toolNames, "Edit") {
+		return false
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		task := strings.TrimSpace(extractBoltStandaloneUserText(messages[i]))
+		if task == "" || LooksLikeContinuationOnlyText(task) {
+			continue
+		}
+		return textIndicatesBoltCodeModification(task)
+	}
+	return false
 }
 
 func buildBoltGitExecutionPrompt(messages []prompt.Message) []string {
@@ -3011,7 +3031,7 @@ func formatBoltToolResultContinuation(gitUploadIntent bool, mutationSucceeded bo
 	if mutationSucceeded {
 		return "只做最小确认：已创建/更新相应文件；不要补充文件内容细节。"
 	}
-	return "下面是上一轮工具结果。优先沿用已读或已存在文件做 Edit；路径已明确时也不要重新从 Glob 开始；首个非空输出字符直接是 `{`。"
+	return "下面是上一轮工具结果。基于这些结果继续回答；只有在当前问题确实还需要已声明工具时才继续调用，若决定调用工具，首个非空输出字符直接是 `{`。"
 }
 
 func extractBoltToolPath(input interface{}) string {

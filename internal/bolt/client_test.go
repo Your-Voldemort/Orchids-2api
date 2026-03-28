@@ -1387,11 +1387,11 @@ func TestPrepareRequest_AddsWorkspaceAndToolInstructions(t *testing.T) {
 	if !strings.Contains(boltReq.GlobalSystemPrompt, "不要解释当前运行在什么系统或沙箱") {
 		t.Fatalf("system prompt missing no-sandbox-explanation instruction: %s", boltReq.GlobalSystemPrompt)
 	}
-	if !strings.Contains(boltReq.GlobalSystemPrompt, "若某次工具结果提示路径不存在，不要据此断言项目为空") {
-		t.Fatalf("system prompt missing path-miss recovery instruction: %s", boltReq.GlobalSystemPrompt)
+	if !strings.Contains(boltReq.GlobalSystemPrompt, "若当前问题需要的能力并不在上面的工具列表里，直接说明限制") {
+		t.Fatalf("system prompt missing unavailable-capability guard: %s", boltReq.GlobalSystemPrompt)
 	}
-	if !strings.Contains(boltReq.GlobalSystemPrompt, "如果 Write/Edit 的工具结果出现 `Hook PreToolUse` 或 `denied this tool`") {
-		t.Fatalf("system prompt missing hook-denied retry guard: %s", boltReq.GlobalSystemPrompt)
+	if strings.Contains(boltReq.GlobalSystemPrompt, "如果 Write/Edit 的工具结果出现 `Hook PreToolUse` 或 `denied this tool`") {
+		t.Fatalf("system prompt should avoid coding-only mutation guidance when request is not a code-edit task: %s", boltReq.GlobalSystemPrompt)
 	}
 	if strings.Contains(strings.ToLower(boltReq.GlobalSystemPrompt), "anthropic's official cli for claude") {
 		t.Fatalf("system prompt should strip claude code system boilerplate: %s", boltReq.GlobalSystemPrompt)
@@ -2831,7 +2831,9 @@ func TestPrepareRequest_DropsEarlierRepeatedEditFailureForSameFile(t *testing.T)
 }
 
 func TestBuildBoltToolUsagePrompt_IncludesMutationFailureRecoveryRule(t *testing.T) {
-	got := strings.Join(buildBoltToolUsagePrompt([]string{"Read", "Write", "Edit", "Bash"}), "\n")
+	got := strings.Join(buildBoltToolUsagePrompt([]string{"Read", "Write", "Edit", "Bash"}, []prompt.Message{
+		{Role: "user", Content: prompt.MessageContent{Text: "帮我用python写一个计算器"}},
+	}), "\n")
 	if !strings.Contains(got, "若最近一轮 Write/Edit 明确报错") {
 		t.Fatalf("expected mutation failure recovery rule in tool prompt, got: %q", got)
 	}
@@ -2852,6 +2854,21 @@ func TestBuildBoltToolUsagePrompt_IncludesMutationFailureRecoveryRule(t *testing
 	}
 	if !strings.Contains(got, "不要只加显示开关、提示文案或空包装函数") {
 		t.Fatalf("expected tool prompt to require substantive feature implementation, got: %q", got)
+	}
+}
+
+func TestBuildBoltToolUsagePrompt_NonCodingRequestStaysNeutral(t *testing.T) {
+	got := strings.Join(buildBoltToolUsagePrompt([]string{"Read", "Write", "Edit"}, []prompt.Message{
+		{Role: "user", Content: prompt.MessageContent{Text: "现在上海的天气怎么样"}},
+	}), "\n")
+	if !strings.Contains(got, "若当前问题不需要工具，直接正常回答") {
+		t.Fatalf("expected neutral direct-answer guidance, got: %q", got)
+	}
+	if strings.Contains(got, "优先使用 Edit 做最小修改") {
+		t.Fatalf("expected non-coding request to avoid forced mutation guidance, got: %q", got)
+	}
+	if strings.Contains(got, "默认直接在项目根目录创建 `calculator.py`") {
+		t.Fatalf("expected non-coding request to avoid code-task bootstrap guidance, got: %q", got)
 	}
 }
 
@@ -2919,14 +2936,14 @@ func TestPrepareRequest_ReadFollowupContinuationPrefersEditAndNoPreamble(t *test
 		t.Fatalf("messages len=%d want at least 1", len(boltReq.Messages))
 	}
 	got := boltReq.Messages[len(boltReq.Messages)-1].Content
-	if !strings.Contains(got, "优先沿用已读或已存在文件做 Edit") {
-		t.Fatalf("expected read follow-up continuation to prefer Edit, got: %q", got)
+	if !strings.Contains(got, "基于这些结果继续回答") {
+		t.Fatalf("expected read follow-up continuation to stay neutral, got: %q", got)
 	}
 	if !strings.Contains(got, "首个非空输出字符直接是 `{`") {
 		t.Fatalf("expected read follow-up continuation to require direct JSON, got: %q", got)
 	}
-	if !strings.Contains(got, "路径已明确时也不要重新从 Glob 开始") {
-		t.Fatalf("expected read follow-up continuation to avoid restarting with glob, got: %q", got)
+	if strings.Contains(got, "优先沿用已读或已存在文件做 Edit") {
+		t.Fatalf("expected read follow-up continuation to avoid forced Edit bias, got: %q", got)
 	}
 	if strings.Contains(got, "我来重写") {
 		t.Fatalf("did not expect explanatory preamble in serialized continuation, got: %q", got)
@@ -3212,14 +3229,14 @@ func TestPrepareRequest_DropsStaleMissingWorkspaceHistory(t *testing.T) {
 
 func TestFormatBoltToolResultContinuation_CompressesGeneralFollowupPrompt(t *testing.T) {
 	got := formatBoltToolResultContinuation(false, false, false)
-	if !strings.Contains(got, "优先沿用已读或已存在文件做 Edit") {
-		t.Fatalf("expected continuation to prefer Edit, got: %q", got)
+	if !strings.Contains(got, "基于这些结果继续回答") {
+		t.Fatalf("expected neutral continuation guidance, got: %q", got)
 	}
 	if !strings.Contains(got, "下面是上一轮工具结果") {
 		t.Fatalf("expected continuation to stay neutral about prior tool results, got: %q", got)
 	}
-	if !strings.Contains(got, "路径已明确时也不要重新从 Glob 开始") {
-		t.Fatalf("expected continuation to suppress redundant glob, got: %q", got)
+	if strings.Contains(got, "优先沿用已读或已存在文件做 Edit") {
+		t.Fatalf("expected general continuation to avoid forced Edit bias, got: %q", got)
 	}
 	if !strings.Contains(got, "首个非空输出字符直接是 `{`") {
 		t.Fatalf("expected continuation to require direct JSON tool calls, got: %q", got)
