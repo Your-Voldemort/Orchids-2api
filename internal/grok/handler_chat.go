@@ -36,7 +36,9 @@ func appendChatCompletionChunk(dst []byte, id string, created int64, model, fing
 	return appendChatCompletionChunkWithUsage(dst, id, created, model, fingerprint, role, content, finish, hasFinish, nil)
 }
 
-func appendChatCompletionChunkWithUsage(dst []byte, id string, created int64, model, fingerprint, role, content string, finish string, hasFinish bool, usage map[string]interface{}) []byte {
+// appendChatCompletionChunkPrefix writes the common leading fields of a
+// chat.completion.chunk SSE frame.
+func appendChatCompletionChunkPrefix(dst []byte, id string, created int64, model, fingerprint string) []byte {
 	dst = append(dst, `{"id":`...)
 	dst = strconv.AppendQuote(dst, id)
 	dst = append(dst, `,"object":"chat.completion.chunk","created":`...)
@@ -46,19 +48,12 @@ func appendChatCompletionChunkWithUsage(dst []byte, id string, created int64, mo
 	dst = append(dst, `,"service_tier":null`...)
 	dst = append(dst, `,"system_fingerprint":`...)
 	dst = strconv.AppendQuote(dst, fingerprint)
-	dst = append(dst, `,"choices":[{"index":0,"delta":`...)
-	switch {
-	case role != "":
-		dst = append(dst, `{"role":`...)
-		dst = strconv.AppendQuote(dst, role)
-		dst = append(dst, `,"content":""}`...)
-	case content != "":
-		dst = append(dst, `{"content":`...)
-		dst = strconv.AppendQuote(dst, content)
-		dst = append(dst, '}')
-	default:
-		dst = append(dst, `{}`...)
-	}
+	return dst
+}
+
+// appendChatCompletionChunkFinish writes the trailing logprobs/finish/usage
+// fields shared by every chat.completion.chunk frame.
+func appendChatCompletionChunkFinish(dst []byte, finish string, hasFinish bool, usage map[string]interface{}) []byte {
 	dst = append(dst, `,"logprobs":null,"finish_reason":`...)
 	if hasFinish {
 		dst = strconv.AppendQuote(dst, finish)
@@ -73,42 +68,34 @@ func appendChatCompletionChunkWithUsage(dst []byte, id string, created int64, mo
 	return dst
 }
 
+func appendChatCompletionChunkWithUsage(dst []byte, id string, created int64, model, fingerprint, role, content string, finish string, hasFinish bool, usage map[string]interface{}) []byte {
+	dst = appendChatCompletionChunkPrefix(dst, id, created, model, fingerprint)
+	dst = append(dst, `,"choices":[{"index":0,"delta":`...)
+	switch {
+	case role != "":
+		dst = append(dst, `{"role":`...)
+		dst = strconv.AppendQuote(dst, role)
+		dst = append(dst, `,"content":""}`...)
+	case content != "":
+		dst = append(dst, `{"content":`...)
+		dst = strconv.AppendQuote(dst, content)
+		dst = append(dst, '}')
+	default:
+		dst = append(dst, `{}`...)
+	}
+	return appendChatCompletionChunkFinish(dst, finish, hasFinish, usage)
+}
+
 func appendChatCompletionSnapshotChunkWithUsage(dst []byte, id string, created int64, model, fingerprint, messageContent string, finish string, hasFinish bool, usage map[string]interface{}) []byte {
-	dst = append(dst, `{"id":`...)
-	dst = strconv.AppendQuote(dst, id)
-	dst = append(dst, `,"object":"chat.completion.chunk","created":`...)
-	dst = strconv.AppendInt(dst, created, 10)
-	dst = append(dst, `,"model":`...)
-	dst = strconv.AppendQuote(dst, model)
-	dst = append(dst, `,"service_tier":null`...)
-	dst = append(dst, `,"system_fingerprint":`...)
-	dst = strconv.AppendQuote(dst, fingerprint)
+	dst = appendChatCompletionChunkPrefix(dst, id, created, model, fingerprint)
 	dst = append(dst, `,"choices":[{"index":0,"delta":{},"message":{"role":"assistant","content":`...)
 	dst = strconv.AppendQuote(dst, messageContent)
-	dst = append(dst, `},"logprobs":null,"finish_reason":`...)
-	if hasFinish {
-		dst = strconv.AppendQuote(dst, finish)
-	} else {
-		dst = append(dst, `null`...)
-	}
-	dst = append(dst, `}]`...)
-	if hasFinish {
-		dst = appendUsage(dst, usage)
-	}
 	dst = append(dst, '}')
-	return dst
+	return appendChatCompletionChunkFinish(dst, finish, hasFinish, usage)
 }
 
 func appendChatCompletionToolCallsChunkWithUsage(dst []byte, id string, created int64, model, fingerprint string, toolCalls []map[string]interface{}, finish string, hasFinish bool, usage map[string]interface{}) []byte {
-	dst = append(dst, `{"id":`...)
-	dst = strconv.AppendQuote(dst, id)
-	dst = append(dst, `,"object":"chat.completion.chunk","created":`...)
-	dst = strconv.AppendInt(dst, created, 10)
-	dst = append(dst, `,"model":`...)
-	dst = strconv.AppendQuote(dst, model)
-	dst = append(dst, `,"service_tier":null`...)
-	dst = append(dst, `,"system_fingerprint":`...)
-	dst = strconv.AppendQuote(dst, fingerprint)
+	dst = appendChatCompletionChunkPrefix(dst, id, created, model, fingerprint)
 	dst = append(dst, `,"choices":[{"index":0,"delta":{"tool_calls":`...)
 	if len(toolCalls) == 0 {
 		dst = append(dst, `[]`...)
@@ -117,18 +104,8 @@ func appendChatCompletionToolCallsChunkWithUsage(dst []byte, id string, created 
 	} else {
 		dst = append(dst, `[]`...)
 	}
-	dst = append(dst, `},"logprobs":null,"finish_reason":`...)
-	if hasFinish {
-		dst = strconv.AppendQuote(dst, finish)
-	} else {
-		dst = append(dst, `null`...)
-	}
-	dst = append(dst, `}]`...)
-	if hasFinish {
-		dst = appendUsage(dst, usage)
-	}
 	dst = append(dst, '}')
-	return dst
+	return appendChatCompletionChunkFinish(dst, finish, hasFinish, usage)
 }
 
 func detectPublicBaseURL(r *http.Request) string {
