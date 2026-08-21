@@ -263,8 +263,8 @@ func (c *Client) buildRequest(req upstream.UpstreamRequest, testMode bool) (*Req
 	if req.NoTools {
 		tools = nil
 	}
-	systemPrompt := buildSystemPrompt(req.System, req.Workdir, req.NoTools)
-	msgs := convertMessages(req.Messages, systemPrompt)
+	// 保真：系统条目逐字透传为独立 system 消息，不注入任何客户端未发送的内容。
+	msgs := convertMessages(req.Messages, req.System)
 	if service == "deepseek" {
 		// puter 的 DeepSeekProvider 会在每个 tool 消息后注入 system 消息,
 		// 多 tool_call 轮次会被打断配对;拆成单 tool_call 序列绕开该行为。
@@ -316,29 +316,6 @@ func serviceForModel(modelID string) (string, error) {
 	default:
 		return "", fmt.Errorf("puter model %q has no configured service", modelID)
 	}
-}
-
-func buildSystemPrompt(system []prompt.SystemItem, workdir string, noTools bool) string {
-	parts := []string{currentDateInstruction(time.Now())}
-	workdir = strings.TrimSpace(workdir)
-	if workdir != "" {
-		parts = append(parts,
-			"The real local project working directory is `"+workdir+"`. Treat the project root as `.` and prefer project-relative paths for local tools.",
-		)
-	}
-	if noTools {
-		parts = append(parts, "This turn must not make any tool calls. Answer directly using the existing context and prior tool results.")
-	}
-	for _, item := range system {
-		if text := strings.TrimSpace(item.Text); text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return strings.Join(parts, "\n\n")
-}
-
-func currentDateInstruction(now time.Time) string {
-	return "Current date: " + now.UTC().Format("2006-01-02") + " (UTC). For latest, current, recent, or other time-sensitive requests, use this date and do not assume an earlier year."
 }
 
 func formatPuterAPIError(apiErr *ErrorPayload, raw string) error {
