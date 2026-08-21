@@ -724,9 +724,7 @@ func (c *Client) doRequestWithHTTPClient(ctx context.Context, httpClient *http.C
 		headerCopy := resp.Header.Clone()
 
 		if lastStatus == http.StatusTooManyRequests {
-			if meta := RateLimitFromResponse(lastStatus, resp.Header, raw); meta != nil {
-				teamCooldown.Note(meta.Scope, meta.TeamID, meta.Model, meta.RetryAfter)
-				recordTeamCooldownHit(meta)
+			if meta := noteTeamRateLimit(lastStatus, resp.Header, raw); meta != nil {
 				if desc := meta.Describe(); desc != "" {
 					lastBody = lastBody + " " + desc
 				}

@@ -541,17 +541,15 @@ func consoleUsage(v map[string]interface{}) map[string]interface{} {
 	}
 }
 
-func (h *Handler) serveConsoleChat(ctx context.Context, w http.ResponseWriter, req *ChatCompletionsRequest, spec ModelSpec, sess *chatAccountSession, logger *debug.Logger) {
-	payload, err := h.consolePayload(spec, req)
+// finishUpstreamChat completes a chat response after an upstream call: error
+// reporting, quota sync, then streaming or collection. Shared by the console
+// and CLI chat paths. url is used for both error and request logging; headers
+// is evaluated lazily so it is only built on the success path.
+func (h *Handler) finishUpstreamChat(ctx context.Context, w http.ResponseWriter, req *ChatCompletionsRequest, sess *chatAccountSession, logger *debug.Logger, name, url string, headers func() http.Header, payload map[string]interface{}, resp *http.Response, err error) {
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	resp, err := h.doConsoleWithAutoSwitch(ctx, sess, payload)
-	if err != nil {
-		slog.Error("console chat upstream failed", "url", consoleResponsesURL, "status", parseUpstreamStatus(err), "error", err)
+		slog.Error(name+" chat upstream failed", "url", url, "status", parseUpstreamStatus(err), "error", err)
 		if logger != nil {
-			logger.LogUpstreamHTTPError(consoleResponsesURL, parseUpstreamStatus(err), "", err)
+			logger.LogUpstreamHTTPError(url, parseUpstreamStatus(err), "", err)
 		}
 		if markAllGrokAccountStatuses(err) {
 			h.markAccountStatus(ctx, sess.acc, err)
@@ -561,7 +559,7 @@ func (h *Handler) serveConsoleChat(ctx context.Context, w http.ResponseWriter, r
 	}
 	defer resp.Body.Close()
 	if logger != nil {
-		logger.LogUpstreamRequest(consoleResponsesURL, debugHeaderMap(h.client.consoleHeaders(sess.token)), payload)
+		logger.LogUpstreamRequest(url, debugHeaderMap(headers()), payload)
 	}
 	h.syncGrokQuota(sess.acc, resp.Header)
 	if req.Stream {
@@ -571,12 +569,21 @@ func (h *Handler) serveConsoleChat(ctx context.Context, w http.ResponseWriter, r
 	h.collectConsoleChat(w, req, resp.Body)
 }
 
-func (h *Handler) doConsoleWithAutoSwitch(ctx context.Context, sess *chatAccountSession, payload map[string]interface{}) (*http.Response, error) {
-	if sess == nil || strings.TrimSpace(sess.token) == "" {
-		return nil, fmt.Errorf("empty chat session")
+func (h *Handler) serveConsoleChat(ctx context.Context, w http.ResponseWriter, req *ChatCompletionsRequest, spec ModelSpec, sess *chatAccountSession, logger *debug.Logger) {
+	payload, err := h.consolePayload(spec, req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
-	// Time-budgeted switching: try accounts until success or deadline,
-	// pacing requests at ~2 RPS to respect the upstream rate limit.
+	resp, err := h.doConsoleWithAutoSwitch(ctx, sess, payload)
+	h.finishUpstreamChat(ctx, w, req, sess, logger, "console", consoleResponsesURL,
+		func() http.Header { return h.client.consoleHeaders(sess.token) }, payload, resp, err)
+}
+
+// retryWithAccountSwitch runs a request in a time-budgeted loop, switching to
+// the next account whenever shouldSwitchGrokAccount fires. doRequest issues the
+// request against the current session; openNext returns its replacement.
+func (h *Handler) retryWithAccountSwitch(ctx context.Context, sess *chatAccountSession, doRequest func() (*http.Response, error), openNext func(used []int64) (*chatAccountSession, error)) (*http.Response, error) {
 	switchDeadline := time.Now().Add(10 * time.Second)
 	if h != nil && h.cfg != nil && h.cfg.AccountSwitchCount > 0 {
 		switchDeadline = time.Now().Add(time.Duration(h.cfg.AccountSwitchCount) * time.Second)
@@ -588,7 +595,7 @@ func (h *Handler) doConsoleWithAutoSwitch(ctx context.Context, sess *chatAccount
 		if sess.acc != nil && sess.acc.ID != 0 {
 			used = append(used, sess.acc.ID)
 		}
-		resp, err := h.doConsole(ctx, sess.token, payload)
+		resp, err := doRequest()
 		if err == nil {
 			return resp, nil
 		}
@@ -601,7 +608,7 @@ func (h *Handler) doConsoleWithAutoSwitch(ctx context.Context, sess *chatAccount
 
 		sess.Close()
 		time.Sleep(switchPace)
-		next, switchErr := h.openChatAccountSessionExcludingWithPools(ctx, used, sess.poolCandidates)
+		next, switchErr := openNext(used)
 		if switchErr != nil {
 			return nil, err
 		}
@@ -610,6 +617,17 @@ func (h *Handler) doConsoleWithAutoSwitch(ctx context.Context, sess *chatAccount
 		sess.poolCandidates = next.poolCandidates
 		sess.release = next.release
 	}
+}
+
+func (h *Handler) doConsoleWithAutoSwitch(ctx context.Context, sess *chatAccountSession, payload map[string]interface{}) (*http.Response, error) {
+	if sess == nil || strings.TrimSpace(sess.token) == "" {
+		return nil, fmt.Errorf("empty chat session")
+	}
+	return h.retryWithAccountSwitch(ctx, sess,
+		func() (*http.Response, error) { return h.doConsole(ctx, sess.token, payload) },
+		func(used []int64) (*chatAccountSession, error) {
+			return h.openChatAccountSessionExcludingWithPools(ctx, used, sess.poolCandidates)
+		})
 }
 
 func (h *Handler) collectConsoleChat(w http.ResponseWriter, req *ChatCompletionsRequest, body io.Reader) {
