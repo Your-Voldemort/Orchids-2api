@@ -1160,13 +1160,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, req *ChatCompletionsRequest,
 	emitChunk := func(role, content string, finish string, hasFinish bool) {
 		raw := appendChatCompletionChunkWithUsage(chunkScratch[:0], id, time.Now().Unix(), model, fingerprint, role, content, finish, hasFinish, finalUsage)
 		chunkScratch = raw[:0]
-		writeSSEBytes(w, "", raw)
-		if logger != nil {
-			logger.LogOutputSSE("", string(raw))
-		}
-		if flusher != nil {
-			flusher.Flush()
-		}
+		writeSSELog(w, flusher, logger, raw)
 		sentAny = true
 	}
 
@@ -1283,13 +1277,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, req *ChatCompletionsRequest,
 		}
 		raw := appendChatCompletionToolCallsChunkWithUsage(chunkScratch[:0], id, time.Now().Unix(), model, fingerprint, indexedToolCalls, finish, hasFinish, finalUsage)
 		chunkScratch = raw[:0]
-		writeSSEBytes(w, "", raw)
-		if logger != nil {
-			logger.LogOutputSSE("", string(raw))
-		}
-		if flusher != nil {
-			flusher.Flush()
-		}
+		writeSSELog(w, flusher, logger, raw)
 		sentAny = true
 	}
 
@@ -1470,26 +1458,10 @@ func (h *Handler) streamChat(w http.ResponseWriter, req *ChatCompletionsRequest,
 	if err != nil {
 		slog.Warn("grok stream parse failed", "error", err)
 		if !sentAny {
-			writeSSEError(w, "stream parse error: "+err.Error(), "server_error", "stream_error")
-			writeSSEBytes(w, "", []byte("[DONE]"))
-			if logger != nil {
-				logger.LogOutputSSE("error", "stream parse error: "+err.Error())
-				logger.LogOutputSSE("", "[DONE]")
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			writeSSEStreamError(w, flusher, logger, "stream parse error: "+err.Error())
 			return
 		}
-		writeSSEError(w, "stream parse error: "+err.Error(), "server_error", "stream_error")
-		writeSSEBytes(w, "", []byte("[DONE]"))
-		if logger != nil {
-			logger.LogOutputSSE("error", "stream parse error: "+err.Error())
-			logger.LogOutputSSE("", "[DONE]")
-		}
-		if flusher != nil {
-			flusher.Flush()
-		}
+		writeSSEStreamError(w, flusher, logger, "stream parse error: "+err.Error())
 		return
 	}
 
@@ -1578,13 +1550,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, req *ChatCompletionsRequest,
 		if emittedToolCalls {
 			finalUsage = buildChatUsagePayload(req, strings.TrimSpace(finalBufferedText), []map[string]interface{}{{"type": "function"}})
 			emitChunk("", "", "tool_calls", true)
-			writeSSEBytes(w, "", []byte("[DONE]"))
-			if logger != nil {
-				logger.LogOutputSSE("", "[DONE]")
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			writeSSELog(w, flusher, logger, []byte("[DONE]"))
 			return
 		}
 		textContent, toolCalls := toolParser.parseCalls(strings.TrimSpace(finalBufferedText))
@@ -1592,13 +1558,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, req *ChatCompletionsRequest,
 		if len(toolCalls) > 0 {
 			finalUsage = buildChatUsagePayload(req, textContent, toolCalls)
 			emitToolCallsChunk(textContent, toolCalls, "tool_calls", true)
-			writeSSEBytes(w, "", []byte("[DONE]"))
-			if logger != nil {
-				logger.LogOutputSSE("", "[DONE]")
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
+			writeSSELog(w, flusher, logger, []byte("[DONE]"))
 			return
 		}
 	}
@@ -1607,23 +1567,11 @@ func (h *Handler) streamChat(w http.ResponseWriter, req *ChatCompletionsRequest,
 	if finalSnapshotEnabled && finalSnapshotContent != "" {
 		raw := appendChatCompletionSnapshotChunkWithUsage(chunkScratch[:0], id, time.Now().Unix(), model, fingerprint, finalSnapshotContent, "stop", true, finalUsage)
 		chunkScratch = raw[:0]
-		writeSSEBytes(w, "", raw)
-		if logger != nil {
-			logger.LogOutputSSE("", string(raw))
-		}
-		if flusher != nil {
-			flusher.Flush()
-		}
+		writeSSELog(w, flusher, logger, raw)
 	} else {
 		emitChunk("", "", "stop", true)
 	}
-	writeSSEBytes(w, "", []byte("[DONE]"))
-	if logger != nil {
-		logger.LogOutputSSE("", "[DONE]")
-	}
-	if flusher != nil {
-		flusher.Flush()
-	}
+	writeSSELog(w, flusher, logger, []byte("[DONE]"))
 }
 
 func (h *Handler) collectChat(w http.ResponseWriter, req *ChatCompletionsRequest, model string, spec ModelSpec, token string, publicBase string, hasAttachments bool, tools []ToolDef, toolChoice interface{}, body io.Reader, logger *debug.Logger) {

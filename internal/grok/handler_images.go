@@ -35,29 +35,19 @@ func (h *Handler) streamImageGeneration(w http.ResponseWriter, body io.Reader, t
 				"index":    outIndex,
 				"progress": progress,
 			}
-			writeSSEBytes(w, "image_generation.partial_image", encodeJSONBytes(data))
-			if flusher != nil {
-				flusher.Flush()
-			}
+			writeSSE(w, flusher, "image_generation.partial_image", encodeJSONBytes(data))
 		}
 		urls = appendImageResultURLs(urls, resp)
 		return nil
 	}); err != nil {
-		writeSSEError(w, "stream parse error: "+err.Error(), "server_error", "stream_error")
-		writeSSEBytes(w, "", []byte("[DONE]"))
-		if flusher != nil {
-			flusher.Flush()
-		}
+		writeSSEStreamError(w, flusher, nil, "stream parse error: "+err.Error())
 		return
 	}
 
 	urls = normalizeGeneratedImageURLs(urls, n)
 	if len(urls) == 0 {
 		writeSSEError(w, "no image generated", "server_error", "no_image_generated")
-		writeSSEBytes(w, "", []byte("[DONE]"))
-		if flusher != nil {
-			flusher.Flush()
-		}
+		writeSSE(w, flusher, "", []byte("[DONE]"))
 		return
 	}
 
@@ -69,10 +59,7 @@ func (h *Handler) streamImageGeneration(w http.ResponseWriter, body io.Reader, t
 				val = u
 			} else {
 				writeSSEError(w, "image cache failed: "+err.Error(), "server_error", "image_cache_failed")
-				writeSSEBytes(w, "", []byte("[DONE]"))
-				if flusher != nil {
-					flusher.Flush()
-				}
+				writeSSE(w, flusher, "", []byte("[DONE]"))
 				return
 			}
 		}
@@ -86,15 +73,9 @@ func (h *Handler) streamImageGeneration(w http.ResponseWriter, body io.Reader, t
 			"revised_prompt": nil,
 			"usage":          buildImageUsagePayload(prompt, len(urls)),
 		}
-		writeSSEBytes(w, "image_generation.completed", encodeJSONBytes(data))
-		if flusher != nil {
-			flusher.Flush()
-		}
+		writeSSE(w, flusher, "image_generation.completed", encodeJSONBytes(data))
 	}
-	writeSSEBytes(w, "", []byte("[DONE]"))
-	if flusher != nil {
-		flusher.Flush()
-	}
+	writeSSE(w, flusher, "", []byte("[DONE]"))
 }
 
 func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request) {

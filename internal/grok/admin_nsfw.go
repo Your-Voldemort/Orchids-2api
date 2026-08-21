@@ -548,10 +548,7 @@ func (h *Handler) HandleAdminBatchTask(w http.ResponseWriter, r *http.Request) {
 				return true
 			}
 			lastPayload = append(lastPayload[:0], raw...)
-			writeSSEBytes(w, "", raw)
-			if flusher != nil {
-				flusher.Flush()
-			}
+			writeSSE(w, flusher, "", raw)
 			return r.Context().Err() == nil
 		}
 
