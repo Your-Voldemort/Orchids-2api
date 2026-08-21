@@ -1356,8 +1356,6 @@ func validateChatMessages(messages []ChatMessage) error {
 					if err := validateMediaInput(dataVal, "file.file_data"); err != nil {
 						return err
 					}
-				default:
-					return fmt.Errorf("invalid content block type: '%s'", blockTypeRaw)
 				}
 
 			}

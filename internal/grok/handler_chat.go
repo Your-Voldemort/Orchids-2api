@@ -250,12 +250,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			http.Error(w, "streaming is only supported when image_config.n=1 or n=2", http.StatusBadRequest)
 			return
 		}
-		if imageCfg.ResponseFormat == "" {
-			imageCfg.ResponseFormat = "url"
-		}
-		if imageCfg.ResponseFormat != "" {
-			imageCfg.ResponseFormat = normalizeImageResponseFormat(imageCfg.ResponseFormat)
-		}
+		imageCfg.ResponseFormat = normalizeImageResponseFormat(imageCfg.ResponseFormat)
 		if imageCfg.Size != "" {
 			var (
 				size string
