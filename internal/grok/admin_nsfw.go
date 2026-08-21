@@ -89,11 +89,7 @@ func grokAccountToken(acc *store.Account) string {
 	if acc == nil {
 		return ""
 	}
-	raw := strings.TrimSpace(acc.ClientCookie)
-	if raw == "" {
-		raw = strings.TrimSpace(acc.RefreshToken)
-	}
-	return NormalizeSSOToken(raw)
+	return NormalizeSSOToken(grokSSOTokenRaw(acc))
 }
 
 func collectNSFWTargets(req adminNSFWEnableRequest, accounts []*store.Account) []nsfwTarget {

@@ -113,6 +113,19 @@ func isGrokSSOAccount(acc *store.Account) bool {
 	return !strings.EqualFold(strings.TrimSpace(acc.CredentialType), "oauth")
 }
 
+// grokSSOTokenRaw returns the raw SSO credential for an account, preferring the
+// client cookie and falling back to the refresh token (no normalization).
+func grokSSOTokenRaw(acc *store.Account) string {
+	if acc == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(acc.ClientCookie)
+	if raw == "" {
+		raw = strings.TrimSpace(acc.RefreshToken)
+	}
+	return raw
+}
+
 func (h *Handler) selectAccount(ctx context.Context) (*store.Account, string, error) {
 	if h.lb == nil {
 		return nil, "", fmt.Errorf("load balancer not configured")
@@ -121,10 +134,7 @@ func (h *Handler) selectAccount(ctx context.Context) (*store.Account, string, er
 	if err != nil {
 		return nil, "", err
 	}
-	raw := strings.TrimSpace(acc.ClientCookie)
-	if raw == "" {
-		raw = strings.TrimSpace(acc.RefreshToken)
-	}
+	raw := grokSSOTokenRaw(acc)
 	if NormalizeSSOToken(raw) == "" {
 		return nil, "", fmt.Errorf("grok account token is empty")
 	}
@@ -302,10 +312,7 @@ func (h *Handler) openChatAccountSessionExcludingWithPoolsAndFilter(ctx context.
 			return nil, fmt.Errorf("no enabled grok accounts available for requested pools: %s", strings.Join(candidates, ","))
 		}
 	}
-	raw := strings.TrimSpace(acc.ClientCookie)
-	if raw == "" {
-		raw = strings.TrimSpace(acc.RefreshToken)
-	}
+	raw := grokSSOTokenRaw(acc)
 	if NormalizeSSOToken(raw) == "" {
 		return nil, fmt.Errorf("grok account token is empty")
 	}

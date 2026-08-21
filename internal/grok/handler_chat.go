@@ -1484,12 +1484,7 @@ func (h *Handler) streamChat(w http.ResponseWriter, req *ChatCompletionsRequest,
 					emitChunk("", fmt.Sprintf("正在生成视频中，当前进度%d%%\n", progress), "", false)
 				}
 				if progress >= 100 && strings.TrimSpace(videoURL) == "" {
-					for _, assetID := range extractVideoAssetIDs(resp) {
-						if resolved := videoURLFromAssetID(assetID); resolved != "" {
-							videoURL = resolved
-							break
-						}
-					}
+					videoURL = firstAssetURL(resp)
 				}
 				if progress >= 100 && strings.TrimSpace(videoURL) != "" {
 					finalURL := strings.TrimSpace(videoURL)
@@ -1724,12 +1719,7 @@ func (h *Handler) collectChat(w http.ResponseWriter, req *ChatCompletionsRequest
 			if progress, vurl, _, ok := extractVideoProgress(resp); ok && progress >= 100 {
 				videoURL = strings.TrimSpace(vurl)
 				if videoURL == "" {
-					for _, assetID := range extractVideoAssetIDs(resp) {
-						if resolved := videoURLFromAssetID(assetID); resolved != "" {
-							videoURL = resolved
-							break
-						}
-					}
+					videoURL = firstAssetURL(resp)
 				}
 			}
 		}

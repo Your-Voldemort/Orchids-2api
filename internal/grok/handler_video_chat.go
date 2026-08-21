@@ -88,10 +88,7 @@ func (h *Handler) collectVideoSegmentFromBody(body io.Reader, logger *debug.Logg
 			result.VideoPostID = postID
 		}
 		if result.AssetID == "" {
-			for _, assetID := range extractVideoAssetIDs(resp) {
-				result.AssetID = assetID
-				break
-			}
+			result.AssetID = firstNonEmpty(extractAssetIDs(resp)...)
 		}
 		progress, videoURL, _, ok := extractVideoProgress(resp)
 		if !ok {
@@ -109,7 +106,7 @@ func (h *Handler) collectVideoSegmentFromBody(body io.Reader, logger *debug.Logg
 		return videoSegmentResult{}, err
 	}
 	if strings.TrimSpace(result.URL) == "" && strings.TrimSpace(result.AssetID) != "" {
-		result.URL = videoURLFromAssetID(result.AssetID)
+		result.URL = assetURLFromAssetID(result.AssetID)
 	}
 	if strings.TrimSpace(result.VideoPostID) == "" {
 		result.VideoPostID = firstNonEmpty(result.AssetID, result.URL)
