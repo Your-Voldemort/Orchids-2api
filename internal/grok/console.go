@@ -583,12 +583,13 @@ func (h *Handler) serveConsoleChat(ctx context.Context, w http.ResponseWriter, r
 // retryWithAccountSwitch runs a request in a time-budgeted loop, switching to
 // the next account whenever shouldSwitchGrokAccount fires. doRequest issues the
 // request against the current session; openNext returns its replacement.
-func (h *Handler) retryWithAccountSwitch(ctx context.Context, sess *chatAccountSession, doRequest func() (*http.Response, error), openNext func(used []int64) (*chatAccountSession, error)) (*http.Response, error) {
+// onSwitch runs after each successful account swap (e.g. to rebuild the request
+// payload for the new account).
+func (h *Handler) retryWithAccountSwitch(ctx context.Context, sess *chatAccountSession, switchPace time.Duration, doRequest func() (*http.Response, error), openNext func(used []int64) (*chatAccountSession, error), onSwitch func() error) (*http.Response, error) {
 	switchDeadline := time.Now().Add(10 * time.Second)
 	if h != nil && h.cfg != nil && h.cfg.AccountSwitchCount > 0 {
 		switchDeadline = time.Now().Add(time.Duration(h.cfg.AccountSwitchCount) * time.Second)
 	}
-	const switchPace = 1500 * time.Millisecond
 
 	used := make([]int64, 0)
 	for {
@@ -616,6 +617,11 @@ func (h *Handler) retryWithAccountSwitch(ctx context.Context, sess *chatAccountS
 		sess.token = next.token
 		sess.poolCandidates = next.poolCandidates
 		sess.release = next.release
+		if onSwitch != nil {
+			if err := onSwitch(); err != nil {
+				return nil, err
+			}
+		}
 	}
 }
 
@@ -623,11 +629,11 @@ func (h *Handler) doConsoleWithAutoSwitch(ctx context.Context, sess *chatAccount
 	if sess == nil || strings.TrimSpace(sess.token) == "" {
 		return nil, fmt.Errorf("empty chat session")
 	}
-	return h.retryWithAccountSwitch(ctx, sess,
+	return h.retryWithAccountSwitch(ctx, sess, 1500*time.Millisecond,
 		func() (*http.Response, error) { return h.doConsole(ctx, sess.token, payload) },
 		func(used []int64) (*chatAccountSession, error) {
 			return h.openChatAccountSessionExcludingWithPools(ctx, used, sess.poolCandidates)
-		})
+		}, nil)
 }
 
 func (h *Handler) collectConsoleChat(w http.ResponseWriter, req *ChatCompletionsRequest, body io.Reader) {

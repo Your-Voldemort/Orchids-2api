@@ -351,7 +351,7 @@ func (h *Handler) doAppChatImageRequest(ctx context.Context, sess *chatAccountSe
 			return nil, fmt.Errorf("empty payload")
 		}
 		if allowSwitch {
-			return h.doAutoSwitchRequest(ctx, sess, payload, nil, markAllGrokAccountStatuses, (*Client).doChat)
+			return h.doAutoSwitchRequest(ctx, sess, payload, nil, (*Client).doChat)
 		}
 		return h.doSingleAccountRequest(ctx, sess, *payload, markAllGrokAccountStatuses, (*Client).doChat)
 	}
@@ -359,7 +359,7 @@ func (h *Handler) doAppChatImageRequest(ctx context.Context, sess *chatAccountSe
 		return nil, fmt.Errorf("empty payload")
 	}
 	if allowSwitch {
-		return h.doAutoSwitchRequest(ctx, sess, payload, nil, markAllGrokAccountStatuses, (*Client).doAppChatCreateAndRespond)
+		return h.doAutoSwitchRequest(ctx, sess, payload, nil, (*Client).doAppChatCreateAndRespond)
 	}
 	return h.doSingleAccountRequest(ctx, sess, *payload, markAllGrokAccountStatuses, (*Client).doAppChatCreateAndRespond)
 }

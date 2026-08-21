@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"orchids-api/internal/debug"
 	"orchids-api/internal/store"
@@ -53,9 +54,9 @@ func (h *Handler) doCLIWithAutoSwitch(ctx context.Context, sess *chatAccountSess
 		return nil, fmt.Errorf("grok cli client not configured")
 	}
 	client := h.cliClient
-	return h.retryWithAccountSwitch(ctx, sess,
+	return h.retryWithAccountSwitch(ctx, sess, 1500*time.Millisecond,
 		func() (*http.Response, error) { return client.doResponses(ctx, sess.acc, payload) },
-		func(used []int64) (*chatAccountSession, error) { return h.openCLIAccountSession(ctx, used) })
+		func(used []int64) (*chatAccountSession, error) { return h.openCLIAccountSession(ctx, used) }, nil)
 }
 
 // openCLIAccountSession selects the next available Build CLI OAuth account.
