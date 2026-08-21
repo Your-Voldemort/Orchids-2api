@@ -322,6 +322,5 @@ func (h *Handler) collectVideoChatCompletion(
 		message := choice["message"].(map[string]interface{})
 		message["reasoning_content"] = strings.Join(reasoning, "\n")
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	writeJSON(w, resp)
 }

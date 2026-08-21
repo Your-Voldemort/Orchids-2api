@@ -102,8 +102,7 @@ func (h *Handler) streamImageGeneration(w http.ResponseWriter, body io.Reader, t
 }
 
 func (h *Handler) HandleImagesGenerations(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	var req ImagesGenerationsRequest
@@ -221,8 +220,7 @@ func (h *Handler) serveImagesGenerations(ctx context.Context, w http.ResponseWri
 		"data":    data,
 		"usage":   buildImageUsagePayload(req.Prompt, len(data)),
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
+	writeJSON(w, out)
 }
 
 func (h *Handler) streamAppChatImagesGeneration(ctx context.Context, w http.ResponseWriter, sess *chatAccountSession, spec ModelSpec, req ImagesGenerationsRequest, publicBase string, nsfw *bool) {

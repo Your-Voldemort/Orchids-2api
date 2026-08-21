@@ -673,8 +673,7 @@ func (h *Handler) collectConsoleChat(w http.ResponseWriter, req *ChatCompletions
 		}},
 		"usage": firstUsage(consoleUsage(raw), buildChatUsagePayload(req, text, toolCalls)),
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	writeJSON(w, resp)
 }
 
 func consoleToolCallsFromOutput(raw map[string]interface{}) []map[string]interface{} {

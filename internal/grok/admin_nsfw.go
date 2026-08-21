@@ -442,8 +442,7 @@ func parseBatchTaskPath(rawPath string) (taskID string, action string, ok bool) 
 }
 
 func (h *Handler) HandleAdminNSFWEnable(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	if !grokNSFWCapabilityEnabled {
@@ -474,13 +473,11 @@ func (h *Handler) HandleAdminNSFWEnable(w http.ResponseWriter, r *http.Request) 
 		},
 		"results": results,
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
+	writeJSON(w, out)
 }
 
 func (h *Handler) HandleAdminNSFWEnableAsync(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	if !grokNSFWCapabilityEnabled {
@@ -521,8 +518,7 @@ func (h *Handler) HandleAdminNSFWEnableAsync(w http.ResponseWriter, r *http.Requ
 		"task_id": task.ID,
 		"total":   len(targets),
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(out)
+	writeJSON(w, out)
 }
 
 func (h *Handler) HandleAdminBatchTask(w http.ResponseWriter, r *http.Request) {
@@ -539,20 +535,17 @@ func (h *Handler) HandleAdminBatchTask(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "cancel":
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		if !requireMethod(w, r, http.MethodPost) {
 			return
 		}
 		task.requestCancel()
 		out := map[string]interface{}{
 			"status": "success",
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(out)
+		writeJSON(w, out)
 		return
 	case "stream":
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		if !requireMethod(w, r, http.MethodGet) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")

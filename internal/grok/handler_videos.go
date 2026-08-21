@@ -196,8 +196,7 @@ func videoConfigFromVideosRequest(req VideosRequest) (*VideoConfig, error) {
 }
 
 func (h *Handler) HandleVideosCreate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodPost) {
 		return
 	}
 	req, err := parseVideosRequest(r)
@@ -242,8 +241,7 @@ func (h *Handler) HandleVideosCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	putVideoJob(job)
 	go h.runVideoCreateJob(context.Background(), job, spec, cfg)
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(job.toMap())
+	writeJSON(w, job.toMap())
 }
 
 func (h *Handler) runVideoCreateJob(ctx context.Context, job *videoJob, spec ModelSpec, cfg *VideoConfig) {
@@ -316,8 +314,7 @@ func (h *Handler) failVideoJob(job *videoJob, err error) {
 }
 
 func (h *Handler) HandleVideosRetrieve(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	videoID := videoIDFromPath(r.URL.Path)
@@ -329,13 +326,11 @@ func (h *Handler) HandleVideosRetrieve(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "video not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(job.toMap())
+	writeJSON(w, job.toMap())
 }
 
 func (h *Handler) HandleVideosContent(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
 	videoID := videoIDFromPath(r.URL.Path)
