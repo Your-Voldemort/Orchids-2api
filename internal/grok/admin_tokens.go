@@ -2,7 +2,6 @@ package grok
 
 import (
 	"fmt"
-	"github.com/goccy/go-json"
 	"net/http"
 	"sort"
 	"strings"
@@ -324,8 +323,7 @@ func (h *Handler) handleAdminTokensUpdate(w http.ResponseWriter, r *http.Request
 	}
 
 	var payload map[string]interface{}
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeJSONBody(w, r, &payload) {
 		return
 	}
 	entries := collectAdminTokenEntries(payload)

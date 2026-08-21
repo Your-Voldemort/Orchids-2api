@@ -3,7 +3,6 @@ package grok
 import (
 	"context"
 	"fmt"
-	"github.com/goccy/go-json"
 	"net/http"
 	"strings"
 	"sync"
@@ -450,8 +449,7 @@ func (h *Handler) HandleAdminImagineStart(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var req imagineStartRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 	prompt := strings.TrimSpace(req.Prompt)
@@ -477,8 +475,7 @@ func (h *Handler) HandleAdminImagineStop(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var req imagineStopRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
+	if !decodeJSONBody(w, r, &req) {
 		return
 	}
 	removed := deleteImagineSessions(req.TaskIDs)
