@@ -1113,10 +1113,7 @@ func suffixPrefixOverlap(text, tag string) int {
 }
 
 func (h *Handler) streamChat(w http.ResponseWriter, req *ChatCompletionsRequest, model string, spec ModelSpec, token string, publicBase string, hasAttachments bool, tools []ToolDef, toolChoice interface{}, body io.Reader, logger *debug.Logger) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, _ := w.(http.Flusher)
+	flusher := streamResponseHeaders(w)
 
 	id := "chatcmpl_" + randomHex(8)
 	fingerprint := ""

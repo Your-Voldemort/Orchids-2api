@@ -36,3 +36,13 @@ func decodeJSONBody(w http.ResponseWriter, r *http.Request, v interface{}) bool 
 	}
 	return true
 }
+
+// streamResponseHeaders writes the standard SSE headers and returns the
+// response flusher (possibly nil).
+func streamResponseHeaders(w http.ResponseWriter) http.Flusher {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, _ := w.(http.Flusher)
+	return flusher
+}

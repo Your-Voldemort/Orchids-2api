@@ -802,10 +802,7 @@ func appendConsoleFinalChunk(dst []byte, id string, created int64, model, finger
 }
 
 func (h *Handler) streamConsoleChat(w http.ResponseWriter, req *ChatCompletionsRequest, body io.Reader) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, _ := w.(http.Flusher)
+	flusher := streamResponseHeaders(w)
 	id := "chatcmpl_" + randomHex(8)
 	fingerprint := ""
 	raw := appendChatCompletionChunk(nil, id, time.Now().Unix(), req.Model, fingerprint, "assistant", "", "", false)

@@ -550,9 +550,7 @@ func copyCapturedResponse(w http.ResponseWriter, rec *captureResponseWriter) {
 }
 
 func writeResponsesStreamFromChat(w http.ResponseWriter, model, raw string) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	streamResponseHeaders(w)
 	id := "resp_" + randomHex(12)
 	messageID := "msg_" + randomHex(12)
 	startedMessage := false

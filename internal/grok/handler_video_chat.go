@@ -224,10 +224,7 @@ func (h *Handler) streamVideoChatCompletion(
 	sess *chatAccountSession,
 	logger *debug.Logger,
 ) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, _ := w.(http.Flusher)
+	flusher := streamResponseHeaders(w)
 	id := "chatcmpl_" + randomHex(8)
 	chunkScratch := make([]byte, 0, 256)
 	emit := func(content string, finish string, hasFinish bool, usage map[string]interface{}) {

@@ -517,10 +517,7 @@ func (h *Handler) HandleAdminImagineSSE(w http.ResponseWriter, r *http.Request) 
 	}
 	ratio = resolveAspectRatio(ratio)
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, _ := w.(http.Flusher)
+	flusher := streamResponseHeaders(w)
 
 	emit := func(payload map[string]interface{}) bool {
 		writeSSEBytes(w, "", encodeJSONBytes(payload))

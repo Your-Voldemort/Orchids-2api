@@ -11,10 +11,7 @@ import (
 )
 
 func (h *Handler) streamImageGeneration(w http.ResponseWriter, body io.Reader, token, prompt, format string, n int, publicBase string) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	flusher, _ := w.(http.Flusher)
+	flusher := streamResponseHeaders(w)
 
 	field := imageResponseField(format)
 	var urls []string
