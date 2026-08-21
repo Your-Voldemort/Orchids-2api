@@ -34,8 +34,9 @@ var (
 )
 
 type Client struct {
-	httpClient *http.Client
-	authToken  string
+	httpClient     *http.Client
+	authToken      string
+	requestTimeout time.Duration
 }
 
 func NewFromAccount(acc *store.Account, cfg *config.Config) *Client {
@@ -55,8 +56,9 @@ func NewFromAccount(acc *store.Account, cfg *config.Config) *Client {
 	}
 
 	return &Client{
-		httpClient: util.GetSharedHTTPClient(proxyKey, timeout, proxyFunc),
-		authToken:  ResolveAuthToken(acc),
+		httpClient:     util.GetSharedHTTPClient(proxyKey, timeout, proxyFunc),
+		authToken:      ResolveAuthToken(acc),
+		requestTimeout: timeout,
 	}
 }
 
@@ -200,7 +202,7 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req upstream.Upstre
 		logger.LogUpstreamRequest(puterAPIURL, map[string]string{"provider": "puter"}, body)
 	}
 
-	reqCtx, cancel := util.WithDefaultTimeout(ctx, 5*time.Minute)
+	reqCtx, cancel := util.WithDefaultTimeout(ctx, c.requestTimeout)
 	defer cancel()
 	resp, err := c.doChatRequest(reqCtx, body)
 	if err != nil {
@@ -262,13 +264,19 @@ func (c *Client) buildRequest(req upstream.UpstreamRequest, testMode bool) (*Req
 		tools = nil
 	}
 	systemPrompt := buildSystemPrompt(req.System, req.Workdir, req.NoTools)
+	msgs := convertMessages(req.Messages, systemPrompt)
+	if service == "deepseek" {
+		// puter 的 DeepSeekProvider 会在每个 tool 消息后注入 system 消息,
+		// 多 tool_call 轮次会被打断配对;拆成单 tool_call 序列绕开该行为。
+		msgs = splitMultiToolCalls(msgs)
+	}
 	return &Request{
 		Interface: defaultIface,
 		Service:   service,
 		TestMode:  testMode,
 		Method:    defaultMethod,
 		Args: RequestArgs{
-			Messages: convertMessages(req.Messages, systemPrompt),
+			Messages: msgs,
 			Model:    modelID,
 			Stream:   true,
 			Tools:    tools,
