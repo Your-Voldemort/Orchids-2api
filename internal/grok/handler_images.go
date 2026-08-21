@@ -189,34 +189,7 @@ func (h *Handler) serveImagesGenerations(ctx context.Context, w http.ResponseWri
 		return
 	}
 
-	field := imageResponseField(req.ResponseFormat)
-	data := make([]map[string]interface{}, 0, len(urls))
-	for _, u := range urls {
-		val, err := h.imageOutputValue(ctx, sess.token, u, req.ResponseFormat)
-		if err != nil {
-			slog.Warn("grok image convert failed", "url", u, "error", err)
-			if field == "url" && !mustCacheImageURL(u) {
-				val = u
-			} else {
-				http.Error(w, "image cache failed: "+err.Error(), http.StatusBadGateway)
-				return
-			}
-		}
-		if field == "url" && publicBase != "" && strings.HasPrefix(val, "/") {
-			val = publicBase + val
-		}
-		data = append(data, map[string]interface{}{
-			field:            val,
-			"revised_prompt": nil,
-		})
-	}
-
-	out := map[string]interface{}{
-		"created": time.Now().Unix(),
-		"data":    data,
-		"usage":   buildImageUsagePayload(req.Prompt, len(data)),
-	}
-	writeJSON(w, out)
+	h.writeImageResults(w, ctx, sess.token, req.Prompt, urls, req.ResponseFormat, publicBase, true)
 }
 
 func (h *Handler) streamAppChatImagesGeneration(ctx context.Context, w http.ResponseWriter, sess *chatAccountSession, spec ModelSpec, req ImagesGenerationsRequest, publicBase string, nsfw *bool) {
