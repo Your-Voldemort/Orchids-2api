@@ -715,13 +715,8 @@ func (c *Client) doRequestWithHTTPClient(ctx context.Context, httpClient *http.C
 		}
 
 		lastStatus = resp.StatusCode
-		raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxUpstreamBodyBytes+1))
-		if len(raw) > maxUpstreamBodyBytes {
-			raw = raw[:maxUpstreamBodyBytes]
-		}
-		_ = resp.Body.Close()
+		raw, headerCopy := readBoundedResponse(resp)
 		lastBody = string(raw)
-		headerCopy := resp.Header.Clone()
 
 		if lastStatus == http.StatusTooManyRequests {
 			if meta := noteTeamRateLimit(lastStatus, resp.Header, raw); meta != nil {
