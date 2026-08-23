@@ -155,7 +155,7 @@ func (c *Client) doStreamRequest(ctx context.Context, payload []byte, logger *de
 		return nil, fmt.Errorf("warp jwt missing")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, warpLegacyAIURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, warpAIURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +171,7 @@ func (c *Client) doStreamRequest(ctx context.Context, payload []byte, logger *de
 		for k, v := range req.Header {
 			headers[k] = strings.Join(v, ", ")
 		}
-		logger.LogUpstreamRequest(warpLegacyAIURL, headers, payload)
+		logger.LogUpstreamRequest(warpAIURL, headers, payload)
 	}
 
 	return c.httpClient.Do(req)
@@ -213,14 +213,14 @@ func (c *Client) handleStreamResponse(ctx context.Context, req upstream.Upstream
 		_ = resp.Body.Close()
 		bodyText := strings.TrimSpace(string(body))
 		location := ""
-		if resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.String() != warpLegacyAIURL {
+		if resp.Request != nil && resp.Request.URL != nil && resp.Request.URL.String() != warpAIURL {
 			location = resp.Request.URL.String()
 		}
 		if headerLocation := strings.TrimSpace(resp.Header.Get("Location")); headerLocation != "" {
 			location = headerLocation
 		}
 		if logger != nil {
-			logger.LogUpstreamHTTPError(warpLegacyAIURL, resp.StatusCode, bodyText, nil)
+			logger.LogUpstreamHTTPError(warpAIURL, resp.StatusCode, bodyText, nil)
 		}
 		op := "stream request"
 		if location != "" {
