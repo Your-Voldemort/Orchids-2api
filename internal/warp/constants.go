@@ -16,7 +16,7 @@ const (
 	// this key exchanges refresh_token -> id_token successfully.
 	warpFirebaseKey  = "***REMOVED-GOOGLE-API-KEY***"
 	warpFirebaseURL  = "https://securetoken.googleapis.com/v1/token?key=" + warpFirebaseKey
-	clientVersion    = "v0.2026.05.06.15.42.stable_03"
+	clientVersion    = "v0.2026.08.19.08.15.stable_01"
 	clientID         = "warp-app"
 	identifier       = "cli-agent-auto"
 	computerUseModel = "computer-use-agent-auto"
