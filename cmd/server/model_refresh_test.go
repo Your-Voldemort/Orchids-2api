@@ -106,6 +106,30 @@ func TestSyncModelsForChannelConcurrent_WarpRequiresAccountDiscovery(t *testing.
 	}
 }
 
+func TestWarpModelDiscoveryAccountsUsesDisabledCredentialAsReadOnlyFallback(t *testing.T) {
+	s, cleanup := setupModelRefreshStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	for _, acc := range []*store.Account{
+		{Name: "disabled", AccountType: "warp", Enabled: false, RefreshToken: "disabled-refresh"},
+		{Name: "enabled", AccountType: "warp", Enabled: true, RefreshToken: "enabled-refresh"},
+		{Name: "empty", AccountType: "warp", Enabled: false},
+		{Name: "other", AccountType: "grok", Enabled: true, RefreshToken: "not-warp"},
+	} {
+		if err := s.CreateAccount(ctx, acc); err != nil {
+			t.Fatalf("CreateAccount() error = %v", err)
+		}
+	}
+
+	accounts, err := warpModelDiscoveryAccounts(ctx, s)
+	if err != nil {
+		t.Fatalf("warpModelDiscoveryAccounts() error = %v", err)
+	}
+	if len(accounts) != 2 || accounts[0].Name != "enabled" || accounts[1].Name != "disabled" {
+		t.Fatalf("accounts=%#v want enabled then disabled credential-bearing Warp accounts", accounts)
+	}
+}
+
 func TestChooseRefreshedDefaultModel_PrefersExistingDefault(t *testing.T) {
 	existing := map[string]*store.Model{
 		"a": {ModelID: "a", IsDefault: true},

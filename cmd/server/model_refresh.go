@@ -514,7 +514,13 @@ func discoverWarpModelsConcurrent(ctx context.Context, cfg *config.Config, s *st
 		return nil, "", fmt.Errorf("store not configured")
 	}
 
-	accounts, err := enabledAccountsByType(ctx, s, "warp")
+	// Model configuration is read-only metadata, not an inference request.
+	// A quota-exhausted account is usually disabled for routing but can still
+	// expose its official model choices. Prefer enabled accounts, then use a
+	// credential-bearing disabled account as a catalog fallback so the global
+	// model-management page does not become unusable when every paid account is
+	// cooling down or exhausted.
+	accounts, err := warpModelDiscoveryAccounts(ctx, s)
 	if err != nil {
 		return nil, "", err
 	}
@@ -613,6 +619,33 @@ func discoverWarpModelsConcurrent(ctx context.Context, cfg *config.Config, s *st
 		return out, joinWarpDiscoverySources(sourceSet), nil
 	}
 	return nil, "", fmt.Errorf("warp model discovery returned no account choices")
+}
+
+func warpModelDiscoveryAccounts(ctx context.Context, s *store.Store) ([]*store.Account, error) {
+	if s == nil {
+		return nil, fmt.Errorf("store not configured")
+	}
+	accounts, err := s.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	eligible := make([]*store.Account, 0, len(accounts))
+	for _, acc := range accounts {
+		if acc == nil || !strings.EqualFold(strings.TrimSpace(acc.AccountType), "warp") {
+			continue
+		}
+		if strings.TrimSpace(warp.RefreshToken(acc)) == "" {
+			continue
+		}
+		eligible = append(eligible, acc)
+	}
+	sort.SliceStable(eligible, func(i, j int) bool {
+		if eligible[i].Enabled != eligible[j].Enabled {
+			return eligible[i].Enabled
+		}
+		return eligible[i].ID < eligible[j].ID
+	})
+	return eligible, nil
 }
 
 func probeWarpFreeOnlyModelChoices(ctx context.Context, cfg *config.Config, acc *store.Account, discovered []warp.ModelChoice) ([]warp.ModelChoice, string) {
