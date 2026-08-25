@@ -328,73 +328,6 @@ func looksLikeSourceOrCommandSubject(lower string) bool {
 	return false
 }
 
-func shouldKeepToolsForWarpToolResultFollowup(messages []prompt.Message) bool {
-	if !lastUserIsToolResultFollowup(messages) {
-		return false
-	}
-	original := lastNonToolResultUserText(messages)
-	if original == "" {
-		return false
-	}
-	toolResult := lastToolResultText(messages)
-	if looksLikeToolResultFailure(toolResult) {
-		return shouldKeepToolsForRecoverableWarpToolFailure(messages, original)
-	}
-
-	if looksLikeOptimizationRequest(original) {
-		if looksLikeExploratoryAssistantPreface(lastAssistantText(messages)) {
-			return true
-		}
-		if looksLikeWarpExplorationSeed(toolResult) {
-			return true
-		}
-		return !hasSufficientOptimizationEvidence(messages, explicitlyRequestsDeepAnalysis(original))
-	}
-
-	if looksLikeTechStackRequest(original) ||
-		looksLikeProjectPurposeRequest(original) ||
-		looksLikeBackendImplementationRequest(original) ||
-		looksLikeWebImplementationRequest(original) ||
-		looksLikeDataLayerRequest(original) ||
-		looksLikeTestingRequest(original) ||
-		(looksLikeDeploymentRequest(original) && !looksLikeReleaseRiskRequest(original)) ||
-		looksLikeSecurityRiskRequest(original) ||
-		looksLikePermissionRiskRequest(original) ||
-		looksLikeDependencyRiskRequest(original) {
-		return false
-	}
-	if !looksLikeWarpExplorationSeed(toolResult) {
-		return false
-	}
-	return looksLikeWarpExploratoryRequest(original)
-}
-
-func shouldKeepToolsForRecoverableWarpToolFailure(messages []prompt.Message, original string) bool {
-	if !looksLikeWarpExploratoryRequest(original) {
-		return false
-	}
-
-	malformedReads := countMalformedReadToolUsesInLatestAssistant(messages)
-	if malformedReads == 0 {
-		return false
-	}
-
-	totalResults, failedResults := latestToolResultTurnFailureCount(messages)
-	if totalResults == 0 || failedResults == 0 || failedResults != totalResults {
-		return false
-	}
-	if failedResults < malformedReads {
-		return false
-	}
-
-	for _, item := range collectSuccessfulToolResultEvidence(messages) {
-		if looksLikeWarpExplorationSeed(item.Content) || looksLikeImplementationReadEvidence(item) {
-			return true
-		}
-	}
-	return false
-}
-
 type toolResultEvidence struct {
 	ToolName string
 	FilePath string
@@ -519,27 +452,6 @@ func collectSuccessfulToolResultEvidence(messages []prompt.Message) []toolResult
 	return evidence
 }
 
-func countMalformedReadToolUsesInLatestAssistant(messages []prompt.Message) int {
-	for i := len(messages) - 1; i >= 0; i-- {
-		msg := messages[i]
-		if !strings.EqualFold(strings.TrimSpace(msg.Role), "assistant") || msg.Content.IsString() {
-			continue
-		}
-		count := 0
-		for _, block := range msg.Content.GetBlocks() {
-			if block.Type != "tool_use" || !strings.EqualFold(strings.TrimSpace(block.Name), "Read") {
-				continue
-			}
-			path := extractToolUseInputString(block.Input, "file_path", "path")
-			if isRecoverableMalformedReadPath(path) {
-				count++
-			}
-		}
-		return count
-	}
-	return 0
-}
-
 func latestToolResultTurnFailureCount(messages []prompt.Message) (total int, failures int) {
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
@@ -560,42 +472,6 @@ func latestToolResultTurnFailureCount(messages []prompt.Message) (total int, fai
 		}
 	}
 	return 0, 0
-}
-
-func isRecoverableMalformedReadPath(path string) bool {
-	recovered := recoverMalformedReadPath(path)
-	return recovered != "" && recovered != strings.TrimSpace(path)
-}
-
-func recoverMalformedReadPath(path string) string {
-	path = strings.TrimSpace(strings.Trim(path, "\"'"))
-	if path == "" || looksLikeNormalToolPath(path) {
-		return ""
-	}
-	if idx := strings.Index(path, "/"); idx > 0 {
-		candidate := strings.TrimSpace(path[idx:])
-		if looksLikeNormalToolPath(candidate) {
-			return candidate
-		}
-	}
-	if idx := findWindowsToolPathStart(path); idx > 0 {
-		candidate := strings.TrimSpace(path[idx:])
-		if looksLikeNormalToolPath(candidate) {
-			return candidate
-		}
-	}
-	return ""
-}
-
-func looksLikeNormalToolPath(path string) bool {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return false
-	}
-	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
-		return true
-	}
-	return findWindowsToolPathStart(path) == 0
 }
 
 func findWindowsToolPathStart(s string) int {
