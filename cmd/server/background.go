@@ -164,6 +164,16 @@ func refreshCLIAccount(ctx context.Context, cfg *config.Config, s *store.Store, 
 	} else {
 		grok.ApplyCLIBillingInfo(acc, billing)
 	}
+	if grok.CLIModelsNeedSync(acc, time.Now()) {
+		modelsCtx, modelsCancel := context.WithTimeout(ctx, 15*time.Second)
+		models, modelsErr := cliClient.FetchModels(modelsCtx, acc)
+		modelsCancel()
+		if modelsErr != nil {
+			slog.Warn("Auto sync grok cli model catalog failed", "account_id", acc.ID, "error", modelsErr)
+		} else {
+			grok.ApplyCLIModels(acc, models, time.Now())
+		}
+	}
 	if updateErr := s.UpdateAccount(ctx, acc); updateErr != nil {
 		slog.Warn("Auto refresh grok cli: update account failed", "account_id", acc.ID, "error", updateErr)
 	}
