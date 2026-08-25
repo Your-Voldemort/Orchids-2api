@@ -135,6 +135,7 @@ func TestCachedWarpModelsPreservesCatalogWhenDiscoveryIsTemporarilyUnavailable(t
 	s, cleanup := setupModelRefreshStore(t)
 	defer cleanup()
 	ctx := context.Background()
+	clearModelsForChannel(t, ctx, s, "Warp")
 	if err := s.CreateModel(ctx, &store.Model{Channel: "Warp", ModelID: "auto-open", Name: "Warp Auto", Status: store.ModelStatusAvailable}); err != nil {
 		t.Fatalf("CreateModel() error = %v", err)
 	}
