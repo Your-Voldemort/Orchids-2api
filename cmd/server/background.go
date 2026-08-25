@@ -132,6 +132,10 @@ func refreshCLIAccount(ctx context.Context, cfg *config.Config, s *store.Store, 
 	if acc == nil || s == nil || cfg == nil {
 		return
 	}
+	// Persist the compatibility inference for pre-provider OAuth rows while we
+	// already have a safe background update. This makes the product boundary
+	// visible to the admin API instead of leaving old records ambiguous.
+	grok.NormalizeProvider(acc)
 	cliClient := grok.NewCLIClient(cfg)
 	cliClient.SetAccountStore(s)
 	if strings.TrimSpace(acc.OAuthAccessToken) == "" || acc.OAuthExpiresAt.IsZero() || time.Until(acc.OAuthExpiresAt) <= 5*time.Minute {

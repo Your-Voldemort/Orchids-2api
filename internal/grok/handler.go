@@ -548,6 +548,7 @@ func (h *Handler) syncGrokQuota(acc *store.Account, headers http.Header) {
 			slog.Warn("grok quota account reload failed", "account_id", accCopy.ID, "error", err)
 			return
 		}
+		NormalizeProvider(latest)
 		if ProviderForAccount(latest) == ProviderBuild {
 			if !ApplyBuildRateLimits(latest, headers) {
 				return
