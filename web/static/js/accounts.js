@@ -58,10 +58,18 @@ function normalizeAccountType(acc) {
 
 function getQuotaStats(acc) {
   if (!acc) return null;
+  const type = normalizeAccountType(acc);
+  // An OAuth billing sync with a reset window but no numeric allowance is an
+  // explicit zero/unassigned Build allowance, not an unknown UI state.
+  if (type === "grok" && isSidebarGrokOAuthAccount(acc) &&
+      Number(acc.usage_limit || 0) <= 0 &&
+      String(acc.quota_reset_at || "").startsWith("0001-") === false &&
+      String(acc.quota_reset_at || "").trim() !== "") {
+    return { supported: true, limit: 0, remaining: 0, used: 0, pctRemaining: 0, zeroQuota: true };
+  }
   const base = getSidebarQuotaStats(acc);
   if (!base) return null;
   if (base.unknown) return base;
-  const type = normalizeAccountType(acc);
   if (type === "warp") {
     const monthlyLimit = Math.max(0, Math.floor(acc.warp_monthly_limit || acc.usage_limit || 0));
     const monthlyRemainingRaw = acc.warp_monthly_remaining !== undefined && acc.warp_monthly_remaining !== null
@@ -816,9 +824,7 @@ async function checkAccount(id, silent = false, actionText = "刷新") {
         const latest = await latestRes.json();
         accounts = accounts.map(a => (a.id === id ? latest : a));
         delete accountHealth[id];
-	    } else if (normalizeAccountType(acc) === "grok" && isSidebarGrokOAuthAccount(acc)) {
-	      tdQuota.innerHTML = `<span style="color:${color}">${quota.remaining.toLocaleString()}%</span> <span style="color:#64748b;font-size:0.75rem">/ 100% (周度剩余)</span>`;
-	    } else {
+      } else {
         updateAccountHealth(id, false, err.message || String(err));
       }
     } catch (_) {
@@ -984,7 +990,10 @@ function renderAccounts() {
     const tdQuota = document.createElement("td");
     tdQuota.style.fontSize = "0.85rem";
     const quota = getQuotaStats(acc);
-    if (quota && quota.unknown) {
+    if (quota && quota.zeroQuota) {
+      tdQuota.style.color = "#94a3b8";
+      tdQuota.innerHTML = `<span>0 / 0</span> <span style="color:#64748b;font-size:0.75rem">(官方未配置 Build 额度)</span>`;
+    } else if (quota && quota.unknown) {
       tdQuota.style.color = "#64748b";
       tdQuota.innerHTML = `<span>未知</span> <span style="color:#64748b;font-size:0.75rem">(Puter 暂无稳定额度接口)</span>`;
     } else if (quota) {
@@ -992,6 +1001,8 @@ function renderAccounts() {
       const color = pct <= 10 ? "#fb7185" : pct <= 30 ? "#f59e0b" : "#34d399";
       if (normalizeAccountType(acc) === "warp" && quota.splitBonus) {
         tdQuota.innerHTML = `<span style="color:${color}">${quota.remaining.toLocaleString()}</span> <span style="color:#64748b;font-size:0.75rem">(剩余)</span><div style="color:#64748b;font-size:0.75rem">${quota.monthlyRemaining.toLocaleString()} 月度 + ${quota.bonusRemaining.toLocaleString()} 赠送</div>`;
+      } else if (normalizeAccountType(acc) === "grok" && isSidebarGrokOAuthAccount(acc)) {
+        tdQuota.innerHTML = `<span style="color:${color}">${quota.remaining.toLocaleString()}%</span> <span style="color:#64748b;font-size:0.75rem">/ 100% (周度剩余)</span>`;
       } else {
         tdQuota.innerHTML = `<span style="color:${color}">${quota.remaining.toLocaleString()} / ${quota.limit.toLocaleString()}</span> <span style="color:#64748b;font-size:0.75rem">(剩余)</span>`;
       }
@@ -1119,6 +1130,9 @@ function renderAccounts() {
 
 function buildQuotaMarkup(acc) {
   const quota = getQuotaStats(acc);
+  if (quota && quota.zeroQuota) {
+    return `<span style="color:#94a3b8">0 / 0</span> <span style="color:#64748b;font-size:0.75rem">(官方未配置 Build 额度)</span>`;
+  }
   if (quota && quota.unknown) {
     return `<span>未知</span> <span style="color:#64748b;font-size:0.75rem">(Puter 暂无稳定额度接口)</span>`;
   }
