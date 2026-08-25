@@ -1,6 +1,8 @@
 package grok
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"io"
 	"net/http"
@@ -22,7 +24,12 @@ func TestFetchCLIBillingUsesIdentityAndAppliesWeeklyQuota(t *testing.T) {
 		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || r.Header.Get("X-XAI-Token-Auth") != "xai-grok-cli" || r.Header.Get("x-userid") != "user-1" || r.Header.Get("x-grok-team-id") != "team-1" {
 			t.Fatalf("unexpected billing headers: %#v", r.Header)
 		}
-		_, _ = io.WriteString(w, `{"config":{"currentPeriod":{"end":"2026-09-01T00:00:00Z"},"creditUsagePercent":96}}`)
+		var compressed bytes.Buffer
+		writer := gzip.NewWriter(&compressed)
+		_, _ = io.WriteString(writer, `{"config":{"currentPeriod":{"end":"2026-09-01T00:00:00Z"},"creditUsagePercent":96}}`)
+		_ = writer.Close()
+		w.Header().Set("Content-Encoding", "gzip")
+		_, _ = w.Write(compressed.Bytes())
 	}))
 	defer server.Close()
 	client := NewCLIClient(&config.Config{GrokCLIBaseURL: server.URL + "/v1"})

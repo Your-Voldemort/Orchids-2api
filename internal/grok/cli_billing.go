@@ -48,6 +48,10 @@ func (c *CLIClient) FetchBilling(ctx context.Context, acc *store.Account) (*CLIB
 	if err != nil {
 		return nil, err
 	}
+	if err := decodeHTTPResponseBody(resp); err != nil {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("decode grok cli billing response: %w", err)
+	}
 	defer resp.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, cliOAuthMaxBodyBytes))
 	if err != nil {
