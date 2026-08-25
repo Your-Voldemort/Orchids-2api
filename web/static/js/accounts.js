@@ -142,8 +142,8 @@ function subscriptionBadge(acc) {
     return { text: level, bg: "rgba(100, 116, 139, 0.12)", color: "#cbd5e1", tip: `订阅等级: ${level}` };
   }
   switch (level) {
-	case "build":
-	  return { text: "Build OAuth", bg: "rgba(96, 165, 250, 0.16)", color: "#93c5fd", tip: "Grok Build OAuth 账号" };
+    case "unknown":
+      return { text: "未知", bg: "rgba(100, 116, 139, 0.12)", color: "#94a3b8", tip: "xAI 未返回可验证的 Grok 套餐等级" };
     case "heavy":
       return { text: "heavy", bg: "rgba(251, 191, 36, 0.16)", color: "#fbbf24", tip: "Grok Heavy 账号池" };
     case "super":
@@ -1538,6 +1538,15 @@ function parseDataId(value) {
 
 function formatTokenDisplay(acc) {
   const type = normalizeAccountType(acc);
+  if (type === 'grok' && isSidebarGrokOAuthAccount(acc)) {
+    const accessToken = String(acc.oauth_access_token || "");
+    if (accessToken) {
+      return accessToken.length > 20
+        ? accessToken.substring(0, 8) + '...' + accessToken.substring(accessToken.length - 8)
+        : accessToken;
+    }
+    return 'OAuth 已配置';
+  }
   const token = acc.token;
   if (token) {
     if (token.length > 30) {

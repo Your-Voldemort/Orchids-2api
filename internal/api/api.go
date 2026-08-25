@@ -343,8 +343,9 @@ func normalizeAccountOutput(acc *store.Account) *store.Account {
 	if strings.EqualFold(out.AccountType, "grok") {
 		out.RefreshToken = ""
 		out.SessionCookie = ""
-		// Never echo OAuth credentials back to the client.
-		out.OAuthAccessToken = ""
+		// The administrator explicitly opted in to seeing the short-lived OAuth
+		// access token in the authenticated management UI. Never return the
+		// durable refresh token through normal account endpoints.
 		out.OAuthRefreshToken = ""
 	}
 	return out

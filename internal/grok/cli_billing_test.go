@@ -46,7 +46,7 @@ func TestFetchCLIBillingUsesIdentityAndAppliesWeeklyQuota(t *testing.T) {
 	if !info.HasUsagePercent || info.UsagePercent != 96 || acc.UserID != "user-1" || acc.TeamID != "team-1" {
 		t.Fatalf("info=%+v account=%+v", info, acc)
 	}
-	if !ApplyCLIBillingInfo(acc, info) || acc.Subscription != "build" || acc.UsageLimit != 100 || acc.UsageCurrent != 4 {
+	if !ApplyCLIBillingInfo(acc, info) || acc.Subscription != "unknown" || acc.UsageLimit != 100 || acc.UsageCurrent != 4 {
 		t.Fatalf("billing not applied: %+v", acc)
 	}
 }

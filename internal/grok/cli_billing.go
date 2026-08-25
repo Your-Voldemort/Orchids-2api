@@ -100,8 +100,11 @@ func ApplyCLIBillingInfo(acc *store.Account, info *CLIBillingInfo) bool {
 		return false
 	}
 	changed := false
-	if acc.Subscription != "build" {
-		acc.Subscription = "build"
+	// Build OAuth describes the credential, not the subscription tier. xAI's
+	// current JWT and Billing payload do not carry a trustworthy tier, so show
+	// it as unknown instead of inventing a plan name.
+	if acc.Subscription != "unknown" {
+		acc.Subscription = "unknown"
 		changed = true
 	}
 	if info.HasUsagePercent {
