@@ -142,6 +142,8 @@ function subscriptionBadge(acc) {
     return { text: level, bg: "rgba(100, 116, 139, 0.12)", color: "#cbd5e1", tip: `订阅等级: ${level}` };
   }
   switch (level) {
+	case "build":
+	  return { text: "Build OAuth", bg: "rgba(96, 165, 250, 0.16)", color: "#93c5fd", tip: "Grok Build OAuth 账号" };
     case "heavy":
       return { text: "heavy", bg: "rgba(251, 191, 36, 0.16)", color: "#fbbf24", tip: "Grok Heavy 账号池" };
     case "super":
@@ -814,7 +816,9 @@ async function checkAccount(id, silent = false, actionText = "刷新") {
         const latest = await latestRes.json();
         accounts = accounts.map(a => (a.id === id ? latest : a));
         delete accountHealth[id];
-      } else {
+	    } else if (normalizeAccountType(acc) === "grok" && isSidebarGrokOAuthAccount(acc)) {
+	      tdQuota.innerHTML = `<span style="color:${color}">${quota.remaining.toLocaleString()}%</span> <span style="color:#64748b;font-size:0.75rem">/ 100% (周度剩余)</span>`;
+	    } else {
         updateAccountHealth(id, false, err.message || String(err));
       }
     } catch (_) {
@@ -1124,7 +1128,10 @@ function buildQuotaMarkup(acc) {
     if (normalizeAccountType(acc) === "warp" && quota.splitBonus) {
       return `<span style="color:${color}">${quota.remaining.toLocaleString()}</span> <span style="color:#64748b;font-size:0.75rem">(剩余)</span><div style="color:#64748b;font-size:0.75rem">${quota.monthlyRemaining.toLocaleString()} 月度 + ${quota.bonusRemaining.toLocaleString()} 赠送</div>`;
     }
-    return `<span style="color:${color}">${quota.remaining.toLocaleString()} / ${quota.limit.toLocaleString()}</span> <span style="color:#64748b;font-size:0.75rem">(剩余)</span>`;
+	if (normalizeAccountType(acc) === "grok" && isSidebarGrokOAuthAccount(acc)) {
+	  return `<span style="color:${color}">${quota.remaining.toLocaleString()}%</span> <span style="color:#64748b;font-size:0.75rem">/ 100% (周度剩余)</span>`;
+	}
+	return `<span style="color:${color}">${quota.remaining.toLocaleString()} / ${quota.limit.toLocaleString()}</span> <span style="color:#64748b;font-size:0.75rem">(剩余)</span>`;
   }
   return `<span style="color:#64748b">-</span>`;
 }

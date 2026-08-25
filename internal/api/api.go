@@ -166,6 +166,14 @@ func verifyGrokAccount(ctx context.Context, acc *store.Account, cfg *config.Conf
 			}
 			return verifyErr
 		}
+		// Billing is a separate, optional official CLI endpoint. Failure to read
+		// its percentage window must not turn an authenticated account into a
+		// false 401 or make up a subscription allowance.
+		if billing, billingErr := cliClient.FetchBilling(ctx, acc); billingErr != nil {
+			slog.Warn("Grok CLI billing sync failed; leaving quota unavailable", "account_id", acc.ID, "error", billingErr)
+		} else {
+			grok.ApplyCLIBillingInfo(acc, billing)
+		}
 		return nil
 	}
 
@@ -1344,6 +1352,7 @@ func (a *API) pollGrokDeviceAuthorization(ctx context.Context, id string, authen
 			Enabled:           true,
 			NSFWEnabled:       true,
 		}
+		grok.ApplyCLIOAuthIdentity(acc)
 		normalizeGrokTokenInput(acc)
 		storeCtx, storeCancel := context.WithTimeout(ctx, 20*time.Second)
 		existing, err := a.findDuplicateAccountByCredential(storeCtx, acc, 0)
