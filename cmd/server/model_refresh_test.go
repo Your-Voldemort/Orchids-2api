@@ -110,6 +110,7 @@ func TestWarpModelDiscoveryAccountsUsesDisabledCredentialAsReadOnlyFallback(t *t
 	s, cleanup := setupModelRefreshStore(t)
 	defer cleanup()
 	ctx := context.Background()
+	clearModelsForChannel(t, ctx, s, "Warp")
 	for _, acc := range []*store.Account{
 		{Name: "disabled", AccountType: "warp", Enabled: false, RefreshToken: "disabled-refresh"},
 		{Name: "enabled", AccountType: "warp", Enabled: true, RefreshToken: "enabled-refresh"},
@@ -127,6 +128,18 @@ func TestWarpModelDiscoveryAccountsUsesDisabledCredentialAsReadOnlyFallback(t *t
 	}
 	if len(accounts) != 2 || accounts[0].Name != "enabled" || accounts[1].Name != "disabled" {
 		t.Fatalf("accounts=%#v want enabled then disabled credential-bearing Warp accounts", accounts)
+	}
+}
+
+func TestCachedWarpModelsPreservesCatalogWhenDiscoveryIsTemporarilyUnavailable(t *testing.T) {
+	s, cleanup := setupModelRefreshStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	if err := s.CreateModel(ctx, &store.Model{Channel: "Warp", ModelID: "auto-open", Name: "Warp Auto", Status: store.ModelStatusAvailable}); err != nil {
+		t.Fatalf("CreateModel() error = %v", err)
+	}
+	if cached := cachedWarpModels(ctx, s); len(cached) != 1 || cached[0].ID != "auto-open" {
+		t.Fatalf("cachedWarpModels()=%+v want auto-open", cached)
 	}
 }
 

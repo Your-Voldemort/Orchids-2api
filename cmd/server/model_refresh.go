@@ -618,7 +618,46 @@ func discoverWarpModelsConcurrent(ctx context.Context, cfg *config.Config, s *st
 	if len(out) > 0 {
 		return out, joinWarpDiscoverySources(sourceSet), nil
 	}
+	// Warp can temporarily hide every agent-mode choice when all accounts are
+	// exhausted or a workspace is still provisioning. Do not turn that missing
+	// catalog into a destructive refresh. Keep the last verified global catalog
+	// visible and report its source explicitly; a later refresh will replace it
+	// as soon as GraphQL returns choices again.
+	if cached := cachedWarpModels(ctx, s); len(cached) > 0 {
+		return cached, "warp_cached_models", nil
+	}
 	return nil, "", fmt.Errorf("warp model discovery returned no account choices")
+}
+
+func cachedWarpModels(ctx context.Context, s *store.Store) []discoveredModel {
+	if s == nil {
+		return nil
+	}
+	models, err := s.ListModels(ctx)
+	if err != nil {
+		return nil
+	}
+	out := make([]discoveredModel, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, model := range models {
+		if model == nil || !strings.EqualFold(strings.TrimSpace(model.Channel), "warp") {
+			continue
+		}
+		id := warp.NormalizeModelID(model.ModelID)
+		if id == "" {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		name := strings.TrimSpace(model.Name)
+		if name == "" {
+			name = id
+		}
+		out = append(out, discoveredModel{ID: id, Name: name, SortOrder: len(out)})
+	}
+	return out
 }
 
 func warpModelDiscoveryAccounts(ctx context.Context, s *store.Store) ([]*store.Account, error) {
