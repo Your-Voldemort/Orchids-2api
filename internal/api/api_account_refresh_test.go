@@ -19,6 +19,11 @@ func TestRefreshAccountState_GrokSyncsRemainingQuota(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/session" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"authenticated","session":{"userId":"user-1"}}`))
+			return
+		}
 		if r.URL.Path != "/rest/rate-limits" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -58,6 +63,11 @@ func TestRefreshAccountState_GrokQuotaIgnoresStaleAgentMode(t *testing.T) {
 
 	var requestedModels []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/auth/session" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"authenticated","session":{"userId":"user-23"}}`))
+			return
+		}
 		if r.URL.Path != "/rest/rate-limits" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
@@ -93,8 +103,8 @@ func TestRefreshAccountState_GrokQuotaIgnoresStaleAgentMode(t *testing.T) {
 	if status != "" || httpStatus != 0 {
 		t.Fatalf("unexpected status=%q httpStatus=%d", status, httpStatus)
 	}
-	if len(requestedModels) != 1 || requestedModels[0] != "grok-4.5" {
-		t.Fatalf("requestedModels=%v want [grok-4.5]", requestedModels)
+	if len(requestedModels) != 2 || requestedModels[0] != "auto" || requestedModels[1] != "fast" {
+		t.Fatalf("requestedModels=%v want [auto fast]", requestedModels)
 	}
 	if acc.AgentMode != "grok-3" {
 		t.Fatalf("AgentMode=%q want grok-3", acc.AgentMode)
