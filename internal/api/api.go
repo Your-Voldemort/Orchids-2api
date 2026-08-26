@@ -203,6 +203,28 @@ func verifyGrokAccount(ctx context.Context, acc *store.Account, cfg *config.Conf
 		info, verifyErr = client.VerifyToken(verifyCtx, credential, defaultGrokVerifyModelID)
 		cancel()
 	}
+	// Grok periodically retires or gates the model name used by the Web
+	// rate-limit endpoint. A 404 Model not found therefore does not prove that
+	// an SSO cookie is invalid. Confirm the session through the authenticated
+	// session endpoint and keep the account usable while quota remains unknown.
+	if verifyErr != nil && isGrokModelNotFound(verifyErr) {
+		identityCtx, identityCancel := context.WithTimeout(ctx, 15*time.Second)
+		identity, identityErr := client.FetchSessionIdentity(identityCtx, credential)
+		identityCancel()
+		if identityErr == nil {
+			if identity.UserID != "" {
+				acc.UserID = identity.UserID
+			}
+			if identity.Email != "" {
+				acc.Email = identity.Email
+			}
+			if identity.TeamID != "" {
+				acc.TeamID = identity.TeamID
+			}
+			slog.Warn("Grok SSO authenticated; quota model unavailable", "account_id", acc.ID)
+			return nil
+		}
+	}
 	if verifyErr != nil {
 		return verifyErr
 	}
@@ -274,6 +296,9 @@ func normalizeGrokTokenInput(acc *store.Account) {
 		acc.ProjectID = ""
 		return
 	}
+	// Any non-OAuth Grok credential is the Web SSO mode. Persist the explicit
+	// type so legacy imports do not appear as an unclassified account.
+	acc.CredentialType = "sso"
 	switch strings.ToLower(strings.TrimSpace(acc.GrokProvider)) {
 	case grok.ProviderWeb, grok.ProviderConsole:
 		acc.GrokProvider = strings.ToLower(strings.TrimSpace(acc.GrokProvider))
