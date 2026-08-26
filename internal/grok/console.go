@@ -15,7 +15,13 @@ import (
 	"orchids-api/internal/debug"
 )
 
-const consoleResponsesURL = "https://console.x.ai/v1/responses"
+func (h *Handler) consoleURL(path string) string {
+	base := "https://console.x.ai/v1"
+	if h != nil && h.cfg != nil {
+		base = h.cfg.GrokConsoleBaseURLOrDefault()
+	}
+	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(path, "/")
+}
 
 type consoleContentBlock struct {
 	Type string `json:"type"`
@@ -316,7 +322,7 @@ func (h *Handler) doConsole(ctx context.Context, token string, payload map[strin
 	if err != nil {
 		return nil, err
 	}
-	resp, err := h.client.doConsoleDPoPRequest(ctx, token, http.MethodPost, consoleResponsesURL, body)
+	resp, err := h.client.doConsoleDPoPRequest(ctx, token, http.MethodPost, h.consoleURL("responses"), body)
 	if err != nil {
 		noteConsoleRateLimitError(err)
 		return nil, err
@@ -577,7 +583,7 @@ func (h *Handler) serveConsoleChat(ctx context.Context, w http.ResponseWriter, r
 		return
 	}
 	resp, err := h.doConsoleWithAutoSwitch(ctx, sess, payload)
-	h.finishUpstreamChat(ctx, w, req, sess, logger, "console", consoleResponsesURL,
+	h.finishUpstreamChat(ctx, w, req, sess, logger, "console", h.consoleURL("responses"),
 		func() http.Header { return h.client.consoleHeaders(sess.token) }, payload, resp, err)
 }
 

@@ -188,6 +188,10 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 		h.handleNativeCLIResponses(w, r, req.Model, spec, nativePayload)
 		return
 	}
+	if spec, ok := ResolveModel(req.Model); ok && !spec.SupportsConversation() {
+		http.Error(w, fmt.Sprintf("model %s does not support responses", req.Model), http.StatusBadRequest)
+		return
+	}
 	if err := validateResponsesCompatibility(req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

@@ -199,6 +199,10 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, modelNotFoundMessage(req.Model), http.StatusBadRequest)
 		return
 	}
+	if !spec.SupportsConversation() {
+		http.Error(w, fmt.Sprintf("model %s does not support chat completions", req.Model), http.StatusBadRequest)
+		return
+	}
 
 	publicBase := detectPublicBaseURL(r)
 	if spec.IsImage {
