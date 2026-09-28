@@ -86,7 +86,8 @@
   display: grid;
   gap: var(--space-4);
   margin-bottom: var(--space-4);
-  align-items: stretch;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
 }
 
 .ops-card {
@@ -115,7 +116,7 @@
 
 .ops-hero-body {
   display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
+  grid-template-columns: 170px minmax(0, 1fr);
   gap: var(--space-5);
   align-items: center;
 }
@@ -170,7 +171,7 @@
 
 .ops-hero-live { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
 
-.ops-hero-tabs { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-pill); background: var(--bg-inset); width: fit-content; }
+.ops-hero-tabs { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--radius-pill); background: var(--bg-inset); width: fit-content; flex-wrap: wrap; max-width: 100%; }
 .ops-hero-tabs .ops-chip { border-color: transparent; background: transparent; }
 .ops-hero-tabs .ops-chip.is-active { background: var(--accent-soft); border-color: var(--accent-line); }
 
@@ -266,6 +267,7 @@
   display: grid;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
 .ops-resource {
@@ -525,9 +527,9 @@
   display: inline-flex;
   gap: var(--space-2);
   align-items: center;
-  padding: 4px var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--border-color);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--surface-1);
   color: var(--text-main);
   font-size: 0.74rem;
@@ -591,12 +593,6 @@
 .logs-more button[hidden] { display: none; }
 .logs-coverage { margin: 0; }
 
-.logs-detail { font-size: 0.82rem; }
-.logs-detail h2 { margin-bottom: var(--space-3); font-size: 0.95rem; }
-.logs-detail dl { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: var(--space-2) var(--space-3); margin: 0 0 var(--space-4); }
-.logs-detail dt { color: var(--text-muted); font-size: 0.76rem; }
-.logs-detail dd { margin: 0; color: var(--text-main); word-break: break-all; }
-
 /* Result strip: the panel opens with what happened, because a failure is the usual
    reason it was opened at all. */
 .logs-detail-outcome {
@@ -633,24 +629,6 @@
   overflow-wrap: anywhere;
 }
 .logs-fact-value.is-empty { color: var(--text-faint); }
-
-.logs-detail pre {
-  margin: 0 0 var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: var(--bg-inset);
-  color: var(--text-soft);
-  font-family: var(--font-mono);
-  font-size: 0.76rem;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 320px;
-  overflow: auto;
-}
-
-/* An error is the first thing to read, so it is not muted like the other blocks. */
-.logs-detail pre.logs-detail-error { border-color: rgba(251, 113, 133, 0.35); background: var(--bad-soft); color: var(--text-main); }
 
 .logs-detail-section-title { margin-bottom: var(--space-2); color: var(--text-soft); font-size: 0.8rem; font-weight: 650; }
 .logs-attempts { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -964,12 +942,8 @@ button.ops-error-row { width: 100%; border: 0; background: none; text-align: lef
 
 /* Keep the live panel wide enough for its gauge and values; breakpoints follow
    available card space, including the fixed sidebar. */
-.ops-top { grid-template-columns: minmax(0, 1fr); align-items: start; }
-.ops-hero-body { grid-template-columns: 170px minmax(0, 1fr); }
 .ops-hero-live, .ops-kpi-card, .ops-card, .ops-resource { min-width: 0; }
-.ops-hero-tabs { flex-wrap: wrap; max-width: 100%; }
 .ops-resource-detail, .ops-kpi-row, .ops-card-tools { overflow-wrap: anywhere; }
-.ops-resources { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .ops-spark svg { display: block; width: 100%; height: 72px; }
 @media (min-width: 1700px) {
  .ops-top { grid-template-columns: minmax(440px, 1fr) minmax(0, 2fr); }
@@ -1014,10 +988,8 @@ button.ops-error-row { width: 100%; border: 0; background: none; text-align: lef
    aspect-ratio driven, so they already grow with their own card. */
 @media (min-width: 2200px) {
   .ops-kpi-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
-  .ops-resources { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-  .logs-filters { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-  .ops-spark { height: 88px; }
-  .ops-spark svg { height: 88px; }
+  .ops-resources, .logs-filters { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .ops-spark, .ops-spark svg { height: 88px; }
 }
 
 /* 4K / ultrawide: the column stopped growing at 3200px, so the only thing left

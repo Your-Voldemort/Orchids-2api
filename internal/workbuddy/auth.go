@@ -17,6 +17,7 @@ import (
 	"github.com/goccy/go-json"
 
 	"orchids-api/internal/store"
+	"orchids-api/internal/util"
 )
 
 // AccountUpdater is the subset of the account store the client needs to persist
@@ -454,7 +455,7 @@ func (e *APIError) Error() string {
 		parts = append(parts, fmt.Sprintf("code=%d", e.Code))
 	}
 	if e.Message != "" {
-		parts = append(parts, "message="+truncate(e.Message, 300))
+		parts = append(parts, "message="+util.Truncate(e.Message, 300))
 	}
 	text := "workbuddy API error: " + strings.Join(parts, ", ")
 	if hint := errorHints[e.Code]; hint != "" {
@@ -503,25 +504,17 @@ func unwrapEnvelope(status int, raw []byte) (json.RawMessage, error) {
 	}
 	var env envelope
 	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil, fmt.Errorf("workbuddy response is not JSON: %s", truncate(string(raw), 200))
+		return nil, fmt.Errorf("workbuddy response is not JSON: %s", util.Truncate(string(raw), 200))
 	}
 	if env.Code != 0 {
 		if env.Code == CodeLoginPending {
 			// Login polling is expected to observe this while the browser step
 			// is still running, so it must be distinguishable from a failure.
-			return nil, fmt.Errorf("%w: %s", ErrAuthPending, truncate(env.Msg, 120))
+			return nil, fmt.Errorf("%w: %s", ErrAuthPending, util.Truncate(env.Msg, 120))
 		}
 		return nil, apiError(status, raw)
 	}
 	return env.Data, nil
-}
-
-func truncate(value string, limit int) string {
-	value = strings.TrimSpace(value)
-	if len(value) <= limit {
-		return value
-	}
-	return value[:limit] + "..."
 }
 
 // tokenUpdater owns access-token renewal for one account. Keycloak rotates the

@@ -123,7 +123,7 @@ func wireModelConfig(model modelEntry, explicitReasoning bool) modelConfigWire {
 	}
 	return modelConfigWire{
 		Key:            model.Key,
-		DisplayName:    firstNonEmpty(model.DisplayName, model.Name, model.Key),
+		DisplayName:    util.FirstNonEmpty(model.DisplayName, model.Name, model.Key),
 		Format:         format,
 		Source:         source,
 		IsVL:           model.IsVL,
@@ -542,7 +542,7 @@ func convertBlockMessage(role string, msg prompt.Message, toolCallIDs map[string
 			out = append(out, chatMessage{
 				Role:       "tool",
 				ToolCallID: toolID,
-				Content:    stringifyToolResult(block.Content),
+				Content:    util.StringifyToolResult(block.Content),
 			})
 		}
 	}
@@ -567,32 +567,6 @@ func blockImageURL(block prompt.ContentBlock) string {
 		}
 	}
 	return strings.TrimSpace(block.URL)
-}
-
-// stringifyToolResult flattens a tool result onto the string the gateway
-// expects. A structured result is serialized rather than dropped: losing it
-// would leave the model reasoning about a tool that returned nothing.
-func stringifyToolResult(value interface{}) string {
-	switch typed := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return typed
-	case []prompt.ContentBlock:
-		parts := make([]string, 0, len(typed))
-		for _, block := range typed {
-			if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
-				parts = append(parts, block.Text)
-			}
-		}
-		return strings.Join(parts, "\n")
-	default:
-		raw, err := json.Marshal(typed)
-		if err != nil {
-			return fmt.Sprint(typed)
-		}
-		return string(raw)
-	}
 }
 
 // normalizeToolDefinitions accepts both OpenAI
@@ -799,7 +773,7 @@ func (c *Client) attemptChat(ctx context.Context, url string, body []byte, model
 	result, err := consumeStreamWithTools(resp.Body, toolsEnabled, emit)
 	if err != nil {
 		var target *attemptStreamError
-		if asAttemptError(err, &target) {
+		if errors.As(err, &target) {
 			return result, err
 		}
 		// A busy or unauthorized verdict that arrived as an in-stream frame is
@@ -823,7 +797,7 @@ func classifyStatus(status int, retryAfter string, raw []byte) error {
 	code := envelopeCode(raw)
 	detail := extractBodyMessage(raw)
 	if detail == "" {
-		detail = truncate(strings.TrimSpace(string(raw)), 300)
+		detail = util.Truncate(string(raw), 300)
 	}
 	wrapped := apiError(http.MethodPost, "chat", status, raw)
 

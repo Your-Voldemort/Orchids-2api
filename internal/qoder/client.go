@@ -376,31 +376,12 @@ func (e *attemptStreamError) Unwrap() error { return e.err }
 
 func isUnauthorized(err error) bool {
 	var target *attemptStreamError
-	return asAttemptError(err, &target) && target.unauth
+	return errors.As(err, &target) && target.unauth
 }
 
 func isRetryable(err error) bool {
 	var target *attemptStreamError
-	return asAttemptError(err, &target) && (target.retryable || target.busy)
-}
-
-func asAttemptError(err error, target **attemptStreamError) bool {
-	for err != nil {
-		if typed, ok := err.(*attemptStreamError); ok {
-			*target = typed
-			return true
-		}
-		unwrapper, ok := err.(interface{ Unwrap() error })
-		if !ok {
-			return false
-		}
-		next := unwrapper.Unwrap()
-		if next == err {
-			return false
-		}
-		err = next
-	}
-	return false
+	return errors.As(err, &target) && (target.retryable || target.busy)
 }
 
 // ensureAccessToken returns a usable device access token, refreshing when the
@@ -470,11 +451,11 @@ func (c *Client) refresh(ctx context.Context, previous Credentials) (Credentials
 	// profile fields do not change between token rotations.
 	merged := Credentials{
 		AccessToken:      refreshed.AccessToken,
-		RefreshToken:     firstNonEmptyToken(refreshed.RefreshToken, previous.RefreshToken),
+		RefreshToken:     util.FirstNonEmptyUntrimmed(refreshed.RefreshToken, previous.RefreshToken),
 		AccessExpiresAt:  refreshed.AccessExpiresAt,
 		RefreshExpiresAt: refreshed.RefreshExpiresAt,
-		UID:              firstNonEmptyToken(refreshed.UID, previous.UID),
-		Name:             firstNonEmptyToken(refreshed.Name, previous.Name),
+		UID:              util.FirstNonEmptyUntrimmed(refreshed.UID, previous.UID),
+		Name:             util.FirstNonEmptyUntrimmed(refreshed.Name, previous.Name),
 		Email:            previous.Email,
 		OrgID:            previous.OrgID,
 		OrgTags:          previous.OrgTags,

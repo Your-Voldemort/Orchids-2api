@@ -137,16 +137,6 @@ func writeSSEFrameBytes(w io.Writer, event string, data []byte) error {
 	return err
 }
 
-func shouldFlushSSEImmediately(event, data string) bool {
-	switch event {
-	case "message_start", "message_delta", "message_stop", "content_block_start", "content_block_stop":
-		return true
-	case "content_block_delta":
-		return strings.Contains(data, `"type":"text_delta"`)
-	}
-	return true
-}
-
 func (h *streamHandler) flushSSEWithLenLocked(event string, dataLen int, immediate bool, force bool) {
 	if h.flusher == nil {
 		return
@@ -166,11 +156,11 @@ func (h *streamHandler) flushSSEWithLenLocked(event string, dataLen int, immedia
 	}
 }
 
-func (h *streamHandler) flushSSELocked(event, data string, force bool) {
-	h.flushSSEWithLenLocked(event, len(data), shouldFlushSSEImmediately(event, data), force)
-}
-
-func shouldFlushSSEImmediatelyBytes(event string, data []byte) bool {
+// shouldFlushSSEImmediately reports whether a frame must reach the client at
+// once. Text deltas are the streaming payload a user is waiting on; every other
+// frame is either a boundary the client needs immediately or small enough to
+// ride out in the next batch.
+func shouldFlushSSEImmediately(event string, data []byte) bool {
 	switch event {
 	case "message_start", "message_delta", "message_stop", "content_block_start", "content_block_stop":
 		return true
@@ -178,14 +168,6 @@ func shouldFlushSSEImmediatelyBytes(event string, data []byte) bool {
 		return bytes.Contains(data, sseTextDeltaMarker)
 	}
 	return true
-}
-
-func (h *streamHandler) flushSSEBytesLocked(event string, data []byte) {
-	h.flushSSEWithLenLocked(event, len(data), shouldFlushSSEImmediatelyBytes(event, data), false)
-}
-
-func (h *streamHandler) flushSSEBytesLockedWithHint(event string, dataLen int, immediate bool, force bool) {
-	h.flushSSEWithLenLocked(event, dataLen, immediate, force)
 }
 
 // --- json helper functions removed ---
@@ -574,7 +556,7 @@ func (h *streamHandler) writeSSEBytes(event string, data []byte) {
 			return
 		}
 		if written {
-			h.flushSSEBytesLocked(event, data)
+			h.flushSSEWithLenLocked(event, len(data), shouldFlushSSEImmediately(event, data), false)
 		}
 		return
 	}
@@ -583,7 +565,7 @@ func (h *streamHandler) writeSSEBytes(event string, data []byte) {
 		h.markWriteErrorLocked(event, err)
 		return
 	}
-	h.flushSSEBytesLocked(event, data)
+	h.flushSSEWithLenLocked(event, len(data), shouldFlushSSEImmediately(event, data), false)
 	if h.config != nil && h.config.DebugEnabled && h.config.DebugLogSSE {
 		h.logger.LogOutputSSE(event, string(data))
 	}
@@ -601,6 +583,45 @@ func (h *streamHandler) writeOpenAISSEBytes(event string, data []byte) (bool, er
 	return true, nil
 }
 
+// emitSSEFrameLocked writes one frame the caller has already serialized, in the
+// wire shape the response format asks for, and flushes it.
+//
+// It is the single place that knows the three differences between the writers
+// the relay used to spell out per event: the OpenAI chunk adapter instead of an
+// SSE frame, whether a completed response must flush immediately, and whether a
+// per-frame diagnostics line follows.
+func (h *streamHandler) emitSSEFrameLocked(event string, data []byte, immediate, final bool) {
+	if !h.isStream {
+		return
+	}
+	if h.responseFormat == adapter.FormatOpenAI {
+		written, err := h.writeOpenAISSEBytes(event, data)
+		if err != nil {
+			h.markWriteErrorLocked(event, err)
+			return
+		}
+		if written {
+			h.flushSSEWithLenLocked(event, len(data), immediate, final)
+		}
+		if final && event == "message_stop" {
+			if _, err := h.w.Write(sseDoneLineBytes); err != nil {
+				h.markWriteErrorLocked(event, err)
+				return
+			}
+			h.flushSSEWithLenLocked(event, len(sseDoneLine), true, true)
+		}
+		return
+	}
+	if err := writeSSEFrameBytes(h.w, event, data); err != nil {
+		h.markWriteErrorLocked(event, err)
+		return
+	}
+	h.flushSSEWithLenLocked(event, len(data), immediate, final)
+	if h.config != nil && h.config.DebugEnabled && h.config.DebugLogSSE {
+		h.logger.LogOutputSSE(event, string(data))
+	}
+}
+
 func (h *streamHandler) writeFinalSSEBytes(event string, data []byte) {
 	if !h.isStream {
 		return
@@ -615,37 +636,7 @@ func (h *streamHandler) writeFinalSSEBytesLocked(event string, data []byte) {
 }
 
 func (h *streamHandler) writeFinalSSEBytesLockedWithHint(event string, data []byte, immediate bool) {
-	if !h.isStream {
-		return
-	}
-
-	if h.responseFormat == adapter.FormatOpenAI {
-		written, err := h.writeOpenAISSEBytes(event, data)
-		if err != nil {
-			h.markWriteErrorLocked(event, err)
-			return
-		}
-		if written {
-			h.flushSSEBytesLockedWithHint(event, len(data), immediate, true)
-		}
-		if event == "message_stop" {
-			if _, err := h.w.Write(sseDoneLineBytes); err != nil {
-				h.markWriteErrorLocked(event, err)
-				return
-			}
-			h.flushSSELocked(event, sseDoneLine, true)
-		}
-		return
-	}
-
-	if err := writeSSEFrameBytes(h.w, event, data); err != nil {
-		h.markWriteErrorLocked(event, err)
-		return
-	}
-	h.flushSSEBytesLockedWithHint(event, len(data), immediate, true)
-	if h.config != nil && h.config.DebugEnabled && h.config.DebugLogSSE {
-		h.logger.LogOutputSSE(event, string(data))
-	}
+	h.emitSSEFrameLocked(event, data, immediate, true)
 }
 
 func (h *streamHandler) writeSSEBytesLockedWithHint(event string, data []byte, immediate bool) {
@@ -660,25 +651,7 @@ func (h *streamHandler) writeSSEBytesLockedWithHint(event string, data []byte, i
 	if event != "message_start" && !h.ensureMessageStartLocked() {
 		return
 	}
-	if h.responseFormat == adapter.FormatOpenAI {
-		written, err := h.writeOpenAISSEBytes(event, data)
-		if err != nil {
-			h.markWriteErrorLocked(event, err)
-			return
-		}
-		if written {
-			h.flushSSEBytesLockedWithHint(event, len(data), immediate, false)
-		}
-		return
-	}
-	if err := writeSSEFrameBytes(h.w, event, data); err != nil {
-		h.markWriteErrorLocked(event, err)
-		return
-	}
-	h.flushSSEBytesLockedWithHint(event, len(data), immediate, false)
-	if h.config != nil && h.config.DebugEnabled && h.config.DebugLogSSE {
-		h.logger.LogOutputSSE(event, string(data))
-	}
+	h.emitSSEFrameLocked(event, data, immediate, false)
 	if logutil.VerboseDiagnosticsEnabled() {
 		slog.Debug("SSE Out", "event", event, "data_len", len(data))
 	}
@@ -859,7 +832,7 @@ func (h *streamHandler) writeKeepAlive() {
 		h.markWriteErrorLocked("keep-alive", err)
 		return
 	}
-	h.flushSSELocked("keep-alive", sseKeepAlive, true)
+	h.flushSSEWithLenLocked("keep-alive", len(sseKeepAlive), true, true)
 }
 
 // addOutputTokens folds a fragment into the running output estimate.
@@ -960,6 +933,33 @@ func getUsageIntValue(usage map[string]interface{}, key string) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// applyUpstreamUsageTokens folds an upstream usage payload into the reported
+// totals. It is the shared shape of the two events that carry one
+// (model.tokens-used and the usage object of model.finish): a value the
+// provider spelled must win over the local estimate, and a value it omitted must
+// leave the estimate alone, which is what the -1 sentinels express.
+func (h *streamHandler) applyUpstreamUsageTokens(usage map[string]interface{}) {
+	h.setUpstreamUsage(usage)
+	input, hasInput := getUsageIntValue(usage, "inputTokens")
+	if !hasInput {
+		input, hasInput = getUsageIntValue(usage, "input_tokens")
+	}
+	output, hasOutput := getUsageIntValue(usage, "outputTokens")
+	if !hasOutput {
+		output, hasOutput = getUsageIntValue(usage, "output_tokens")
+	}
+	if !hasInput && !hasOutput {
+		return
+	}
+	if !hasInput {
+		input = -1
+	}
+	if !hasOutput {
+		output = -1
+	}
+	h.setUsageTokens(input, output)
 }
 
 func (h *streamHandler) setUsageTokens(input, output int) {
@@ -1538,6 +1538,8 @@ func (h *streamHandler) closeActiveBlockLocked() {
 	h.writeSSEBytesLocked("content_block_stop", stopData)
 }
 
+// writeSSEBytesLocked writes one frame the caller has already serialized and
+// lets the shared writer decide whether it must reach the client at once.
 func (h *streamHandler) writeSSEBytesLocked(event string, data []byte) {
 	if !h.isStream {
 		return
@@ -1545,26 +1547,7 @@ func (h *streamHandler) writeSSEBytesLocked(event string, data []byte) {
 	if h.hasReturn {
 		return
 	}
-	if h.responseFormat == adapter.FormatOpenAI {
-		written, err := h.writeOpenAISSEBytes(event, data)
-		if err != nil {
-			h.markWriteErrorLocked(event, err)
-			return
-		}
-		if written {
-			h.flushSSEBytesLocked(event, data)
-		}
-		return
-	}
-	if err := writeSSEFrameBytes(h.w, event, data); err != nil {
-		h.markWriteErrorLocked(event, err)
-		return
-	}
-	h.flushSSEBytesLocked(event, data)
-	if h.config != nil && h.config.DebugEnabled && h.config.DebugLogSSE {
-		h.logger.LogOutputSSE(event, string(data))
-	}
-	// Log to slog only when debug enabled
+	h.emitSSEFrameLocked(event, data, shouldFlushSSEImmediately(event, data), false)
 	if logutil.VerboseDiagnosticsEnabled() {
 		slog.Debug("SSE Out", "event", event, "data_len", len(data))
 	}
@@ -1901,25 +1884,6 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 		}
 	}
 
-	getUsageInt := func(usage map[string]interface{}, key string) (int, bool) {
-		if usage == nil {
-			return 0, false
-		}
-		if raw, ok := usage[key]; ok {
-			switch v := raw.(type) {
-			case float64:
-				return int(v), true
-			case int:
-				return v, true
-			case json.Number:
-				if n, err := v.Int64(); err == nil {
-					return int(n), true
-				}
-			}
-		}
-		return 0, false
-	}
-
 	switch eventKey {
 	case "model.usage-metadata":
 		h.setUpstreamUsage(msg.Event)
@@ -2155,52 +2119,13 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 		h.handleToolCallAfterChecks(call)
 
 	case "model.tokens-used":
-		usage := msg.Event
-		h.setUpstreamUsage(usage)
-		inputTokens, hasIn := getUsageInt(usage, "inputTokens")
-		outputTokens, hasOut := getUsageInt(usage, "outputTokens")
-		if !hasIn {
-			inputTokens, hasIn = getUsageInt(usage, "input_tokens")
-		}
-		if !hasOut {
-			outputTokens, hasOut = getUsageInt(usage, "output_tokens")
-		}
-		if hasIn || hasOut {
-			in := -1
-			out := -1
-			if hasIn {
-				in = inputTokens
-			}
-			if hasOut {
-				out = outputTokens
-			}
-			h.setUsageTokens(in, out)
-		}
+		h.applyUpstreamUsageTokens(msg.Event)
 		return
 
 	case "model.finish":
 		stopReason := "end_turn"
 		if usage, ok := msg.Event["usage"].(map[string]interface{}); ok {
-			h.setUpstreamUsage(usage)
-			inputTokens, hasIn := getUsageInt(usage, "inputTokens")
-			outputTokens, hasOut := getUsageInt(usage, "outputTokens")
-			if !hasIn {
-				inputTokens, hasIn = getUsageInt(usage, "input_tokens")
-			}
-			if !hasOut {
-				outputTokens, hasOut = getUsageInt(usage, "output_tokens")
-			}
-			if hasIn || hasOut {
-				in := -1
-				out := -1
-				if hasIn {
-					in = inputTokens
-				}
-				if hasOut {
-					out = outputTokens
-				}
-				h.setUsageTokens(in, out)
-			}
+			h.applyUpstreamUsageTokens(usage)
 		}
 		if finishReason, ok := msg.Event["finishReason"].(string); ok {
 			switch finishReason {

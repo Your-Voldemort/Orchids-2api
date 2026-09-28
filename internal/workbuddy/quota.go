@@ -11,6 +11,7 @@ import (
 	"github.com/goccy/go-json"
 
 	"orchids-api/internal/store"
+	"orchids-api/internal/util"
 )
 
 // The WorkBuddy backend meters credits through the shared Tencent Cloud AI Code
@@ -134,16 +135,16 @@ func (c *Client) FetchQuota(ctx context.Context) (*Quota, error) {
 func summarizeQuota(payload resourceResponse, now time.Time) *Quota {
 	quota := &Quota{SyncedAt: now, Unit: "credit"}
 	for _, account := range payload.Response.Data.Accounts {
-		cycleRemain := firstPositive(
+		cycleRemain := util.FirstPositive(
 			parsePrecise(account.CycleCapacityRemainP),
 			account.CycleCapacityRemain,
 		)
-		cycleSize := firstPositive(
+		cycleSize := util.FirstPositive(
 			parsePrecise(account.CycleCapacitySizeP),
 			account.CycleCapacitySize,
 			account.CapacitySize,
 		)
-		packageRemain := firstPositive(
+		packageRemain := util.FirstPositive(
 			parsePrecise(account.CapacityRemainPrecise),
 			account.CapacityRemain,
 			cycleRemain,
@@ -177,16 +178,6 @@ func summarizeQuota(payload resourceResponse, now time.Time) *Quota {
 		quota.Remaining = quota.Limit
 	}
 	return quota
-}
-
-// firstPositive returns the first strictly positive candidate, or 0.
-func firstPositive(values ...float64) float64 {
-	for _, value := range values {
-		if value > 0 {
-			return value
-		}
-	}
-	return 0
 }
 
 func parsePrecise(raw string) float64 {

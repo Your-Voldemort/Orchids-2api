@@ -128,7 +128,7 @@
 }
 
 .models-table tbody td {
-  padding: 8px var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border-color);
   color: var(--text-soft);
   vertical-align: middle;

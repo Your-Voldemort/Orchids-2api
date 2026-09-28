@@ -1,7 +1,6 @@
 package workbuddy
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 
@@ -199,7 +198,7 @@ func convertBlockMessage(role string, msg prompt.Message, pendingToolCalls map[s
 			out = append(out, ChatMessage{
 				Role:       "tool",
 				ToolCallID: toolID,
-				Content:    stringifyToolResult(block.Content),
+				Content:    util.StringifyToolResult(block.Content),
 			})
 		}
 	}
@@ -229,29 +228,6 @@ func normalizeToolChoice(choice interface{}) string {
 		}
 	}
 	return "auto"
-}
-
-func stringifyToolResult(value interface{}) string {
-	switch typed := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return typed
-	case []prompt.ContentBlock:
-		parts := make([]string, 0, len(typed))
-		for _, block := range typed {
-			if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
-				parts = append(parts, block.Text)
-			}
-		}
-		return strings.Join(parts, "\n")
-	default:
-		raw, err := json.Marshal(typed)
-		if err != nil {
-			return fmt.Sprint(typed)
-		}
-		return string(raw)
-	}
 }
 
 // normalizeToolDefinitions accepts both OpenAI (`{"type":"function","function":{...}}`)

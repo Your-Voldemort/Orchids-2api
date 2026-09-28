@@ -2,14 +2,10 @@ package workbuddy
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"sync/atomic"
-	"time"
 
 	"github.com/goccy/go-json"
 
@@ -42,12 +38,8 @@ func (r streamResult) FinishReason() string {
 	}
 }
 
-var toolCallSequence atomic.Uint64
-
 // NewToolCallID mints a local tool-call id for upstream deltas that omit one.
-func NewToolCallID() string {
-	return fmt.Sprintf("toolu_%d_%d", time.Now().UnixNano(), toolCallSequence.Add(1))
-}
+func NewToolCallID() string { return util.NewToolCallID() }
 
 // streamChunk is one `data:` line of the SSE response.
 type streamChunk struct {
@@ -81,77 +73,17 @@ type streamChunk struct {
 	} `json:"error"`
 }
 
-// toolCallAccumulator rebuilds tool calls from OpenAI-style deltas, where the
-// name arrives in the first delta and the arguments are streamed afterwards.
-type toolCallAccumulator struct {
-	order []*toolCallState
-	calls map[int]*toolCallState
-}
-
-type toolCallState struct {
-	ID        string
-	Name      string
-	Arguments strings.Builder
-	Emitted   bool
-}
-
-func newToolCallAccumulator() *toolCallAccumulator {
-	return &toolCallAccumulator{calls: map[int]*toolCallState{}}
-}
-
-func (a *toolCallAccumulator) add(index int, id, name, args string) *toolCallState {
-	trimmedID := strings.TrimSpace(id)
-	state, ok := a.calls[index]
-	if ok && (state.Emitted || (trimmedID != "" && state.ID != "" && state.ID != trimmedID)) {
-		state = nil
-		ok = false
-	}
-	if !ok {
-		state = &toolCallState{}
-		a.calls[index] = state
-		a.order = append(a.order, state)
-	}
-	if trimmedID != "" {
-		state.ID = trimmedID
-	}
-	if trimmed := strings.TrimSpace(name); trimmed != "" {
-		state.Name = trimmed
-	}
-	state.Arguments.WriteString(args)
-	return state
-}
-
-// pending returns not-yet-emitted complete tool calls in stream order.
-func (a *toolCallAccumulator) pending() []*toolCallState {
-	out := make([]*toolCallState, 0, len(a.order))
-	for _, state := range a.order {
-		if state == nil || state.Emitted || state.Name == "" {
-			continue
-		}
-		out = append(out, state)
-	}
-	return out
-}
-
-func (a *toolCallAccumulator) completeAll() []*toolCallState {
-	pending := a.pending()
-	for _, state := range pending {
-		state.Emitted = true
-	}
-	return pending
-}
-
 // consumeStream parses the SSE body and forwards deltas to the caller.
 func consumeStream(body io.Reader, onMessage func(upstream.SSEMessage)) (streamResult, error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	result := streamResult{}
-	tools := newToolCallAccumulator()
+	tools := util.NewToolCallAccumulator()
 	sawDone := false
 	sawFinish := false
 
 	emitTools := func() {
-		for _, state := range tools.completeAll() {
+		for _, state := range tools.CompleteAll() {
 			result.SawMeaningfulEvent = true
 			result.ToolCallCount++
 			if onMessage == nil {
@@ -164,7 +96,7 @@ func consumeStream(body io.Reader, onMessage func(upstream.SSEMessage)) (streamR
 			onMessage(upstream.SSEMessage{Type: "model.tool-call", Event: map[string]interface{}{
 				"toolCallId": id,
 				"toolName":   state.Name,
-				"input":      util.NormalizeToolInput(state.Arguments.String()),
+				"input":      util.NormalizeToolInput(state.Arguments),
 			}})
 		}
 	}
@@ -244,7 +176,7 @@ func consumeStream(body io.Reader, onMessage func(upstream.SSEMessage)) (streamR
 		}
 		for _, call := range delta.ToolCalls {
 			result.SawMeaningfulEvent = true
-			tools.add(call.Index, call.ID, call.Function.Name, call.Function.Arguments)
+			tools.Add(call.Index, call.ID, call.Function.Name, call.Function.Arguments)
 		}
 		// OpenAI-style tool arguments can span several deltas. Emitting on the
 		// first delta loses every later fragment and produces invalid JSON. A
@@ -264,13 +196,7 @@ func consumeStream(body io.Reader, onMessage func(upstream.SSEMessage)) (streamR
 	return result, nil
 }
 
-func newThinkingSignature() string {
-	var raw [24]byte
-	if _, err := rand.Read(raw[:]); err == nil {
-		return "workbuddy-v1:" + base64.RawURLEncoding.EncodeToString(raw[:])
-	}
-	return fmt.Sprintf("workbuddy-v1:%d", time.Now().UnixNano())
-}
+func newThinkingSignature() string { return util.NewThinkingSignature("workbuddy-v1") }
 
 // normalizeUsage maps the upstream usage object onto the key pair the shared
 // stream handler consumes.
@@ -278,8 +204,8 @@ func normalizeUsage(raw map[string]interface{}) map[string]interface{} {
 	if len(raw) == 0 {
 		return nil
 	}
-	input, hasInput := firstUsageInt(raw, "prompt_tokens", "promptTokens", "input_tokens", "inputTokens")
-	output, hasOutput := firstUsageInt(raw, "completion_tokens", "completionTokens", "output_tokens", "outputTokens")
+	input, hasInput := util.UsageInt(raw, "prompt_tokens", "promptTokens", "input_tokens", "inputTokens")
+	output, hasOutput := util.UsageInt(raw, "completion_tokens", "completionTokens", "output_tokens", "outputTokens")
 	if !hasInput && !hasOutput {
 		return nil
 	}
@@ -292,41 +218,16 @@ func normalizeUsage(raw map[string]interface{}) map[string]interface{} {
 		out["outputTokens"] = output
 		out["output_tokens"] = output
 	}
-	if cached, ok := firstUsageInt(raw, "prompt_cache_hit_tokens", "cached_tokens"); ok {
+	if cached, ok := util.UsageInt(raw, "prompt_cache_hit_tokens", "cached_tokens"); ok {
 		out["cacheReadTokens"] = cached
 		out["cache_read_tokens"] = cached
 	}
-	if reasoning, ok := firstUsageInt(raw, "completion_thinking_tokens", "reasoning_tokens"); ok {
+	if reasoning, ok := util.UsageInt(raw, "completion_thinking_tokens", "reasoning_tokens"); ok {
 		out["reasoningTokens"] = reasoning
-	} else if details := firstUsageMap(raw, "completion_tokens_details", "completionTokensDetails"); details != nil {
-		if reasoning, ok := firstUsageInt(details, "reasoning_tokens", "reasoningTokens"); ok {
+	} else if details := util.UsageMap(raw, "completion_tokens_details", "completionTokensDetails"); details != nil {
+		if reasoning, ok := util.UsageInt(details, "reasoning_tokens", "reasoningTokens"); ok {
 			out["reasoningTokens"] = reasoning
 		}
 	}
 	return out
-}
-
-func firstUsageMap(values map[string]interface{}, keys ...string) map[string]interface{} {
-	for _, key := range keys {
-		if nested, ok := values[key].(map[string]interface{}); ok {
-			return nested
-		}
-	}
-	return nil
-}
-
-func firstUsageInt(values map[string]interface{}, keys ...string) (int, bool) {
-	for _, key := range keys {
-		switch typed := values[key].(type) {
-		case float64:
-			return int(typed), true
-		case int:
-			return typed, true
-		case json.Number:
-			if parsed, err := typed.Int64(); err == nil {
-				return int(parsed), true
-			}
-		}
-	}
-	return 0, false
 }

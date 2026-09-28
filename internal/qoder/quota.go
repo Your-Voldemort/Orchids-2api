@@ -11,6 +11,7 @@ import (
 	"github.com/goccy/go-json"
 
 	"orchids-api/internal/store"
+	"orchids-api/internal/util"
 )
 
 // The chat path is not the only place an account's allowance is visible. The
@@ -307,19 +308,10 @@ func ApplyQuota(acc *store.Account, quota *Quota) {
 		UpgradeURL:     quota.UpgradeURL,
 		ResetAt:        quota.ResetAt,
 		PeriodEnd:      quota.PeriodEnd,
-		LastKnownLimit: firstPositive(quota.Limit, previous.Limit),
+		LastKnownLimit: util.FirstPositive(quota.Limit, previous.Limit),
 		SyncedAt:       quota.SyncedAt,
 	}
 	if !quota.ResetAt.IsZero() {
 		acc.QuotaResetAt = quota.ResetAt
 	}
-}
-
-func firstPositive(values ...float64) float64 {
-	for _, value := range values {
-		if value > 0 {
-			return value
-		}
-	}
-	return 0
 }
