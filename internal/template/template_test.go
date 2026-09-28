@@ -163,3 +163,37 @@ func TestSidebarUsesRealLinks(t *testing.T) {
 		t.Error("sidebar navigation still depends on inline JavaScript")
 	}
 }
+
+// TestEveryPageRendersTheSharedDocumentHead renders each page through the real
+// embedded templates. The <head> used to be copy-pasted into every page and is
+// now one partial, so a page that forgets the include would silently lose its
+// stylesheet and title; this pins the include and the page's own marker.
+func TestEveryPageRendersTheSharedDocumentHead(t *testing.T) {
+	renderer, err := NewRenderer()
+	if err != nil {
+		t.Fatalf("NewRenderer() error = %v", err)
+	}
+
+	pages := map[string]string{
+		"ops":      "opsAlertRules",
+		"logs":     "filterActor",
+		"alerts":   "alertsEvents",
+		"tutorial": "channels",
+		"models":   "currentChannelPill",
+		"keys":     "authConfig",
+		"accounts": "accountsList",
+	}
+	for tab, marker := range pages {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/?tab="+tab, nil)
+		if err := renderer.RenderIndex(recorder, request, &config.Config{AdminPath: "/admin"}, nil); err != nil {
+			t.Fatalf("tab %q: RenderIndex() error = %v", tab, err)
+		}
+		page := recorder.Body.String()
+		for _, want := range []string{"<!DOCTYPE html>", "/admin/css/main.css?v=", "</head>", `id="` + marker + `"`} {
+			if !strings.Contains(page, want) {
+				t.Errorf("tab %q: rendered page is missing %q", tab, want)
+			}
+		}
+	}
+}
