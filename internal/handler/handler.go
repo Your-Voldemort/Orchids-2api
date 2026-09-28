@@ -29,7 +29,6 @@ import (
 	"orchids-api/internal/pricing"
 	"orchids-api/internal/prompt"
 	"orchids-api/internal/store"
-	"orchids-api/internal/tokencache"
 	"orchids-api/internal/upstream"
 	"orchids-api/internal/util"
 )
@@ -66,8 +65,6 @@ type Handler struct {
 	clientCache   *accountClientCache
 	loadBalancer  *loadbalancer.LoadBalancer
 	connTracker   loadbalancer.ConnTracker
-	tokenCache    tokencache.Cache
-	promptCache   tokencache.PromptCache
 	auditLogger   audit.Logger
 
 	// Completed API requests update usage asynchronously. Coalescing by account
@@ -217,14 +214,6 @@ func (h *Handler) configSnapshot() *config.Config {
 	cfg := h.config
 	h.configMu.RUnlock()
 	return cfg
-}
-
-func (h *Handler) SetTokenCache(cache tokencache.Cache) {
-	h.tokenCache = cache
-}
-
-func (h *Handler) SetPromptCache(cache tokencache.PromptCache) {
-	h.promptCache = cache
 }
 
 // SetAuditLogger replaces the default nop audit logger.
@@ -724,37 +713,6 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	// Token 计数（用于前置 usage 展示）
 	inputTokens := breakdown.Total
-	if inputTokens <= 0 {
-		inputTokens = h.estimateInputTokens(r.Context(), req.Model, builtPrompt)
-	}
-
-	if cfg.EnableTokenCache && h.promptCache != nil {
-		sysText := ""
-		if len(req.System) > 0 {
-			if sysBytes, err := json.Marshal(req.System); err == nil {
-				sysText = string(sysBytes)
-			}
-		}
-		toolsText := ""
-		if len(effectiveTools) > 0 {
-			if toolsBytes, err := json.Marshal(effectiveTools); err == nil {
-				toolsText = string(toolsBytes)
-			}
-		}
-
-		cacheReadTokens, _ := h.promptCache.CheckPromptCache(
-			cfg.TokenCacheStrategy,
-			breakdown.SystemContextTokens,
-			breakdown.ToolsTokens,
-			sysText,
-			toolsText,
-		)
-		// Subtract cacheReadTokens from the base inputTokens
-		// if simulating prompt caching billing behavior
-		if inputTokens >= cacheReadTokens {
-			inputTokens -= cacheReadTokens
-		}
-	}
 
 	sh := newStreamHandler(
 		cfg, w, logger, noThinking, isStream, responseFormat,

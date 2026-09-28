@@ -234,8 +234,6 @@ func registerRoutes(
 	mux.HandleFunc("/api/import", sessionAuth(apiHandler.HandleImport))
 	mux.HandleFunc("/api/config/list", sessionAuth(apiHandler.HandleConfigList))
 	mux.HandleFunc("/api/config/save", sessionAuth(apiHandler.HandleConfigSave))
-	mux.HandleFunc("/api/token-cache/stats", sessionAuth(apiHandler.HandleTokenCacheStats))
-	mux.HandleFunc("/api/token-cache/clear", sessionAuth(apiHandler.HandleTokenCacheClear))
 	// Operations monitoring: the overview, the channel × model matrix and the
 	// alert set behind the 运维总览 page.
 	mux.HandleFunc("/api/ops/overview", sessionAuth(apiHandler.HandleOpsOverview))

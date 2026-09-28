@@ -34,12 +34,7 @@ type Config struct {
 	RedisPrefix        string   `json:"redis_prefix"`
 	DeploymentInstance string   `json:"deployment_instance_id,omitempty"`
 	MediaDir           string   `json:"media_dir,omitempty"`
-	CacheTokenCount    bool     `json:"cache_token_count"`
-	CacheTTL           int      `json:"cache_ttl"`
 	CacheStrategy      string   `json:"cache_strategy"`
-	EnableTokenCache   bool     `json:"enable_token_cache"`
-	TokenCacheTTL      int      `json:"token_cache_ttl"`
-	TokenCacheStrategy string   `json:"token_cache_strategy"`
 
 	// ── Hardcoded fields (set unconditionally by ApplyHardcoded) ──
 	DebugLogSSE      bool `json:"-"`
@@ -141,7 +136,6 @@ type Config struct {
 	LoadBalancerCacheTTL   int      `json:"-"`
 	ConcurrencyLimit       int      `json:"-"`
 	ConcurrencyTimeout     int      `json:"concurrency_timeout,omitempty"`
-	AdaptiveTimeout        bool     `json:"-"`
 	ProxyURL               string   `json:"proxy_url"`
 	ProxyHTTP              string   `json:"proxy_http"`
 	ProxyHTTPS             string   `json:"proxy_https"`
@@ -269,17 +263,8 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.ResponseStoreTTL <= 0 {
 		cfg.ResponseStoreTTL = 30 * 24
 	}
-	if cfg.CacheTTL <= 0 {
-		cfg.CacheTTL = 5
-	}
 	if strings.TrimSpace(cfg.CacheStrategy) == "" {
 		cfg.CacheStrategy = "mix"
-	}
-	if cfg.TokenCacheTTL <= 0 {
-		cfg.TokenCacheTTL = 300
-	}
-	if strings.TrimSpace(cfg.TokenCacheStrategy) == "" {
-		cfg.TokenCacheStrategy = "1"
 	}
 	// Fidelity default: preserve client content verbatim unless explicitly
 	// configured otherwise ("auto"/"strip" re-enable cc_entrypoint handling).
@@ -312,7 +297,6 @@ func ApplyHardcoded(cfg *Config) {
 	cfg.LoadBalancerCacheTTL = 5
 	cfg.ConcurrencyLimit = 100
 	cfg.ConcurrencyTimeout = boundedDefault(cfg.ConcurrencyTimeout, cfg.RequestTimeout, 86400)
-	cfg.AdaptiveTimeout = true
 	cfg.DebugLogSSE = cfg.DebugEnabled
 }
 

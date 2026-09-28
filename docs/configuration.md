@@ -19,6 +19,8 @@
 
 模型与推理接口默认始终要求管理端创建的 API Key；需要免 Key 的受控来源必须显式配置 `anonymous_allow_ips`。历史配置中的 `inference_auth_enabled` 已废弃并会被忽略。Build 模型经显式路由或 OAuth 账号动态能力发现，不使用历史 `grok_cli_model_ids` 列表。
 
+本地模拟 Prompt 用量缓存及历史估算缓存字段 `enable_token_cache`、`token_cache_ttl`、`token_cache_strategy`、`cache_token_count`、`cache_ttl` 均已废弃；旧配置中的这些字段不再生效，管理接口 `/api/config/save` 会对显式提交返回 HTTP 400。模拟缓存的 `/api/token-cache/stats`、`/api/token-cache/clear` 端点已移除。真实上游缓存仍由 `cache_strategy` 控制请求中的 `cache_control`，不属于上述本地模拟缓存。
+
 ## 生效顺序与备份
 
 启动时加载配置文件及默认值，Redis 中若已有 `<redis_prefix>settings:config`，其保存的设置会覆盖文件；部分历史字段还会被代码固定默认值覆盖。修改配置请优先使用管理页面，重启后确认实际生效值，不要只修改本地文件。

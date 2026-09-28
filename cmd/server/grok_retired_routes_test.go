@@ -33,7 +33,7 @@ func TestRegisterRoutes_GrokConversationSurfacesAreRetired(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	registerRoutes(mux, cfg, s, h, nil, a, middleware.NewConcurrencyLimiter(4, 0, false), nil, renderer)
+	registerRoutes(mux, cfg, s, h, nil, a, middleware.NewConcurrencyLimiter(4, 0), nil, renderer)
 
 	for _, path := range []string{
 		"/api/grok/tools/v1/models", "/api/grok/tools/v1/responses", "/api/grok/models",
@@ -88,9 +88,20 @@ func TestRegisterRoutes_GrokConversationSurfacesAreRetired(t *testing.T) {
 		t.Errorf("GET /api/config = %d, want 404", rec.Code)
 	}
 
+	// Local-only token-cache management no longer has a backing cache.
+	for _, path := range []string{"/api/token-cache/stats", "/api/token-cache/clear"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("X-Admin-Token", cfg.AdminToken)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", path, rec.Code)
+		}
+	}
+
 	// These old management and media surfaces no longer have backing producers
-	// or callers in the bundled console. The modern list/save, journal, alerts
-	// rules and token-cache endpoints remain registered and are tested elsewhere.
+	// or callers in the bundled console. The modern list/save, journal and alert
+	// rules endpoints remain registered and are tested elsewhere.
 	for _, path := range []string{
 		"/api/grok/availability", "/api/models/groups", "/api/config/cache/clear",
 		"/api/audit", "/api/ops/channels", "/api/ops/alerts",

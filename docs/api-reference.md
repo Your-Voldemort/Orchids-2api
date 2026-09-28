@@ -30,12 +30,13 @@ curl http://127.0.0.1:3002/v1/chat/completions \
 | `/api/keys*` | 创建、更新、禁用与删除推理 API Key |
 | `/api/models`、`/api/models/refresh`、`/api/models/{id}` | 模型管理及按通道刷新 |
 | `/api/config/list`、`/api/config/save` | 读取与保存配置 |
-| `/api/token-cache/stats`、`/api/token-cache/clear` | 缓存状态与清理 |
 | `/api/ops/overview`、`/api/ops/runtime`、`/api/ops/alerts/rules` | 运维概览、运行信息与告警规则 |
 | `/api/journal/records`、`/api/journal/diagnostics*` | 日志与诊断 |
 | `/api/export`、`/api/import` | 账号备份与恢复；导出文件包含凭据，请按密钥保管 |
 | `POST /api/workbuddy/login`、`POST /api/qoder/login`、`POST /api/cline/login` | 发起相应渠道官方授权 |
 | `POST /api/grok/device-auth` | 发起 Grok Build OAuth 设备授权 |
+
+`/api/token-cache/stats` 与 `/api/token-cache/clear` 是已移除的本地模拟缓存管理端点，不再提供统计或清除功能。`/api/config/save` 对 `enable_token_cache`、`token_cache_ttl`、`token_cache_strategy`、`cache_token_count`、`cache_ttl` 的显式提交返回 HTTP 400；真实上游缓存的 `cache_strategy` 与 `cache_control` 不受影响。
 
 登录事务创建后，在返回的官方授权页面完成操作，通过对应 `GET /api/{channel}/login/{id}`（Grok：`GET /api/grok/device-auth/{id}`）轮询；同路径的 `DELETE` 可取消。管理页面已集成流程，建议直接在页面操作。Qoder、Cline、Grok 不接受手填个人 token；WorkBuddy 的凭据导入仅用于迁移。
 

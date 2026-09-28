@@ -35,7 +35,6 @@ import (
 	"orchids-api/internal/qoder"
 	"orchids-api/internal/refreshqueue"
 	"orchids-api/internal/store"
-	"orchids-api/internal/tokencache"
 	"orchids-api/internal/util"
 )
 
@@ -44,8 +43,6 @@ type API struct {
 	configHookMu sync.RWMutex
 	connTracker  loadbalancer.ConnTracker
 	store        *store.Store
-	tokenCache   tokencache.Cache
-	promptCache  tokencache.PromptCache
 	adminUser    string
 	adminPass    string
 	loginLimiter *middleware.RateLimiter
@@ -1250,10 +1247,6 @@ func (a *API) notifyConfigChanged(cfg *config.Config) {
 	}
 }
 
-func (a *API) SetPromptCache(cache tokencache.PromptCache) {
-	a.promptCache = cache
-}
-
 func (a *API) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodPost) {
 		return
@@ -1350,6 +1343,10 @@ func (a *API) HandleConfigSave(w http.ResponseWriter, r *http.Request) {
 	current := a.config.Load()
 	newCfg, err := buildConfigFromPatch(r, current)
 	if err != nil {
+		if errors.Is(err, errRetiredCacheSetting) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		writeCodeEnvelope(w, 1, nil, "parse request failed: "+err.Error())
 		return
 	}
@@ -2515,35 +2512,6 @@ func (a *API) HandleModelByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *API) SetTokenCache(c tokencache.Cache) {
-	a.tokenCache = c
-}
-
-func tokenCacheConfigChanged(before, after *config.Config) bool {
-	if before == nil || after == nil {
-		return true
-	}
-	return before.CacheTokenCount != after.CacheTokenCount ||
-		before.CacheTTL != after.CacheTTL ||
-		before.CacheStrategy != after.CacheStrategy ||
-		before.EnableTokenCache != after.EnableTokenCache ||
-		before.TokenCacheTTL != after.TokenCacheTTL ||
-		before.TokenCacheStrategy != after.TokenCacheStrategy
-}
-
-func (a *API) clearTokenCaches(ctx context.Context) {
-	if a.tokenCache != nil {
-		if err := a.tokenCache.Clear(ctx); err != nil {
-			slog.Warn("failed to clear token cache after config update", "error", err)
-		}
-	}
-	if a.promptCache != nil {
-		if err := a.promptCache.Clear(ctx); err != nil {
-			slog.Warn("failed to clear prompt cache after config update", "error", err)
-		}
-	}
-}
-
 func configPayload(cfg *config.Config) (map[string]interface{}, error) {
 	if cfg == nil {
 		return map[string]interface{}{}, nil
@@ -2572,6 +2540,8 @@ func configPayload(cfg *config.Config) (map[string]interface{}, error) {
 	return payload, nil
 }
 
+var errRetiredCacheSetting = errors.New("local token cache settings are retired; cache_strategy still controls upstream cache_control")
+
 func buildConfigFromPatch(r *http.Request, current *config.Config) (*config.Config, error) {
 	base := &config.Config{}
 	if current != nil {
@@ -2591,6 +2561,11 @@ func buildConfigFromPatch(r *http.Request, current *config.Config) (*config.Conf
 
 	if _, forbidden := patch["admin_token"]; forbidden {
 		return nil, fmt.Errorf("admin_token is deployment-managed and cannot be changed through configuration management")
+	}
+	for _, retired := range []string{"enable_token_cache", "token_cache_ttl", "token_cache_strategy", "cache_token_count", "cache_ttl"} {
+		if _, present := patch[retired]; present {
+			return nil, fmt.Errorf("%w: %s", errRetiredCacheSetting, retired)
+		}
 	}
 	if v, ok := patch["admin_password"]; ok {
 		patch["admin_pass"] = v
@@ -2623,14 +2598,14 @@ func normalizeConfigPatchValue(key string, value interface{}) interface{} {
 	}
 
 	switch key {
-	case "enable_token_refresh", "enable_usage_refresh", "enable_token_count", "cache_token_count",
-		"enable_token_cache", "auto_refresh_token", "kiro_use_builtin_proxy",
+	case "enable_token_refresh", "enable_usage_refresh", "enable_token_count",
+		"auto_refresh_token", "kiro_use_builtin_proxy",
 		"antigravity_use_builtin_proxy",
 		"enable_context_compress", "debug_enabled":
 		if b, ok := parseBoolish(value); ok {
 			return b
 		}
-	case "retry_delay", "request_timeout", "refresh_interval", "cache_ttl", "token_cache_ttl",
+	case "retry_delay", "request_timeout", "refresh_interval",
 		"redis_db", "token_refresh_interval", "load_balancer_cache_ttl", "concurrency_limit",
 		"concurrency_timeout", "max_retries", "credential_retries":
 		if i, ok := parseIntish(value); ok {
@@ -2832,15 +2807,10 @@ func (a *API) persistConfig(ctx context.Context, current, newCfg *config.Config)
 	if err := a.store.SetSetting(ctx, "config", string(data)); err != nil {
 		return err
 	}
-	cacheChanged := tokenCacheConfigChanged(current, storedCfg)
-
 	// Runtime configs are immutable after publication. Replacing the pointer is
 	// atomic; mutating the previously published object would race with request
 	// handlers and background jobs reading its fields.
 	a.config.Store(storedCfg)
 	a.notifyConfigChanged(storedCfg)
-	if cacheChanged {
-		a.clearTokenCaches(ctx)
-	}
 	return nil
 }
