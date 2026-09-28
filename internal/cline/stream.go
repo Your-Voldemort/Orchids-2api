@@ -291,15 +291,7 @@ func consumeStream(body io.Reader, toolsEnabled bool, onMessage func(upstream.SS
 	sawFinish := false
 
 	emitText := func(text string) {
-		if text == "" {
-			return
-		}
-		result.SawMeaningfulEvent = true
-		if onMessage != nil {
-			onMessage(upstream.SSEMessage{Type: "model.text-delta", Event: map[string]interface{}{
-				"delta": text,
-			}})
-		}
+		upstream.EmitTextDelta(onMessage, text, &result.SawMeaningfulEvent)
 	}
 
 	emitReasoning := func(reasoning string) {
@@ -335,22 +327,7 @@ func consumeStream(body io.Reader, toolsEnabled bool, onMessage func(upstream.SS
 	}
 
 	emitTools := func() {
-		for _, state := range tools.CompleteAll() {
-			result.SawMeaningfulEvent = true
-			result.ToolCallCount++
-			if onMessage == nil {
-				continue
-			}
-			id := state.ID
-			if id == "" {
-				id = NewToolCallID()
-			}
-			onMessage(upstream.SSEMessage{Type: "model.tool-call", Event: map[string]interface{}{
-				"toolCallId": id,
-				"toolName":   state.Name,
-				"input":      util.NormalizeToolInput(state.Arguments),
-			}})
-		}
+		upstream.EmitToolCalls(onMessage, tools.CompleteAll(), &result.SawMeaningfulEvent, &result.ToolCallCount)
 	}
 
 	for scanner.Scan() {
@@ -385,15 +362,7 @@ func consumeStream(body io.Reader, toolsEnabled bool, onMessage func(upstream.SS
 		if msg := strings.TrimSpace(chunk.Error.Message); msg != "" {
 			return result, fmt.Errorf("cline stream error: %s", msg)
 		}
-		if chunk.Usage != nil {
-			if usage := normalizeUsage(chunk.Usage); len(usage) > 0 {
-				result.Usage = usage
-				result.SawMeaningfulEvent = true
-				if onMessage != nil {
-					onMessage(upstream.SSEMessage{Type: "model.tokens-used", Event: usage})
-				}
-			}
-		}
+		upstream.ApplyStreamUsage(onMessage, upstream.NormalizeUsageMap(chunk.Usage), &result.SawMeaningfulEvent, &result.Usage)
 		if len(chunk.Choices) == 0 {
 			continue
 		}
@@ -488,49 +457,4 @@ func unwrapEnvelope(payload string) (string, bool) {
 		return "", false
 	}
 	return inner, true
-}
-
-// normalizeUsage maps the upstream usage object onto the key pair the shared
-// stream handler consumes.
-func normalizeUsage(raw map[string]interface{}) map[string]interface{} {
-	if len(raw) == 0 {
-		return nil
-	}
-	input, hasInput := util.UsageInt(raw, "prompt_tokens", "promptTokens", "input_tokens", "inputTokens")
-	output, hasOutput := util.UsageInt(raw, "completion_tokens", "completionTokens", "output_tokens", "outputTokens")
-	if !hasInput && !hasOutput {
-		return nil
-	}
-	out := make(map[string]interface{}, 6)
-	if hasInput {
-		out["inputTokens"] = input
-		out["input_tokens"] = input
-	}
-	if hasOutput {
-		out["outputTokens"] = output
-		out["output_tokens"] = output
-	}
-	if cached, ok := util.UsageInt(raw, "prompt_cache_hit_tokens", "cached_tokens"); ok {
-		out["cacheReadTokens"] = cached
-		out["cache_read_tokens"] = cached
-	}
-	if reasoning, ok := reasoningUsage(raw); ok {
-		out["reasoningTokens"] = reasoning
-		out["reasoning_tokens"] = reasoning
-	}
-	return out
-}
-
-func reasoningUsage(raw map[string]interface{}) (int, bool) {
-	if value, ok := util.UsageInt(raw, "reasoning_tokens", "reasoningTokens", "completion_thinking_tokens"); ok {
-		return value, true
-	}
-	for _, key := range []string{"completion_tokens_details", "completionTokensDetails", "output_tokens_details", "outputTokensDetails"} {
-		if details := util.UsageMap(raw, key); details != nil {
-			if value, found := util.UsageInt(details, "reasoning_tokens", "reasoningTokens", "thinking_tokens", "thinkingTokens"); found {
-				return value, true
-			}
-		}
-	}
-	return 0, false
 }

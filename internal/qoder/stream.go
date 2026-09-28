@@ -194,15 +194,7 @@ func consumeStreamWithTools(body io.Reader, toolsEnabled bool, onMessage func(up
 	sawNativeTools := false
 
 	emitText := func(text string) {
-		if text == "" {
-			return
-		}
-		result.SawMeaningfulEvent = true
-		if onMessage != nil {
-			onMessage(upstream.SSEMessage{Type: "model.text-delta", Event: map[string]interface{}{
-				"delta": text,
-			}})
-		}
+		upstream.EmitTextDelta(onMessage, text, &result.SawMeaningfulEvent)
 	}
 
 	flushPendingText := func() {
@@ -214,22 +206,7 @@ func consumeStreamWithTools(body io.Reader, toolsEnabled bool, onMessage func(up
 	}
 
 	emitTools := func() {
-		for _, state := range tools.CompleteAll() {
-			result.SawMeaningfulEvent = true
-			result.ToolCallCount++
-			if onMessage == nil {
-				continue
-			}
-			id := state.ID
-			if id == "" {
-				id = NewToolCallID()
-			}
-			onMessage(upstream.SSEMessage{Type: "model.tool-call", Event: map[string]interface{}{
-				"toolCallId": id,
-				"toolName":   state.Name,
-				"input":      util.NormalizeToolInput(state.Arguments),
-			}})
-		}
+		upstream.EmitToolCalls(onMessage, tools.CompleteAll(), &result.SawMeaningfulEvent, &result.ToolCallCount)
 	}
 
 	sawFinish := false
@@ -350,15 +327,7 @@ func consumeStreamWithTools(body io.Reader, toolsEnabled bool, onMessage func(up
 			// into a truncation.
 			return false
 		}
-		if chunk.Usage != nil {
-			if usage := normalizeUsage(chunk.Usage); len(usage) > 0 {
-				result.Usage = usage
-				result.SawMeaningfulEvent = true
-				if onMessage != nil {
-					onMessage(upstream.SSEMessage{Type: "model.tokens-used", Event: usage})
-				}
-			}
-		}
+		upstream.ApplyStreamUsage(onMessage, normalizeUsage(chunk.Usage), &result.SawMeaningfulEvent, &result.Usage)
 		if len(chunk.Choices) == 0 {
 			return true
 		}

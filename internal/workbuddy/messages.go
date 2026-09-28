@@ -4,8 +4,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/goccy/go-json"
-
 	"orchids-api/internal/prompt"
 	"orchids-api/internal/upstream"
 	"orchids-api/internal/util"
@@ -230,43 +228,9 @@ func normalizeToolChoice(choice interface{}) string {
 	return "auto"
 }
 
-// normalizeToolDefinitions accepts both OpenAI (`{"type":"function","function":{...}}`)
-// and Anthropic (`{"name":...,"input_schema":...}`) tool declarations.
+// normalizeToolDefinitions renders the OpenAI function envelope for the tool
+// declarations the gateway forwards. It is the shared implementation in
+// internal/util: WorkBuddy, Qoder and Cline all need the same envelope.
 func normalizeToolDefinitions(tools []interface{}) []interface{} {
-	out := make([]interface{}, 0, len(tools))
-	for _, tool := range tools {
-		raw, err := json.Marshal(tool)
-		if err != nil {
-			continue
-		}
-		var decoded map[string]interface{}
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			continue
-		}
-		if fn, ok := decoded["function"].(map[string]interface{}); ok {
-			if strings.TrimSpace(util.StringValue(fn["name"])) == "" {
-				continue
-			}
-			decoded["type"] = "function"
-			out = append(out, decoded)
-			continue
-		}
-		name := strings.TrimSpace(util.StringValue(decoded["name"]))
-		if name == "" {
-			continue
-		}
-		parameters := decoded["input_schema"]
-		if parameters == nil {
-			parameters = map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
-		}
-		out = append(out, map[string]interface{}{
-			"type": "function",
-			"function": map[string]interface{}{
-				"name":        name,
-				"description": util.StringValue(decoded["description"]),
-				"parameters":  parameters,
-			},
-		})
-	}
-	return out
+	return util.NormalizeToolDefinitions(tools)
 }

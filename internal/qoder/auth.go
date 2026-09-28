@@ -319,7 +319,6 @@ type Profile struct {
 	Name    string   `json:"name"`
 	Email   string   `json:"email"`
 	OrgID   string   `json:"organization_id"`
-	OrgName string   `json:"organization_name"`
 	OrgTags []string `json:"organization_tags"`
 }
 

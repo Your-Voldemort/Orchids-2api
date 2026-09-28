@@ -291,7 +291,6 @@ func normalizeToken(value string) string {
 type Claims struct {
 	Sub       string `json:"sub"`
 	Email     string `json:"email"`
-	Issuer    string `json:"iss"`
 	Scope     string `json:"scope"`
 	ExpiresAt int64  `json:"exp"`
 }
@@ -764,11 +763,9 @@ type WorkBuddyModel struct {
 	MaxOutputTokens int64  `json:"maxOutputTokens"`
 	SupportsTools   bool   `json:"supportsToolCall"`
 	SupportsReason  bool   `json:"supportsReasoning"`
-	OnlyReasoning   bool   `json:"onlyReasoning"`
 	Disabled        bool   `json:"disabled"`
 	Reasoning       struct {
-		Effort           string   `json:"effort"`
-		SupportedEfforts []string `json:"supportedEfforts"`
+		Effort string `json:"effort"`
 	} `json:"reasoning"`
 }
 

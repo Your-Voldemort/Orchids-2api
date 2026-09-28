@@ -569,50 +569,21 @@ func blockImageURL(block prompt.ContentBlock) string {
 	return strings.TrimSpace(block.URL)
 }
 
-// normalizeToolDefinitions accepts both OpenAI
-// (`{"type":"function","function":{...}}`) and Anthropic
-// (`{"name":...,"input_schema":...}`) declarations and renders the OpenAI shape.
+// normalizeToolDefinitions renders the OpenAI function envelope for the
+// request's tool declarations. The `model` argument is unused and kept only so
+// the call sites read uniformly with the other request builders: normalization
+// is model independent and lives in internal/util, shared with the WorkBuddy
+// and Cline channels.
+//
+// The NoTools / no-declaration guard stays here rather than in the shared
+// helper: Qoder distinguishes "no tools" (nil, so the gateway sees an empty
+// array via the chatBody fallback below) from "tools present", while WorkBuddy
+// always keeps a non-nil slice.
 func normalizeToolDefinitions(req upstream.UpstreamRequest, model modelEntry) []interface{} {
 	if req.NoTools || len(req.Tools) == 0 {
 		return nil
 	}
-	out := make([]interface{}, 0, len(req.Tools))
-	for _, tool := range req.Tools {
-		raw, err := json.Marshal(tool)
-		if err != nil {
-			continue
-		}
-		var decoded map[string]interface{}
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			continue
-		}
-		if fn, ok := decoded["function"].(map[string]interface{}); ok {
-			if strings.TrimSpace(util.StringValue(fn["name"])) == "" {
-				continue
-			}
-			decoded["type"] = "function"
-			out = append(out, decoded)
-			continue
-		}
-		name := strings.TrimSpace(util.StringValue(decoded["name"]))
-		if name == "" {
-			continue
-		}
-		parameters := decoded["input_schema"]
-		if parameters == nil {
-			parameters = map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}
-		}
-		out = append(out, map[string]interface{}{
-			"type": "function",
-			"function": map[string]interface{}{
-				"name":        name,
-				"description": util.StringValue(decoded["description"]),
-				"parameters":  parameters,
-			},
-		})
-	}
-	_ = model
-	return out
+	return util.NormalizeToolDefinitions(req.Tools)
 }
 
 // normalizeToolControls maps both OpenAI and Anthropic tool selection shapes to

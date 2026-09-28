@@ -82,23 +82,12 @@ func consumeStream(body io.Reader, onMessage func(upstream.SSEMessage)) (streamR
 	sawDone := false
 	sawFinish := false
 
+	emitText := func(text string) {
+		upstream.EmitTextDelta(onMessage, text, &result.SawMeaningfulEvent)
+	}
+
 	emitTools := func() {
-		for _, state := range tools.CompleteAll() {
-			result.SawMeaningfulEvent = true
-			result.ToolCallCount++
-			if onMessage == nil {
-				continue
-			}
-			id := state.ID
-			if id == "" {
-				id = NewToolCallID()
-			}
-			onMessage(upstream.SSEMessage{Type: "model.tool-call", Event: map[string]interface{}{
-				"toolCallId": id,
-				"toolName":   state.Name,
-				"input":      util.NormalizeToolInput(state.Arguments),
-			}})
-		}
+		upstream.EmitToolCalls(onMessage, tools.CompleteAll(), &result.SawMeaningfulEvent, &result.ToolCallCount)
 	}
 
 	for scanner.Scan() {
@@ -137,15 +126,7 @@ func consumeStream(body io.Reader, onMessage func(upstream.SSEMessage)) (streamR
 		if msg := strings.TrimSpace(chunk.Error.Message); msg != "" {
 			return result, fmt.Errorf("workbuddy stream error: %s", msg)
 		}
-		if chunk.Usage != nil {
-			if usage := normalizeUsage(chunk.Usage); len(usage) > 0 {
-				result.Usage = usage
-				result.SawMeaningfulEvent = true
-				if onMessage != nil {
-					onMessage(upstream.SSEMessage{Type: "model.tokens-used", Event: usage})
-				}
-			}
-		}
+		upstream.ApplyStreamUsage(onMessage, upstream.NormalizeUsageMap(chunk.Usage), &result.SawMeaningfulEvent, &result.Usage)
 		if len(chunk.Choices) == 0 {
 			continue
 		}
@@ -167,12 +148,7 @@ func consumeStream(body io.Reader, onMessage func(upstream.SSEMessage)) (streamR
 			}
 		}
 		if delta.Content != "" {
-			result.SawMeaningfulEvent = true
-			if onMessage != nil {
-				onMessage(upstream.SSEMessage{Type: "model.text-delta", Event: map[string]interface{}{
-					"delta": delta.Content,
-				}})
-			}
+			emitText(delta.Content)
 		}
 		for _, call := range delta.ToolCalls {
 			result.SawMeaningfulEvent = true
@@ -197,37 +173,3 @@ func consumeStream(body io.Reader, onMessage func(upstream.SSEMessage)) (streamR
 }
 
 func newThinkingSignature() string { return util.NewThinkingSignature("workbuddy-v1") }
-
-// normalizeUsage maps the upstream usage object onto the key pair the shared
-// stream handler consumes.
-func normalizeUsage(raw map[string]interface{}) map[string]interface{} {
-	if len(raw) == 0 {
-		return nil
-	}
-	input, hasInput := util.UsageInt(raw, "prompt_tokens", "promptTokens", "input_tokens", "inputTokens")
-	output, hasOutput := util.UsageInt(raw, "completion_tokens", "completionTokens", "output_tokens", "outputTokens")
-	if !hasInput && !hasOutput {
-		return nil
-	}
-	out := make(map[string]interface{}, 6)
-	if hasInput {
-		out["inputTokens"] = input
-		out["input_tokens"] = input
-	}
-	if hasOutput {
-		out["outputTokens"] = output
-		out["output_tokens"] = output
-	}
-	if cached, ok := util.UsageInt(raw, "prompt_cache_hit_tokens", "cached_tokens"); ok {
-		out["cacheReadTokens"] = cached
-		out["cache_read_tokens"] = cached
-	}
-	if reasoning, ok := util.UsageInt(raw, "completion_thinking_tokens", "reasoning_tokens"); ok {
-		out["reasoningTokens"] = reasoning
-	} else if details := util.UsageMap(raw, "completion_tokens_details", "completionTokensDetails"); details != nil {
-		if reasoning, ok := util.UsageInt(details, "reasoning_tokens", "reasoningTokens"); ok {
-			out["reasoningTokens"] = reasoning
-		}
-	}
-	return out
-}
