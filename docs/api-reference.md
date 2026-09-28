@@ -28,8 +28,12 @@ curl http://127.0.0.1:3002/v1/chat/completions \
 | `POST /api/login`、`POST /api/logout` | 管理会话 |
 | `/api/accounts*` | 账号管理 |
 | `/api/keys*` | 创建、更新、禁用与删除推理 API Key |
-| `/api/models*` | 模型管理；`POST /api/models/refresh` 按通道刷新 |
-| `/api/config*` | 配置管理 |
+| `/api/models`、`/api/models/refresh`、`/api/models/{id}` | 模型管理及按通道刷新 |
+| `/api/config/list`、`/api/config/save` | 读取与保存配置 |
+| `/api/token-cache/stats`、`/api/token-cache/clear` | 缓存状态与清理 |
+| `/api/ops/overview`、`/api/ops/runtime`、`/api/ops/alerts/rules` | 运维概览、运行信息与告警规则 |
+| `/api/journal/records`、`/api/journal/diagnostics*` | 日志与诊断 |
+| `/api/export`、`/api/import` | 账号备份与恢复；导出文件包含凭据，请按密钥保管 |
 | `POST /api/workbuddy/login`、`POST /api/qoder/login`、`POST /api/cline/login` | 发起相应渠道官方授权 |
 | `POST /api/grok/device-auth` | 发起 Grok Build OAuth 设备授权 |
 

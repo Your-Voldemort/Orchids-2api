@@ -103,21 +103,9 @@ func (a *API) SetAlertEngine(engine *alerting.Engine) {
 	a.alertEngine = engine
 }
 
-type auditEventRecord struct {
-	ID    string      `json:"id"`
-	Event audit.Event `json:"event"`
-}
-
-// auditScanCap bounds how many stream entries one query reads before filtering.
-// The ledger is time-bounded, so a filtered page must not silently promise the
-// whole history: coverage tells the reader what the store actually holds.
+// auditScanCap bounds the bounded ledger scans used by operations coverage and
+// account usage estimates.
 const auditScanCap = 2000
-
-// HandleAuditEvents exposes the bounded Redis audit ledger to authenticated
-// administrators. Cursor pagination uses Redis Stream IDs; the journal is
-// filtered by kind (request/operation/system) plus the fields the log centre
-// offers. Credentials never appear: whether they do is enforced at write time by
-// audit.SummarizeChange.
 
 // writeAccountCheckBusy tells the caller that a refresh of this account is already
 // running, so the click was merged instead of racing a second refresh.
@@ -127,71 +115,6 @@ func writeAccountCheckBusy(w http.ResponseWriter) {
 			"type":    "check_in_progress",
 			"message": "this account is already being refreshed; the request was merged",
 		},
-	})
-}
-
-func (a *API) HandleAuditEvents(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodGet) {
-		return
-	}
-	if a == nil || a.store == nil || a.store.RedisClient() == nil {
-		http.Error(w, "audit ledger requires Redis storage", http.StatusServiceUnavailable)
-		return
-	}
-	limit := parseAuditLimit(r)
-	filter, err := auditFilterFromQuery(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	maxID := journalMaxID(r, filter)
-
-	scanCount := int64(limit) * 5
-	if scanCount > auditScanCap {
-		scanCount = auditScanCap
-	}
-	messages, err := a.store.RedisClient().XRevRangeN(r.Context(), a.store.RedisPrefix()+"audit:log", maxID, "-", scanCount).Result()
-	if err != nil {
-		http.Error(w, "failed to read audit ledger", http.StatusInternalServerError)
-		return
-	}
-	records := make([]auditEventRecord, 0, len(messages))
-	scanned := 0
-	for _, message := range messages {
-		scanned++
-		raw, _ := message.Values["data"].(string)
-		var event audit.Event
-		if raw == "" || json.Unmarshal([]byte(raw), &event) != nil {
-			continue
-		}
-		if !filter.matches(event) {
-			continue
-		}
-		records = append(records, auditEventRecord{ID: message.ID, Event: event})
-		if len(records) >= limit {
-			break
-		}
-	}
-	// The cursor must never skip a record: a full page resumes before the last row
-	// shown, and a short page that ran out of scan budget resumes before everything
-	// that was scanned. An empty cursor means the ledger itself ended.
-	nextCursor := ""
-	switch {
-	case len(records) >= limit:
-		nextCursor = records[len(records)-1].ID
-	case int64(len(messages)) >= scanCount && len(messages) > 0:
-		nextCursor = messages[len(messages)-1].ID
-	}
-	writeJSON(w, map[string]interface{}{
-		"data":        records,
-		"next_cursor": nextCursor,
-		"scanned":     scanned,
-		// Filtered: true means the store was scanned to its cap, so an empty page
-		// is "nothing matched inside the retained window" — not "never happened".
-		"filtered":    scanned >= int(scanCount),
-		"scan_cap":    scanCount,
-		"coverage":    a.auditCoverage(r.Context()),
-		"filter_used": filter.describe(),
 	})
 }
 
@@ -297,8 +220,8 @@ func auditFilterFromQuery(r *http.Request) (auditQueryFilter, error) {
 	}, nil
 }
 
-// parseAuditLimit reads the `limit` query both audit readers share, clamped to
-// the range one page may ask for; an unparsable value keeps the default.
+// parseAuditLimit reads the journal's `limit` query, clamped to the range one
+// page may ask for; an unparsable value keeps the default.
 func parseAuditLimit(r *http.Request) int {
 	limit := 100
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
@@ -644,9 +567,6 @@ func normalizeGrokTokenInput(acc *store.Account) {
 	acc.Token = ""
 	acc.ClientCookie = ""
 	acc.RefreshToken = ""
-	acc.SessionCookie = ""
-	acc.SessionID = ""
-	acc.ClientUat = ""
 }
 
 // grokAccountIsOAuth reports whether a Grok account is a Build CLI OAuth account.
@@ -743,7 +663,7 @@ func (o accountOutput) MarshalJSON() ([]byte, error) {
 	// Credentials are write-only. The account API exposes only their presence,
 	// including for create, update and refresh responses.
 	merged["has_credential"] = o.SessionFingerprint != ""
-	for _, field := range []string{"token", "client_cookie", "refresh_token", "session_cookie", "session_id", "client_uat", "oauth_access_token", "oauth_refresh_token", "workbuddy_access_token", "workbuddy_refresh_token", "qoder_access_token", "qoder_refresh_token", "qoder_runtime_info", "qoder_runtime_key", "cline_access_token", "cline_refresh_token", "session_fingerprint"} {
+	for _, field := range []string{"token", "client_cookie", "refresh_token", "oauth_access_token", "oauth_refresh_token", "workbuddy_access_token", "workbuddy_refresh_token", "qoder_access_token", "qoder_refresh_token", "qoder_runtime_info", "qoder_runtime_key", "cline_access_token", "cline_refresh_token", "session_fingerprint"} {
 		delete(merged, field)
 	}
 	if o.Account != nil {
@@ -802,7 +722,6 @@ func normalizeAccountOutputWithUsage(acc *store.Account, usage map[int64]int64) 
 			}
 		}
 		out.RefreshToken = ""
-		out.SessionCookie = ""
 		// The administrator explicitly opted in to seeing the short-lived OAuth
 		// access token in the authenticated management UI. Never return the
 		// durable refresh token through normal account endpoints.
@@ -931,7 +850,7 @@ func normalizedAccountCredentialKey(acc *store.Account) string {
 	case "cline":
 		return ClineCredentialKey(acc)
 	default:
-		token = strings.TrimSpace(util.FirstNonEmpty(acc.RefreshToken, acc.SessionCookie, acc.ClientCookie, acc.Token))
+		token = strings.TrimSpace(util.FirstNonEmpty(acc.RefreshToken, acc.ClientCookie, acc.Token))
 	}
 
 	if token == "" || accountType == "" {
@@ -1408,32 +1327,6 @@ func (a *API) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	})
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
-}
-
-func (a *API) HandleConfig(w http.ResponseWriter, r *http.Request) {
-	a.configMu.Lock()
-	defer a.configMu.Unlock()
-
-	switch r.Method {
-	case http.MethodGet:
-		writeJSON(w, a.config.Load())
-	case http.MethodPost:
-		// Copy current config, decode into copy, then atomically store
-		current := a.config.Load()
-		newCfg := current.Clone()
-		if err := json.NewDecoder(r.Body).Decode(newCfg); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if err := a.persistConfig(r.Context(), current, newCfg); err != nil {
-			http.Error(w, "Failed to save config: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		writeJSON(w, newCfg)
-	default:
-		writeMethodNotAllowed(w)
-	}
 }
 
 func (a *API) HandleConfigList(w http.ResponseWriter, r *http.Request) {
@@ -2041,15 +1934,6 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if acc.SessionID == "" {
-			acc.SessionID = existing.SessionID
-		}
-		if acc.SessionCookie == "" {
-			acc.SessionCookie = existing.SessionCookie
-		}
-		if acc.ClientUat == "" {
-			acc.ClientUat = existing.ClientUat
-		}
 		if acc.UserID == "" {
 			acc.UserID = existing.UserID
 		}
@@ -2080,30 +1964,6 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeMethodNotAllowed(w)
 	}
-}
-
-func (a *API) HandleGrokAvailability(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodGet) {
-		return
-	}
-
-	counts := map[string]int{grok.ProviderBuild: 0}
-	accounts, err := a.store.ListAccounts(r.Context())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	for _, acc := range accounts {
-		if acc == nil || !acc.Enabled {
-			continue
-		}
-		if provider := grok.ProviderForAccount(acc); provider != "" {
-			if _, ok := counts[provider]; ok {
-				counts[provider]++
-			}
-		}
-	}
-	writeJSON(w, map[string]interface{}{"counts": counts})
 }
 
 func (a *API) HandleExport(w http.ResponseWriter, r *http.Request) {
@@ -2195,7 +2055,7 @@ func restoreExportCredentials(out, acc *store.Account) {
 // RedactQoderOutput clears the generic slots at all — and without this the export
 // would publish it.
 //
-// The generic Token/RefreshToken/ClientCookie/SessionCookie/SessionID/ClientUat
+// The generic Token/RefreshToken/ClientCookie
 // slots are deliberately left alone. They are not "foreign" for WorkBuddy and
 // Qoder: both resolvers fall back to them to parse a credential document written
 // before the channel had fields of its own, so clearing them here would drop a
@@ -2657,23 +2517,6 @@ func (a *API) HandleModelByID(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) SetTokenCache(c tokencache.Cache) {
 	a.tokenCache = c
-}
-
-func (a *API) HandleCacheClear(w http.ResponseWriter, r *http.Request) {
-	if !requireMethod(w, r, http.MethodPost) {
-		return
-	}
-	if a.tokenCache == nil {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if err := a.tokenCache.Clear(r.Context()); err != nil {
-		http.Error(w, "Failed to clear cache: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
 }
 
 func tokenCacheConfigChanged(before, after *config.Config) bool {

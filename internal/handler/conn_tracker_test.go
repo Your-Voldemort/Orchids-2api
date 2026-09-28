@@ -107,7 +107,6 @@ func createEnabledTestAccount(t *testing.T, s *store.Store, name, accountType st
 	acc := &store.Account{
 		Name:        name,
 		AccountType: accountType,
-		SessionID:   name + "-session",
 		Enabled:     true,
 		Weight:      1,
 	}
