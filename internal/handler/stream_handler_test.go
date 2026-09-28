@@ -252,7 +252,9 @@ func TestInjectNoAvailableAccountError_StreamingReportsInBandError(t *testing.T)
 	// written lazily now, so a stream only becomes unrevistable once it has begun.
 	// Opening without content keeps this test about the in-band report rather than
 	// about the answer text.
-	sh.writeSSEMessageStart("workbuddy-model", 12, 0)
+	sh.mu.Lock()
+	sh.writeMessageStartLocked("workbuddy-model", 12, 0)
+	sh.mu.Unlock()
 
 	sh.InjectNoAvailableAccountError(
 		`upstream API error: status=429, body={"code":"rate-limited"}`,

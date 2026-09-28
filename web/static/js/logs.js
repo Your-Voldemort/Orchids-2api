@@ -62,7 +62,6 @@
     '2_converted_prompt.md': '2 · 转换后提示词',
     '3_upstream_request.json': '3 · 上游请求',
     '3_upstream_http_error.json': '3 · 上游错误',
-    '4_upstream_sse.jsonl': '4 · 上游响应（SSE / Protobuf 解码）',
     '5_client_sse.jsonl': '5 · 返回客户端 SSE',
     '6_input_token_breakdown.json': '6 · 输入 token 分解',
     '6_summary.json': '6 · 请求摘要',

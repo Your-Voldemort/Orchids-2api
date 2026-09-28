@@ -702,17 +702,6 @@ func (c *Client) VerifyModel(ctx context.Context, modelID string) error {
 	}, nil, nil)
 }
 
-// PrepareRuntimeFields derives the authentication pair if it is not present yet.
-// It exists so a login can prove the derivation works before the credential is
-// persisted, instead of surfacing the failure on the first chat request.
-func (c *Client) PrepareRuntimeFields(ctx context.Context) error {
-	if c == nil {
-		return fmt.Errorf("qoder client is nil")
-	}
-	_, err := c.ensureRuntimeFields(ctx, c.currentCredentials())
-	return err
-}
-
 // RuntimeFields returns the derived pair. It is empty until the pair has been
 // prepared.
 func (c *Client) RuntimeFields() RuntimeFields {

@@ -111,11 +111,23 @@ func TestWriteGrokErrorStatusMapping(t *testing.T) {
 	}
 }
 
-// An upstream failure must never hand the caller the upstream body, the egress
-// node id, or the internal "status=… node=… body=…" shape.
+// An upstream failure must never hand the caller the upstream body or the
+// internal "status=… body=…" shape.
 func TestWriteGrokUpstreamErrorSanitizesInternalDetail(t *testing.T) {
-	upstream := newUpstreamError(http.StatusUnauthorized, http.Header{"Retry-After": {"7"}},
-		[]byte(`{"error":{"message":"account team=acme quota exhausted; upgrade at x.ai/pricing"}}`), "node-eu-3")
+	// The typed error is assembled directly so the internal text can be
+	// inspected. The production constructor never exposes this shape to a
+	// client, and the response must not echo it when it is attached.
+	upstream := &grokUpstreamError{
+		status: http.StatusUnauthorized,
+		header: sanitizeUpstreamHeader(http.Header{"Retry-After": {"7"}}),
+		body:   boundedUpstreamBody([]byte(`{"error":{"message":"account team=acme quota exhausted; upgrade at x.ai/pricing"}}`)),
+	}
+	// The internal text must carry every detail the leak check below looks for,
+	// otherwise that check proves nothing.
+	if text := upstream.Error(); !strings.Contains(text, "acme") ||
+		!strings.Contains(text, "status=") || !strings.Contains(text, "body=") {
+		t.Fatalf("the internal error text is missing detail the leak check below needs: %q", text)
+	}
 	rec := httptest.NewRecorder()
 	writeGrokUpstreamError(rec, upstream)
 
@@ -126,7 +138,7 @@ func TestWriteGrokUpstreamErrorSanitizesInternalDetail(t *testing.T) {
 		t.Fatalf("Retry-After = %q, want 7", got)
 	}
 	body := rec.Body.String()
-	for _, leak := range []string{"node-eu-3", "acme", "x.ai/pricing", "status=", "body="} {
+	for _, leak := range []string{"acme", "x.ai/pricing", "status=", "body="} {
 		if strings.Contains(body, leak) {
 			t.Fatalf("upstream detail %q leaked to the client: %s", leak, body)
 		}

@@ -755,15 +755,6 @@ func (h *streamHandler) writeSSEMessageDeltaLocked(stopReason string, outputToke
 	h.writeSSEBytesLockedWithHint("message_delta", raw, true)
 }
 
-func (h *streamHandler) writeSSEMessageStart(model string, inputTokens, outputTokens int) {
-	if !h.isStream {
-		return
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.writeMessageStartLocked(model, inputTokens, outputTokens)
-}
-
 // writeMessageStartLocked emits the opening frame. It takes the lock as held.
 func (h *streamHandler) writeMessageStartLocked(model string, inputTokens, outputTokens int) {
 	if !h.isStream || h.hasReturn {
@@ -1555,12 +1546,6 @@ func (h *streamHandler) writeSSEBytesLocked(event string, data []byte) {
 
 // Event Handlers
 
-func (h *streamHandler) markTextOutput() {
-	h.mu.Lock()
-	h.hasTextOutput = true
-	h.mu.Unlock()
-}
-
 func (h *streamHandler) handleToolCallAfterChecks(call toolCall) {
 	h.mu.Lock()
 	h.pendingToolCalls = append(h.pendingToolCalls, call)
@@ -2157,43 +2142,6 @@ func (h *streamHandler) handleMessage(msg upstream.SSEMessage) {
 
 		h.closeActiveBlock()
 		h.finishResponse(stopReason)
-	}
-}
-
-// InjectErrorText injects an error message as a text delta into the stream or buffer.
-func (h *streamHandler) InjectErrorText(logMsg, errorMsg string) {
-	h.injectMessageText(logMsg, apperrors.PublicMessage(errorMsg))
-}
-
-// injectMessageText writes an already client-facing message into the stream or the
-// buffer.
-//
-// It exists so a message the gateway composed itself is not run through
-// PublicMessage a second time. PublicMessage recognises *upstream* error text, and
-// it replaces anything it does not recognise with a generic sentence — so passing
-// an operator-facing message through it silently discards it.
-func (h *streamHandler) injectMessageText(logMsg, errorMsg string) {
-	if h != nil && h.w != nil {
-		if requestID := strings.TrimSpace(h.w.Header().Get("X-Orchids-Request-ID")); requestID != "" {
-			errorMsg += " Request ID: " + requestID
-		}
-	}
-	if logutil.VerboseDiagnosticsEnabled() {
-		slog.Debug(logMsg, "error_msg", errorMsg, "is_stream", h.isStream)
-	}
-	h.markTextOutput()
-	idx := h.ensureBlock("text")
-	internalIdx := h.activeTextBlockIndex
-
-	if h.isStream {
-		data, _ := marshalSSEContentBlockDeltaTextBytes(idx, errorMsg)
-		h.writeSSEBytes("content_block_delta", data)
-	} else {
-		h.mu.Lock()
-		if builder := builderAt(h.textBlockBuilders, internalIdx); builder != nil {
-			builder.WriteString(errorMsg)
-		}
-		h.mu.Unlock()
 	}
 }
 
