@@ -464,7 +464,6 @@ type Store struct {
 }
 
 type Options struct {
-	StoreMode               string
 	RedisAddr               string
 	RedisPassword           string
 	RedisDB                 int

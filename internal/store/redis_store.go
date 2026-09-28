@@ -1785,8 +1785,16 @@ func (s *redisStore) DeleteReasoningReplay(ctx context.Context, model, key strin
 }
 
 func (s *redisStore) SaveReasoningReplay(ctx context.Context, replay *StoredReasoningReplay, ttl time.Duration) error {
-	if replay == nil || strings.TrimSpace(replay.Model) == "" || strings.TrimSpace(replay.SessionKey) == "" || strings.TrimSpace(replay.EncryptedContent) == "" {
+	if replay == nil || strings.TrimSpace(replay.Model) == "" || strings.TrimSpace(replay.SessionKey) == "" || (strings.TrimSpace(replay.EncryptedContent) == "" && len(replay.Items) == 0) {
 		return fmt.Errorf("invalid reasoning replay")
+	}
+	// Replay readers decode each item into a map; JSON scalars, arrays and null
+	// cannot be replayed even though they are otherwise valid JSON values.
+	for _, item := range replay.Items {
+		trimmed := strings.TrimSpace(string(item))
+		if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(item) {
+			return fmt.Errorf("invalid reasoning replay item")
+		}
 	}
 	if ttl <= 0 {
 		ttl = time.Hour

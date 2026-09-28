@@ -8,13 +8,13 @@
 |---|---|
 | `port` | 监听端口，示例为 `3002` |
 | `admin_user`、`admin_pass`、`admin_path` | 管理端账号、密码和访问路径；留空密码在启动日志中随机生成 |
-| `store_mode`、`redis_addr`、`redis_password`、`redis_db`、`redis_prefix` | Redis 连接与 key 前缀；当前存储模式为 Redis |
+| `redis_addr`、`redis_password`、`redis_db`、`redis_prefix` | Redis 连接与 key 前缀；存储固定使用 Redis |
 | `credential_encryption_key_file` | 账号凭据主密钥文件，示例为 `data/credential.key` |
 | `trusted_proxies` | 可信反向代理 IP/CIDR，勿信任任意客户端可访问的地址 |
 | `anonymous_allow_ips` | 明确允许免 API Key 访问推理接口的来源 IP；默认空数组 |
 | `debug_enabled` | 收集诊断内容，生产环境保持 `false` |
 | `response_store_ttl_hours` | stored Response 记录保留小时数，示例为 `720` |
-| `deployment_replicas`、`deployment_instance_id`、`deployment_cluster_id` | 多副本标识，同集群共享 Redis |
+| `deployment_instance_id` | Grok 实例标识；多副本部署时为各副本设置唯一值 |
 | `proxy_http`、`proxy_https` | 出站代理 |
 
 模型与推理接口默认始终要求管理端创建的 API Key；需要免 Key 的受控来源必须显式配置 `anonymous_allow_ips`。历史配置中的 `inference_auth_enabled` 已废弃并会被忽略。Build 模型经显式路由或 OAuth 账号动态能力发现，不使用历史 `grok_cli_model_ids` 列表。

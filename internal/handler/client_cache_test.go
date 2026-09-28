@@ -24,9 +24,8 @@ func TestGetOrCreateAccountClient_ReusesClientAcrossStatsOnlyAccountUpdates(t *t
 
 	cfg := &config.Config{RequestTimeout: 30}
 	h := &Handler{
-		config:       cfg,
-		clientCache:  newAccountClientCache(),
-		sessionStore: NewMemorySessionStore(30*time.Minute, 1024),
+		config:      cfg,
+		clientCache: newAccountClientCache(),
 	}
 
 	created := 0
@@ -74,9 +73,8 @@ func TestGetOrCreateAccountClient_RebuildsWhenCredentialsChange(t *testing.T) {
 
 	cfg := &config.Config{RequestTimeout: 30}
 	h := &Handler{
-		config:       cfg,
-		clientCache:  newAccountClientCache(),
-		sessionStore: NewMemorySessionStore(30*time.Minute, 1024),
+		config:      cfg,
+		clientCache: newAccountClientCache(),
 	}
 
 	created := 0

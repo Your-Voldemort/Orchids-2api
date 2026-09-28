@@ -98,7 +98,6 @@ func main() {
 	slog.Info("Credential encryption enabled", "key_source", credentialKeySource)
 
 	s, err := store.New(store.Options{
-		StoreMode:               cfg.StoreMode,
 		RedisAddr:               cfg.RedisAddr,
 		RedisPassword:           cfg.RedisPassword,
 		RedisDB:                 cfg.RedisDB,
@@ -132,7 +131,7 @@ func main() {
 			slog.Debug("Config loaded from Redis")
 		}
 	}
-	slog.Info("Media storage initialized", "directory", cfg.MediaDir, "replicas", cfg.DeploymentReplicas, "shared", cfg.SharedMedia)
+	slog.Info("Media storage initialized", "directory", cfg.MediaDir)
 
 	lb := loadbalancer.NewWithCacheTTL(s, time.Duration(cfg.LoadBalancerCacheTTL)*time.Second)
 
@@ -208,12 +207,7 @@ func main() {
 	apiHandler.SetPromptCache(promptCache)
 	slog.Debug("Prompt cache initialized", "ttl", cfg.TokenCacheTTL)
 
-	// Session store: use Redis when available, fall back to memory
 	if redisClient := s.RedisClient(); redisClient != nil {
-		sessionStore := handler.NewRedisSessionStore(redisClient, s.RedisPrefix(), conversationBindingTTL(cfg))
-		h.SetSessionStore(sessionStore)
-		slog.Debug("Session store initialized", "backend", "redis")
-
 		auditLogger := audit.NewRedisLogger(redisClient, s.RedisPrefix(), 10000)
 		h.SetAuditLogger(middleware.ObserveAuditLogger(auditLogger))
 		grokHandler.SetAuditLogger(middleware.ObserveAuditLogger(auditLogger))
@@ -369,17 +363,6 @@ func main() {
 
 	<-idleConnsClosed
 	slog.Info("Server shutdown gracefully")
-}
-
-// conversationBindingTTL is how long a client conversation may idle and still
-// resume the upstream conversation it was attached to. The default raises the
-// historical half hour, which detached ordinary working sessions between turns.
-func conversationBindingTTL(cfg *config.Config) time.Duration {
-	const fallback = 30 * time.Minute
-	if cfg == nil || cfg.SessionTTLMinutes <= 0 {
-		return fallback
-	}
-	return time.Duration(cfg.SessionTTLMinutes) * time.Minute
 }
 
 // logWorkBuddyReachability reports at startup whether this process can reach the
