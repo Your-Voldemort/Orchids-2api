@@ -276,7 +276,8 @@ body::before,
   text-transform: uppercase;
 }
 
-.sidebar-menu {
+.sidebar-menu,
+.ops-kpi-rows{
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -378,7 +379,8 @@ body::before,
   backdrop-filter: blur(12px);
 }
 
-.mobile-topbar-brand { display: flex; align-items: center; gap: var(--space-3); }
+.mobile-topbar-brand,
+.ops-head-title{ display: flex; align-items: center; gap: var(--space-3); }
 
 .mobile-menu-btn {
   display: grid;
@@ -731,12 +733,6 @@ input[type="range"] {
   align-items: start;
 }
 
-.helper-text {
-  color: var(--text-muted);
-  font-size: 0.75rem;
-  line-height: 1.6;
-}
-
 .input-wrapper {
   position: relative;
   display: flex;
@@ -798,11 +794,6 @@ input[type="range"] {
   transition: transform var(--transition), background var(--transition);
 }
 
-.toggle.active {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
 .toggle.active .toggle-slider {
   transform: translateX(16px);
   background: var(--text-on-accent);
@@ -812,7 +803,8 @@ input[type="range"] {
    forgot to mirror the state onto the label. The models table did exactly that —
    the box was checked and the switch still looked off, which is how a 启用 toggle
    came to look disabled. */
-.toggle:has(input:checked) {
+.toggle:has(input:checked),
+.toggle.active{
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -851,9 +843,12 @@ input[type="range"] {
 
 .advanced-settings[open] > summary::before { content: "－"; }
 
-.advanced-settings[open] > summary { border-bottom: 1px solid var(--border-color); }
+.advanced-settings[open] > summary,
+.tut-faq details[open] summary{ border-bottom: 1px solid var(--border-color); }
 
-.advanced-settings .advanced-body { padding: var(--space-4); }
+.advanced-settings .advanced-body,
+.estimate-panel,
+.config-key-card{ padding: var(--space-4); }
 
 /* -----------------------------------------------------------------------------
    7. Surfaces: cards, panels, sections
@@ -875,7 +870,8 @@ input[type="range"] {
 .models-results-card { overflow: hidden; }
 
 .card-head,
-.config-key-head {
+.config-key-head,
+.settings-card-head{
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -930,7 +926,8 @@ input[type="range"] {
 
 .hint,
 .ops-hint,
-.meta-text {
+.meta-text,
+.helper-text{
   color: var(--text-muted);
   font-size: 0.75rem;
   line-height: 1.6;
@@ -960,7 +957,8 @@ input[type="range"] {
 
 .stat-card::after { content: none; }
 
-.stat-info {
+.stat-info,
+.form-row-control{
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -1080,7 +1078,8 @@ table tbody td,
 
 table tbody tr:hover td { background: var(--surface-2); }
 
-table tbody tr:last-child td { border-bottom: 0; }
+table tbody tr:last-child td,
+.accounts-table tbody tr:last-child td{ border-bottom: 0; }
 
 .table-empty-cell {
   padding: var(--space-8) var(--space-4);
@@ -1229,16 +1228,8 @@ table tbody tr:last-child td { border-bottom: 0; }
 .modal-content-md { max-width: 620px; }
 .modal-content-lg { max-width: 880px; }
 
-.modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--border-color);
-}
-
-.modal-title { font-size: 0.98rem; font-weight: 650; }
+.modal-title,
+.tut-section-head h2{ font-size: 0.98rem; font-weight: 650; }
 
 .modal-body,
 .modal-scroll {
@@ -1277,7 +1268,8 @@ table tbody tr:last-child td { border-bottom: 0; }
 
 .drawer.is-open { transform: translateX(0); }
 
-.drawer-head {
+.drawer-head,
+.modal-header{
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1329,7 +1321,8 @@ table tbody tr:last-child td { border-bottom: 0; }
 }
 
 .toast.show { opacity: 1; transform: translateY(0); }
-.toast[data-type="error"] { border-left-color: var(--bad); }
+.toast[data-type="error"],
+.logs-attempt.is-failed{ border-left-color: var(--bad); }
 .toast[data-type="info"] { border-left-color: var(--info); }
 
 .toast-mark {
@@ -1492,7 +1485,8 @@ table tbody tr:last-child td { border-bottom: 0; }
   padding: var(--space-4) var(--space-5);
   border-left: 3px solid var(--info);
 }
-.doc-callout-amber { border-left-color: var(--warn); }
+.doc-callout-amber,
+.tut-route-rule.is-warning{ border-left-color: var(--warn); }
 .doc-inline-code,
 .inline-code,
 .doc-inline-code-red,
@@ -1560,9 +1554,7 @@ table tbody tr:last-child td { border-bottom: 0; }
     --control-h-lg: 42px;
   }
 
-  body { font-size: 16px; }
-
-  .main-content { padding: var(--space-8) var(--space-10) var(--space-10); }
+.main-content { padding: var(--space-8) var(--space-10) var(--space-10); }
   .header-section h1 { font-size: 1.65rem; }
 
   .stats-grid { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
@@ -1590,7 +1582,8 @@ table tbody tr:last-child td { border-bottom: 0; }
 
 @media (min-width: 2200px) {
   .login-card { max-width: 480px; }
-  .login-body { font-size: 16px; }
+  .login-body,
+  body{ font-size: 16px; }
   .login-hero h1 { font-size: 1.9rem; }
 }
 
@@ -1621,9 +1614,7 @@ table tbody tr:last-child td { border-bottom: 0; }
 
   .sidebar.mobile-open { transform: translateX(0); }
 
-  body.sidebar-open { overflow: hidden; }
-
-  /* Below this breakpoint the sidebar is a drawer, so it occupies no room in the
+/* Below this breakpoint the sidebar is a drawer, so it occupies no room in the
      flow and --content-max must stop subtracting it. --content-max is
      `min(3200px, 100% - var(--sidebar-w))`: at 390px that caps the page column at
      142px and every page renders as a narrow strip of wrapped text beside an
@@ -1750,11 +1741,7 @@ table tbody tr:last-child td { border-bottom: 0; }
   .row-checkbox,
   .alerts-checkbox { width: 24px; height: 24px; }
 
-  .page-actions > button,
-  .page-actions > .btn,
-  .page-actions > [class*='btn-'] { flex: 1 1 auto; }
-
-  .panel-close-btn,
+.panel-close-btn,
   .modal-close,
   .btn-icon,
   .action-icon { min-width: 44px; }
@@ -1791,7 +1778,10 @@ table tbody tr:last-child td { border-bottom: 0; }
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
 
-  .modal-actions > .btn { flex: 1 1 auto; }
+  .modal-actions > .btn,
+  .page-actions > button,
+  .page-actions > .btn,
+  .page-actions > [class*='btn-']{ flex: 1 1 auto; }
 
   .drawer {
     width: 100vw;
@@ -1799,10 +1789,11 @@ table tbody tr:last-child td { border-bottom: 0; }
   }
 
   /* The detail panel covers the list on a phone: the page must not scroll behind it. */
-  body.drawer-open { overflow: hidden; }
+  body.drawer-open,
+  body.sidebar-open{ overflow: hidden; }
 
-  .drawer-head { padding: var(--space-4); }
-  .drawer-body { padding: var(--space-4); }
+.drawer-body,
+  .drawer-head{ padding: var(--space-4); }
 
   .toast-container {
     top: auto;
@@ -1828,12 +1819,9 @@ table tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 640px) {
   /* Five page buttons and a page-size select do not fit one line: they were the
      439px row that zoomed the accounts page out. */
-  .pagination-shell {
-    flex-direction: column;
-    align-items: stretch;
-  }
 
-  .pagination-shell .inline-actions {
+.pagination-shell .inline-actions,
+  .pagination-shell{
     flex-direction: column;
     align-items: stretch;
   }
@@ -1853,3 +1841,134 @@ table tbody tr:last-child td { border-bottom: 0; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* -----------------------------------------------------------------------------
+   Shared page primitives. Each declaration below is needed verbatim by two
+   or more page sheets, so it lives here once instead of once per sheet.
+   -------------------------------------------------------------------------- */
+
+.accounts-table thead th,
+.models-table thead th{
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 10px var(--space-3);
+  border-bottom: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.account-mobile-card,
+.models-mobile-card{
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+
+.accounts-table tbody td,
+.models-table tbody td{
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-soft);
+  vertical-align: middle;
+}
+
+.accounts-panel,
+.models-results-card{
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+
+.ops-head-filters,
+.models-toolbar-controls{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.account-mobile-head,
+.models-mobile-head{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.accounts-row-actions,
+.models-actions{
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  justify-content: flex-end;
+}
+
+.account-mobile-grid,
+.models-mobile-grid,
+.tut-route-rules{
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.accounts-table,
+.models-table{
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.82rem;
+}
+
+.ops-card-tools,
+.accounts-actions,
+.account-mobile-inline,
+.models-results-meta{ display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+.form-row-label,
+.models-control{
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.account-identity-sub,
+.models-cell-title{
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.accounts-mobile-list,
+.models-mobile-list{
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+
+.ops-page,
+.config-page,
+.tut-page{ padding-bottom: var(--space-10); }
+
+.ops-grid,
+.accounts-stats{ margin-bottom: var(--space-4); }
+
+.accounts-actions .accounts-action-cluster.is-danger,
+.models-action-btn-danger:hover{ background: var(--bad-soft); }
+
+.ops-gauge-sub > span,
+.account-cooldown-until{ white-space: nowrap; }
+
+.accounts-table .col-check,
+.models-table .col-select{ width: 40px; }

@@ -22,11 +22,6 @@ function setText(id, value) {
   if (node) node.textContent = value == null ? "" : String(value);
 }
 
-function setDisabled(id, disabled) {
-  const node = el(id);
-  if (node) node.disabled = Boolean(disabled);
-}
-
 // activeChannel is the channel the page is scoped to. A channel is always
 // required by the refresh and batch actions, so the first known one stands in
 // when the strip has not been clicked yet.

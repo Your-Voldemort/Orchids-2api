@@ -540,37 +540,6 @@ func (h *streamHandler) release() {
 	}
 }
 
-func (h *streamHandler) writeSSEBytes(event string, data []byte) {
-	if !h.isStream {
-		return
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.hasReturn {
-		return
-	}
-	if h.responseFormat == adapter.FormatOpenAI {
-		written, err := h.writeOpenAISSEBytes(event, data)
-		if err != nil {
-			h.markWriteErrorLocked(event, err)
-			return
-		}
-		if written {
-			h.flushSSEWithLenLocked(event, len(data), shouldFlushSSEImmediately(event, data), false)
-		}
-		return
-	}
-
-	if err := writeSSEFrameBytes(h.w, event, data); err != nil {
-		h.markWriteErrorLocked(event, err)
-		return
-	}
-	h.flushSSEWithLenLocked(event, len(data), shouldFlushSSEImmediately(event, data), false)
-	if h.config != nil && h.config.DebugEnabled && h.config.DebugLogSSE {
-		h.logger.LogOutputSSE(event, string(data))
-	}
-}
-
 func (h *streamHandler) writeOpenAISSEBytes(event string, data []byte) (bool, error) {
 	raw, ok := adapter.AppendOpenAIChunk(h.openAIChunkScratch[:0], h.msgID, h.startTime.Unix(), event, data)
 	if !ok {

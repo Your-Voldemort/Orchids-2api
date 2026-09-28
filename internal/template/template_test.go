@@ -60,18 +60,6 @@ func TestRenderIndexShipsNoCompetingSidebarCount(t *testing.T) {
 		t.Fatalf("renderer still publishes a competing account count: %s", body)
 	}
 }
-func TestRendererParsesAndRendersEmbeddedTemplates(t *testing.T) {
-	renderer, err := NewRenderer()
-	if err != nil {
-		t.Fatalf("NewRenderer() error = %v", err)
-	}
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/?tab=accounts", nil)
-	if err := renderer.RenderIndex(recorder, request, &config.Config{AdminPath: "/admin"}, nil); err != nil {
-		t.Fatalf("RenderIndex() error = %v", err)
-	}
-}
 
 // TestTutorialPageListsEveryChannel proves that the tutorial's single channel
 // table includes every public base URL. Channel content intentionally lives in
