@@ -268,6 +268,7 @@ func TestSendRequestSetsTheFullHeaderContract(t *testing.T) {
 	}
 	want := map[string]string{
 		"Accept":                "text/event-stream",
+		"Accept-Language":       "*",
 		"Cache-Control":         "no-cache",
 		"Connection":            "keep-alive",
 		"Content-Type":          "application/json",
@@ -282,6 +283,7 @@ func TestSendRequestSetsTheFullHeaderContract(t *testing.T) {
 		"Cosy-Scene":            "qwork",
 		"Cosy-User":             "uid-1",
 		"Login-Version":         "v2",
+		"Sec-Fetch-Mode":        "cors",
 		"X-Model-Key":           "qmodel_latest",
 		"X-Model-Source":        "system",
 		"User-Agent":            "node",
@@ -290,6 +292,12 @@ func TestSendRequestSetsTheFullHeaderContract(t *testing.T) {
 		if got.headers.Get(name) != value {
 			t.Errorf("header %s = %q, want %q", name, got.headers.Get(name), value)
 		}
+	}
+	// The capture carries a trace context on every API call, and the gateway
+	// echoes the trace id back as sw-trace-id, which is what makes a request
+	// correlatable upstream-side.
+	if trace := got.headers.Get("Traceparent"); !validTraceparent(trace) {
+		t.Errorf("Traceparent = %q, want a version 00 trace context", trace)
 	}
 	if got.headers.Get("Cosy-Key") == "" || got.headers.Get("Cosy-Key") == "runtime-key" {
 		t.Error("Cosy-Key was not rederived using the reference runtime identity")

@@ -670,6 +670,41 @@ func cloneBool(value *bool) *bool {
 	return &copy
 }
 
+// buildTraceparent renders the W3C trace context header the reference client
+// sends on every API call, the catalog fetch included.
+//
+// The gateway adopts the caller's trace id and returns it as `sw-trace-id`, so
+// sending one is what makes a request correlatable between this service's logs
+// and the upstream's. The header is four dash-separated fields: version 00, a
+// 32-character lowercase hex trace id, a 16-character hex parent span id, and
+// the flags byte 01 (sampled).
+//
+// A request id is a UUID, so its digits already supply exactly 32 hex
+// characters with the dashes removed; the parent span reuses the second half.
+// That keeps the header deterministic for a given request instead of spending
+// another entropy read. Anything shorter (an imported or hand-set id) is padded
+// with zeroes so the shape is still valid.
+func buildTraceparent(requestID string) string {
+	digits := make([]byte, 0, 32)
+	for i := 0; i < len(requestID) && len(digits) < 32; i++ {
+		char := requestID[i]
+		switch {
+		case char >= '0' && char <= '9':
+			digits = append(digits, char)
+		case char >= 'a' && char <= 'f':
+			digits = append(digits, char)
+		case char >= 'A' && char <= 'F':
+			// The trace context contract is lowercase hex.
+			digits = append(digits, char+('a'-'A'))
+		}
+	}
+	for len(digits) < 32 {
+		digits = append(digits, '0')
+	}
+	traceID := string(digits)
+	return "00-" + traceID + "-" + traceID[16:32] + "-01"
+}
+
 // applyAuthHeaders sets the signed header set on an inference request.
 //
 // The header count is conditional: the organization headers are omitted when
@@ -685,6 +720,7 @@ func (c *Client) applyAuthHeaders(req *http.Request, creds Credentials, fields R
 	signature := signRequest(payloadBase64, fields.Key, unixSeconds, body, signedPath)
 
 	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("Accept-Language", "*")
 	req.Header.Set("Authorization", composeBearer(payloadBase64, signature))
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Connection", "keep-alive")
@@ -708,6 +744,8 @@ func (c *Client) applyAuthHeaders(req *http.Request, creds Credentials, fields R
 	req.Header.Set("Cosy-Scene", sceneName)
 	req.Header.Set("Cosy-User", strings.TrimSpace(creds.UID))
 	req.Header.Set("Cosy-Version", c.clientVersion)
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Traceparent", buildTraceparent(requestID))
 	req.Header.Set("User-Agent", clientUserAgent)
 	req.Header.Set("Login-Version", "v2")
 	if key := strings.TrimSpace(modelKey); key != "" {
