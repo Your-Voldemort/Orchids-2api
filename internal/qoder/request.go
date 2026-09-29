@@ -27,24 +27,20 @@ const (
 	inferPath  = "/algo/api/v2/service/pro/sse/agent_chat_generation"
 	inferQuery = "?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1"
 
-	// The QoderWork client identity. This header set and the body's business
-	// block must agree for every signed chat call, and every protocol profile
-	// reports the same identity.
-	sceneBusinessProduct = "qoder_work"
+	// Match the reference bridge's IDE request surface. This header and the
+	// business.product field must agree for every signed chat call.
+	sceneBusinessProduct = "ide"
 	sceneBusinessType    = "agent"
-	sceneName            = "qwork"
-	// businessVersion is the body's business.version. The QoderWork client
-	// reports the same value as its Cosy-Version.
-	businessVersion = "1.0.45"
+	sceneName            = "assistant"
 
 	chatTask    = "FREE_INPUT"
 	sourceValue = 1
 	taskID      = "common"
 	agentID     = "agent_common"
-	// sessionType selects the QoderWork chat session. The upstream's queue
-	// selection rules are not public; this value alone does not establish why a
-	// 10605 refusal reports queueType "p3".
-	sessionType = "qoder_work"
+	// sessionType matches the reference gateway's chat request. The upstream's
+	// queue selection rules are not public; this value alone does not establish
+	// why a 10605 refusal reports queueType "p3".
+	sessionType = "qoder"
 
 	// defaultAliyunUserType is the account class sent when the account's own
 	// class is unknown. The reference gateway always sends one; an empty field
@@ -246,7 +242,7 @@ func buildChatBodyProfile(req upstream.UpstreamRequest, model modelEntry, sessio
 	body := chatBody{
 		Business: businessInfo{
 			Product: businessProduct,
-			Version: businessVersion,
+			Version: "1.1.3",
 			Type:    sceneBusinessType,
 			ID:      requestID,
 			Name:    businessName(req),

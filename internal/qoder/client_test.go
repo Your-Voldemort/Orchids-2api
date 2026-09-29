@@ -271,14 +271,14 @@ func TestSendRequestSetsTheFullHeaderContract(t *testing.T) {
 		"Cache-Control":         "no-cache",
 		"Connection":            "keep-alive",
 		"Content-Type":          "application/json",
-		"Cosy-Business-Product": "qoder_work",
+		"Cosy-Business-Product": "ide",
 		"Cosy-Business-Type":    "agent",
-		"Cosy-Clienttype":       "6",
+		"Cosy-Clienttype":       "5",
 		"Cosy-Data-Policy":      "agree",
 		"Cosy-Machineid":        acc.QoderMachineID,
 		"Cosy-Machinetoken":     device.Token,
 		"Cosy-Machinetype":      device.Type,
-		"Cosy-Scene":            "qwork",
+		"Cosy-Scene":            "assistant",
 		"Cosy-User":             "uid-1",
 		"Login-Version":         "v2",
 		"X-Model-Key":           "qmodel_latest",
@@ -312,7 +312,7 @@ func TestSendRequestSetsTheFullHeaderContract(t *testing.T) {
 		t.Fatalf("DecodeBody() error = %v", err)
 	}
 	text := string(decoded)
-	for _, want := range []string{`"chat_task":"FREE_INPUT"`, `"session_type":"qoder_work"`, `"agent_id":"agent_common"`, `"task_id":"common"`, `"stream":true`, `"version":"3"`, `"key":"qmodel_latest"`, `"role":"user"`, `"context_length":1000000`} {
+	for _, want := range []string{`"chat_task":"FREE_INPUT"`, `"session_type":"qoder"`, `"agent_id":"agent_common"`, `"task_id":"common"`, `"stream":true`, `"version":"3"`, `"key":"qmodel_latest"`, `"role":"user"`, `"context_length":1000000`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("decoded body = %s, want it to contain %s", text, want)
 		}
@@ -448,7 +448,7 @@ func TestConfiguredClientVersionMatchesReferenceBodyAndHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `"business":{"product":"qoder_work","version":"1.0.45"`) {
+	if !strings.Contains(string(raw), `"business":{"product":"ide","version":"1.1.3"`) {
 		t.Fatalf("body version is incoherent: %s", raw)
 	}
 	req, _ := http.NewRequest(http.MethodPost, "https://example.invalid/algo/chat", nil)
@@ -510,7 +510,7 @@ func TestReferenceChatBodyCarriesPromptContextAndModel(t *testing.T) {
 		t.Fatalf("context model config changed outside the thinking experiment: %#v", contextModel)
 	}
 	modelConfig := body["model_config"].(map[string]interface{})
-	if modelConfig["key"] != "qfmodel" || modelConfig["is_reasoning"] != false || body["business"].(map[string]interface{})["product"] != "qoder_work" {
+	if modelConfig["key"] != "qfmodel" || modelConfig["is_reasoning"] != false || body["business"].(map[string]interface{})["product"] != "ide" {
 		t.Fatalf("body model/business mismatch: %#v", body)
 	}
 	params := body["parameters"].(map[string]interface{})
