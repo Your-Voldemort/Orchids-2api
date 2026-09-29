@@ -55,10 +55,11 @@ const (
 	// DefaultClientID is the public OAuth client id of the Qoder CLI. It is not
 	// a secret.
 	DefaultClientID = "e883ade2-e6e3-4d6d-adf7-f92ceff5fdcb"
-	// DefaultClientVersion is the CLI protocol version this channel speaks.
-	DefaultClientVersion = "1.0.10"
-	// sceneClientID is the Cosy-ClientType the CLI reports.
-	sceneClientID = "5"
+	// DefaultClientVersion is the client version this channel reports. The
+	// QoderWork client sends the same value as the body's business.version.
+	DefaultClientVersion = "1.0.45"
+	// sceneClientID is the Cosy-ClientType the QoderWork client reports.
+	sceneClientID = "6"
 )
 
 // RefreshLead is how long before expiry the device token is renewed. The CLI

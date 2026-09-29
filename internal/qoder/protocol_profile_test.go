@@ -36,7 +36,7 @@ func TestProtocolProfileDefaultsAndOverrides(t *testing.T) {
 		}
 	}
 	nilClient := NewFromAccount(signedTestAccount(), nil)
-	if nilClient.clientID != DefaultClientID || nilClient.endpoints.inference != DefaultInferenceURL || nilClient.businessProduct() != "ide" {
+	if nilClient.clientID != DefaultClientID || nilClient.endpoints.inference != DefaultInferenceURL || nilClient.businessProduct() != "qoder_work" {
 		t.Fatal("default compatibility changed")
 	}
 }
@@ -154,9 +154,31 @@ func TestDefaultUpstreamEndpoints(t *testing.T) {
 	if got, wantURL := c.endpoints.inference+modelListRoutes[0].path, "https://api2.qoder.sh/algo/api/v2/model/list"; got != wantURL {
 		t.Fatalf("catalog url = %q, want %q", got, wantURL)
 	}
-	// The skill-cli dialect uses a different client identity but the same node.
+	// The skill-cli profile keeps its own client id, but it speaks to the same
+	// node.
 	skill := NewFromAccount(signedTestAccount(), &config.Config{QoderProtocolProfile: ProfileSkillCLI})
 	if skill.endpoints.inference != "https://api2.qoder.sh" {
 		t.Fatalf("skill-cli inference endpoint = %q, want https://api2.qoder.sh", skill.endpoints.inference)
+	}
+}
+
+// TestQoderWorkIdentityIsTheOnlyDialect pins the identity every profile emits.
+// The IDE emulation (client type 5, scene "assistant", session_type "qoder",
+// business.version "1.1.3") was replaced by the QoderWork client's, so no
+// profile may report those values again.
+func TestQoderWorkIdentityIsTheOnlyDialect(t *testing.T) {
+	t.Parallel()
+
+	if sceneClientID != "6" || sceneName != "qwork" || sessionType != "qoder_work" {
+		t.Fatalf("dialect = clientType %q scene %q session %q, want the QoderWork identity", sceneClientID, sceneName, sessionType)
+	}
+	if sceneBusinessProduct != "qoder_work" || businessVersion != "1.0.45" || DefaultClientVersion != "1.0.45" {
+		t.Fatalf("identity = product %q businessVersion %q clientVersion %q, want QoderWork", sceneBusinessProduct, businessVersion, DefaultClientVersion)
+	}
+	for _, name := range []string{ProfileReference, ProfileSkillCLI} {
+		c := NewFromAccount(signedTestAccount(), &config.Config{QoderProtocolProfile: name})
+		if c.businessProduct() != "qoder_work" {
+			t.Fatalf("profile %q reports product %q; every profile must report QoderWork", name, c.businessProduct())
+		}
 	}
 }

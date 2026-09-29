@@ -344,7 +344,7 @@ func TestQoderChannelEndToEnd(t *testing.T) {
 	}
 	// The account class travels in the body: the upstream sorts a request into
 	// a queue by it, and an empty value is not a class it recognises.
-	for _, want := range []string{`"chat_task":"FREE_INPUT"`, `"session_type":"qoder"`, `"agent_id":"agent_common"`, `"stream":true`, `"aliyun_user_type":"personal_standard"`} {
+	for _, want := range []string{`"chat_task":"FREE_INPUT"`, `"session_type":"qoder_work"`, `"agent_id":"agent_common"`, `"stream":true`, `"aliyun_user_type":"personal_standard"`} {
 		if !strings.Contains(string(decoded), want) {
 			t.Errorf("decoded body = %s, want it to contain %s", decoded, want)
 		}

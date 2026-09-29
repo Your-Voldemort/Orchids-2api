@@ -28,7 +28,7 @@ type protocolProfile struct {
 
 func resolveProtocolProfile(cfg *config.Config) protocolProfile {
 	if cfg != nil && strings.EqualFold(strings.TrimSpace(cfg.QoderProtocolProfile), ProfileSkillCLI) {
-		return protocolProfile{ProfileSkillCLI, SkillCLIClientID, SkillCLIInferenceURL, "cli", true, true}
+		return protocolProfile{ProfileSkillCLI, SkillCLIClientID, SkillCLIInferenceURL, sceneBusinessProduct, true, true}
 	}
 	// Empty and unrecognized values never silently opt into the experimental
 	// dialect. This also preserves callers constructing a zero-value Client.
