@@ -97,6 +97,12 @@ func TestSpentAccountKeepsFreeOnlyStateAndScopesTheRefusedModel(t *testing.T) {
 	}
 	if remaining := store.ModelCooldownRemaining(after, "hy3", time.Now()); remaining <= 0 {
 		t.Fatal("the refused free model must carry a cooldown")
+	} else if remaining > 6*time.Hour+time.Minute {
+		// The plan reset is 12h away, but the hold is capped: the reset comes from
+		// the upstream's wall clock, whose zone the gateway cannot verify, so a
+		// misread boundary must not park the model for hours longer than the
+		// refusal deserves.
+		t.Fatalf("hy3 remaining = %v, want a hold of at most 6h", remaining)
 	}
 
 	// The next request for that model never reaches the upstream.

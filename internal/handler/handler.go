@@ -926,13 +926,21 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 					// spent; the account keeps its free-only capability state.
 					if verdict.Status == store.AccountStatusWorkBuddyQuotaExhausted &&
 						workbuddy.IsFreeModelInCatalog(currentAccount.WorkBuddyModelIDs, upstreamReq.Model) {
-						freeTierUntil := time.Now().Add(accountpolicy.CooldownPayment)
+						// Hold the model out of this account until its plan resets, but
+						// never past the cap below: the reset comes from the upstream's
+						// wall clock, whose zone the gateway cannot verify, so a misread
+						// boundary must not park a model for hours longer than the
+						// refusal deserves.
+						const freeTierMaxHold = 6 * time.Hour
+						freeTierHold := freeTierMaxHold
 						if reset := currentAccount.WorkBuddyQuota.ResetAt; reset.After(time.Now()) {
-							freeTierUntil = reset
+							if until := time.Until(reset); until < freeTierHold {
+								freeTierHold = until
+							}
 						}
 						slog.Warn("WorkBuddy free tier refused on a spent account; scoping the model out",
-							"account_id", currentAccount.ID, "model", upstreamReq.Model, "until", freeTierUntil)
-						store.RecordModelCooldownWithReason(currentAccount, upstreamReq.Model, freeTierUntil, store.ModelCooldownUnavailable)
+							"account_id", currentAccount.ID, "model", upstreamReq.Model, "hold", freeTierHold)
+						store.RecordModelCooldownWithReason(currentAccount, upstreamReq.Model, time.Now().Add(freeTierHold), store.ModelCooldownUnavailable)
 					}
 					h.loadBalancer.PersistAppliedAccountStatus(r.Context(), currentAccount, "账号策略判定: "+verdict.Status)
 				}

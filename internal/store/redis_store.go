@@ -540,6 +540,21 @@ func pipeAccountMembership(ctx context.Context, pipe redis.Pipeliner, s *redisSt
 	pipe.SRem(ctx, s.accountsEnabledKey(), id)
 }
 
+// workBuddyMeterReadingIsNewer reports whether an incoming WorkBuddy account
+// carries a credit-meter reading at least as new as the stored one. Only such a
+// write may move the meter snapshot or the generic usage slots that mirror it:
+// every other update is partial, and a partial update must not erase a number it
+// never read.
+func workBuddyMeterReadingIsNewer(acc, existing *Account) bool {
+	if acc == nil || acc.WorkBuddyQuota.SyncedAt.IsZero() {
+		return false
+	}
+	if existing == nil {
+		return true
+	}
+	return !acc.WorkBuddyQuota.SyncedAt.Before(existing.WorkBuddyQuota.SyncedAt)
+}
+
 // mergeModelCooldowns combines two per-model cooldown maps, keeping the later
 // deadline for each model and discarding entries that have already expired.
 func mergeModelCooldowns(existing, incoming map[string]time.Time) map[string]time.Time {
@@ -727,13 +742,23 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 		updated.Enabled = acc.Enabled
 		updated.Token = acc.Token
 		updated.Subscription = acc.Subscription
-		updated.UsageCurrent = acc.UsageCurrent
+		// WorkBuddy's generic usage slots mirror its credit-meter snapshot, so they
+		// follow the same rule as the snapshot itself (see the meter block below):
+		// only a write carrying a meter reading at least as new as the stored one
+		// may move them. Any other write — the login flow updating an existing row
+		// in place, an edit that never read the meter, a copy cached before a sync
+		// — otherwise erases the number the operator reads while the snapshot
+		// survives, which is how a live account came to report "0 of 0" beside
+		// "350 remaining".
+		if !strings.EqualFold(acc.AccountType, "workbuddy") || workBuddyMeterReadingIsNewer(acc, existing) {
+			updated.UsageCurrent = acc.UsageCurrent
+			updated.UsageLimit = acc.UsageLimit
+		}
 		// UsageTotal and the daily token fields are gateway-owned atomic counters.
 		// Copying them from an Account snapshot races IncrementAccountStats: a
 		// status/quota update loaded before an increment would write the old values
 		// back afterward and silently lose usage. Only the increment script mutates
 		// these fields after account creation.
-		updated.UsageLimit = acc.UsageLimit
 		updated.StatusCode = acc.StatusCode
 		updated.AuthStatus = acc.AuthStatus
 		if acc.ClearVerifiedAt {
@@ -834,7 +859,7 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 		if !acc.WorkBuddyModelsSyncedAt.IsZero() {
 			updated.WorkBuddyModelsSyncedAt = acc.WorkBuddyModelsSyncedAt
 		}
-		if !acc.WorkBuddyQuota.SyncedAt.IsZero() {
+		if workBuddyMeterReadingIsNewer(acc, existing) {
 			updated.WorkBuddyQuota = acc.WorkBuddyQuota
 		}
 		// Qoder credentials are rotated by the upstream and account updates are
