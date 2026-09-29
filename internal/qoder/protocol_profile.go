@@ -8,10 +8,13 @@ import (
 // ProfileReference preserves the deployed dialect. ProfileSkillCLI is an
 // explicit compatibility experiment, not an assertion of live gateway support.
 const (
-	ProfileReference     = "reference"
-	ProfileSkillCLI      = "skill-cli"
-	SkillCLIClientID     = "732aef47-9cf2-46a2-95fe-4cebb5d0d1fa"
-	SkillCLIInferenceURL = "https://api3.qoder.sh"
+	ProfileReference = "reference"
+	ProfileSkillCLI  = "skill-cli"
+	SkillCLIClientID = "732aef47-9cf2-46a2-95fe-4cebb5d0d1fa"
+	// SkillCLIInferenceURL follows the same international node as the reference
+	// dialect: both profiles now resolve to api2. Only the client identity and
+	// business.product still differ between them.
+	SkillCLIInferenceURL = "https://api2.qoder.sh"
 )
 
 type protocolProfile struct {
