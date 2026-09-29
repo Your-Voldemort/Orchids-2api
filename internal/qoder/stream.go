@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -23,6 +24,9 @@ import (
 // Termination is also not the OpenAI one. The stream ends with `event:finish`;
 // a `[DONE]` marker may appear before final usage. Only event:finish terminates
 // the stream; EOF before it is a truncation, not a successful completion.
+//
+// The same channel also carries advisory control frames, prefixed "[KIND]#",
+// which are not chunks and must not be parsed as one.
 
 // streamEnvelope is the outer SSE frame.
 type streamEnvelope struct {
@@ -88,6 +92,10 @@ type streamResult struct {
 	FinishReasonValue  string
 	Usage              map[string]interface{}
 	ThinkingSignature  string
+	// ControlFrames counts the advisory frames the gateway multiplexed into the
+	// chunk channel, keyed by kind. They carry no model output, but a quota
+	// notice explains queue refusals that are otherwise unattributable.
+	ControlFrames map[string]int
 }
 
 // FinishReason maps the accumulated stream onto an Anthropic-style stop reason.
@@ -147,6 +155,21 @@ func bodySnippet(body string) string {
 		return compact[:limit] + "..."
 	}
 	return compact
+}
+
+// splitControlFrame reports whether an envelope body is an advisory control
+// frame rather than a chat chunk. The gateway prefixes those with "[KIND]#" and
+// multiplexes them into the same channel as model output.
+func splitControlFrame(body string) (kind, payload string, ok bool) {
+	trimmed := strings.TrimSpace(body)
+	if !strings.HasPrefix(trimmed, "[") {
+		return "", "", false
+	}
+	end := strings.Index(trimmed, "]#")
+	if end < 0 {
+		return "", "", false
+	}
+	return trimmed[1:end], strings.TrimSpace(trimmed[end+2:]), true
 }
 
 func readSSE(reader io.Reader, fn func(sseFrame) bool) error {
@@ -314,6 +337,17 @@ func consumeStreamWithTools(body io.Reader, toolsEnabled bool, onMessage func(up
 			return true
 		}
 		if strings.TrimSpace(envelope.Body) == "[DONE]" {
+			return true
+		}
+		// Advisory frames share the chunk channel. Parsing one as a chunk used
+		// to abort an otherwise healthy reply: a quota_low notice reached the
+		// client as "unsupported stream format".
+		if kind, notice, ok := splitControlFrame(envelope.Body); ok {
+			if result.ControlFrames == nil {
+				result.ControlFrames = map[string]int{}
+			}
+			result.ControlFrames[kind]++
+			slog.Warn("qoder control frame", "provider", "qoder", "kind", kind, "payload", bodySnippet(notice))
 			return true
 		}
 

@@ -178,3 +178,33 @@ func TestArrayShapedRefusalStaysDiagnosable(t *testing.T) {
 		t.Fatalf("error = %v, want the upstream payload to survive into the message", err)
 	}
 }
+
+// TestNotificationsControlFrameDoesNotAbortTheStream covers the frame that broke
+// the QoderWork identity in production. The gateway prefixes advisory notices
+// and multiplexes them into the chunk channel; parsing one as a chunk aborted an
+// otherwise healthy reply and reported it as an unsupported stream format.
+func TestNotificationsControlFrameDoesNotAbortTheStream(t *testing.T) {
+	t.Parallel()
+
+	notice := `{"headers":{},"body":"[NOTIFICATIONS]#{\"notifications\":[{\"extras\":{\"pricingUrl\":\"https://qoder.com/pricing?client=qoder\",\"nextResetAt\":1791397354935},\"isHighestTier\":false,\"notificationType\":\"quota_low\"}]}","statusCodeValue":200,"statusCode":"OK"}`
+	answer := `{"headers":{"Content-Type":["application/json"]},"body":"{\"choices\":[{\"delta\":{\"content\":\"OK\",\"role\":\"assistant\"},\"index\":0}],\"created\":1,\"id\":\"chatcmpl-1\",\"model\":\"auto\",\"object\":\"chat.completion.chunk\"}","statusCodeValue":200,"statusCode":"OK"}`
+	stream := "data:" + notice + "\n\n" + "data:" + answer + "\n\n" + "event:finish\n\n"
+
+	var text strings.Builder
+	res, err := consumeStreamWithTools(strings.NewReader(stream), false, func(m upstream.SSEMessage) {
+		if m.Type == "model.text-delta" {
+			if delta, ok := m.Event["delta"].(string); ok {
+				text.WriteString(delta)
+			}
+		}
+	})
+	if err != nil {
+		t.Fatalf("a notifications control frame aborted the stream: %v", err)
+	}
+	if res.ControlFrames["NOTIFICATIONS"] != 1 {
+		t.Fatalf("control frames = %#v, want the NOTIFICATIONS frame counted", res.ControlFrames)
+	}
+	if text.String() != "OK" {
+		t.Fatalf("text = %q, want the answer that followed the notice", text.String())
+	}
+}
