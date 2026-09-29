@@ -36,7 +36,7 @@ func TestProtocolProfileDefaultsAndOverrides(t *testing.T) {
 		}
 	}
 	nilClient := NewFromAccount(signedTestAccount(), nil)
-	if nilClient.clientID != DefaultClientID || nilClient.endpoints.inference != DefaultInferenceURL || nilClient.businessProduct() != "ide" {
+	if nilClient.clientID != DefaultClientID || nilClient.endpoints.inference != DefaultInferenceURL || nilClient.businessProduct() != "qoder_work" {
 		t.Fatal("default compatibility changed")
 	}
 }

@@ -134,6 +134,21 @@ type sseFrame struct {
 
 // readSSE frames the upstream stream. A `data:` line continues the current
 // frame until a blank line closes it, and an `event:` line names it.
+// bodySnippet renders a bounded single-line view of an envelope body that could
+// not be parsed. A refusal the upstream explained must not reach the operator as
+// a bare "unsupported stream format".
+func bodySnippet(body string) string {
+	const limit = 400
+	compact := strings.Join(strings.Fields(body), " ")
+	if compact == "" {
+		return "<empty>"
+	}
+	if len(compact) > limit {
+		return compact[:limit] + "..."
+	}
+	return compact
+}
+
 func readSSE(reader io.Reader, fn func(sseFrame) bool) error {
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
@@ -304,7 +319,11 @@ func consumeStreamWithTools(body io.Reader, toolsEnabled bool, onMessage func(up
 
 		var chunk streamChunk
 		if err := json.Unmarshal([]byte(envelope.Body), &chunk); err != nil {
-			streamErr = fmt.Errorf("qoder stream protocol error: invalid body: %w", err)
+			// The upstream reports some refusals as a JSON array rather than a
+			// chunk object. Reporting only "invalid body" hides the reason it
+			// gave, and that reason is the one thing that makes the refusal
+			// actionable.
+			streamErr = fmt.Errorf("qoder stream protocol error: invalid body: %w (upstream body: %s)", err, bodySnippet(envelope.Body))
 			return false
 		}
 		if chunk.Error != nil && strings.TrimSpace(chunk.Error.Message) != "" {
