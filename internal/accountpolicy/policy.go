@@ -273,13 +273,18 @@ func Classify(acc *store.Account, err error, model string) Verdict {
 	switch apperrors.ClassifyAccountStatus(message) {
 	case "401":
 		return Verdict{
-			Status:     "401",
-			Message:    credentialMessage(acc, message),
-			Scope:      ScopeCredential,
-			Retryable:  Retryable(err),
-			NeedsLogin: true,
-			Cooldown:   CredentialReverify,
-			At:         now,
+			Status:    "401",
+			Message:   credentialMessage(acc, message),
+			Scope:     ScopeCredential,
+			Retryable: Retryable(err),
+			// A refused credential cannot serve this request, and the pool may
+			// hold another one that can. The switch decision is read from this
+			// verdict, so it has to say so here rather than leaving callers to
+			// infer it from a second classifier.
+			SwitchAccount: true,
+			NeedsLogin:    true,
+			Cooldown:      CredentialReverify,
+			At:            now,
 		}
 	case "403", "404":
 		cooldown := CooldownBlocked
@@ -368,13 +373,20 @@ func isClientRefusal(lower string) bool {
 //     down for the model
 //   - "available upstream accounts are rate-limited" -- the upstream saying its
 //     own account pool is throttled, not ours
-func isGlobalUpstreamRefusal(lower string) bool {
-	return strings.Contains(lower, "qoder gateway is busy") ||
-		strings.Contains(lower, "available upstream accounts are rate-limited") ||
-		strings.Contains(lower, "available upstream accounts are rate limited") ||
-		strings.Contains(lower, "10605") ||
-		strings.Contains(lower, `"serviceavailable":false`) ||
-		strings.Contains(lower, `"isqueued":true`)
+//
+// The quoted markers are matched against the text with JSON escaping removed.
+// Qoder's payload reaches us as a JSON string nested inside another one, so the
+// haystack holds `\"isqueued\":true`; searching it for `"isqueued":true` never
+// matched, and the classification survived only because the bare "10605" digits
+// happened to be in the same string.
+func isGlobalUpstreamRefusal(text string) bool {
+	text = strings.ReplaceAll(strings.ToLower(text), `\`, "")
+	return strings.Contains(text, "qoder gateway is busy") ||
+		strings.Contains(text, "available upstream accounts are rate-limited") ||
+		strings.Contains(text, "available upstream accounts are rate limited") ||
+		strings.Contains(text, "10605") ||
+		strings.Contains(text, `"serviceavailable":false`) ||
+		strings.Contains(text, `"isqueued":true`)
 }
 
 // isModelScopedFailure reports whether the message blames a model rather than
