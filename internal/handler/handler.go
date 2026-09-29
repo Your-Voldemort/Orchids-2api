@@ -31,6 +31,7 @@ import (
 	"orchids-api/internal/store"
 	"orchids-api/internal/upstream"
 	"orchids-api/internal/util"
+	"orchids-api/internal/workbuddy"
 )
 
 type responseWriterUnwrapper interface {
@@ -915,6 +916,24 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 					// Apply keeps the status and its operator-facing reason
 					// together, so the account table can explain the cooldown.
 					verdict.Apply(currentAccount)
+					// WorkBuddy keeps a spent account in the pool for its free tier
+					// only. When the upstream refuses that tier too — production
+					// answers 14018 "Credits exhausted" for a zero-balance plan on a
+					// confirmed free model — the tier is not available on this account
+					// either, and every later request pays for the same upstream
+					// rejection before switching. Scope the verdict to the model, so
+					// the pool stops offering this account for it while the balance is
+					// spent; the account keeps its free-only capability state.
+					if verdict.Status == store.AccountStatusWorkBuddyQuotaExhausted &&
+						workbuddy.IsFreeModelInCatalog(currentAccount.WorkBuddyModelIDs, upstreamReq.Model) {
+						freeTierUntil := time.Now().Add(accountpolicy.CooldownPayment)
+						if reset := currentAccount.WorkBuddyQuota.ResetAt; reset.After(time.Now()) {
+							freeTierUntil = reset
+						}
+						slog.Warn("WorkBuddy free tier refused on a spent account; scoping the model out",
+							"account_id", currentAccount.ID, "model", upstreamReq.Model, "until", freeTierUntil)
+						store.RecordModelCooldownWithReason(currentAccount, upstreamReq.Model, freeTierUntil, store.ModelCooldownUnavailable)
+					}
 					h.loadBalancer.PersistAppliedAccountStatus(r.Context(), currentAccount, "账号策略判定: "+verdict.Status)
 				}
 			}

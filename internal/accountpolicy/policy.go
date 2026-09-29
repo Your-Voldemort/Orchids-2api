@@ -252,6 +252,20 @@ func Classify(acc *store.Account, err error, model string) Verdict {
 		}
 	}
 
+	// A spent balance is a fact about the account, and it has to be decided before
+	// the generic retry-after branch below. WorkBuddy reports it as business code
+	// 14018 ("Credits exhausted") under a 429, and its error type implements
+	// RetryAfter() — so the generic branch won, parked the account as an ordinary
+	// rate limit, and dropped the free-only capability state that is the only
+	// reason such an account stays in the pool. Production then dispatched metered
+	// traffic to an account with nothing left to spend, because a plain 429 is
+	// re-admitted as fully capable once its cooldown elapses.
+	if apperrors.IsCreditExhaustion(lower) {
+		if verdict, ok := creditExhaustionVerdict(acc, message, err, now); ok {
+			return verdict
+		}
+	}
+
 	var retryAfter retryAfterError
 	if stderrors.As(err, &retryAfter) {
 		cooldown := retryAfter.RetryAfter()
@@ -310,26 +324,18 @@ func Classify(acc *store.Account, err error, model string) Verdict {
 			Cooldown: cooldown, At: now,
 		}
 	case "402":
-		if strings.EqualFold(strings.TrimSpace(accountType(acc)), "qoder") && apperrors.IsCreditExhaustion(message) {
-			return Verdict{
-				Status: store.AccountStatusQoderQuotaExhausted, Message: message,
-				Scope: ScopeAccount, Retryable: Retryable(err), SwitchAccount: true,
-				At: now,
-			}
-		}
-		if strings.EqualFold(strings.TrimSpace(accountType(acc)), "workbuddy") && apperrors.IsCreditExhaustion(message) {
-			return Verdict{
-				Status: store.AccountStatusWorkBuddyQuotaExhausted, Message: message,
-				Scope: ScopeAccount, Retryable: Retryable(err), SwitchAccount: true,
-				At: now,
-			}
-		}
-		// An exhausted allowance is a fact about the whole account's metered
-		// refuses it whatever the model is asked for, so leaving it in rotation is
-		// what made every request retry a pool of dead accounts and return an error
-		// with nothing in the account table to explain it. Parking it stops the
-		// retries and puts the reason in front of the operator; isAccountAvailable
-		// honours QuotaResetAt, so the account returns when its allowance does.
+		// A spent balance on a channel that has a free tier was already decided
+		// above, whatever HTTP status or retry hint carried it. What remains here is
+		// a per-request payment refusal ("insufficient credits for model"), which is
+		// not a verdict about the account's whole balance, and the older persisted
+		// "402" marker.
+		//
+		// An exhausted allowance is still a fact about the whole account within this
+		// case: leaving it in rotation is what made every request retry a pool of
+		// dead accounts and return an error with nothing in the account table to
+		// explain it. Parking it stops the retries and puts the reason in front of
+		// the operator; isAccountAvailable honours QuotaResetAt, so the account
+		// returns when its allowance does.
 		//
 		// This is also the release path for a "402" persisted under the old rule,
 		// which held nothing: such a marker is now held, but only until the reset
@@ -353,6 +359,29 @@ func Classify(acc *store.Account, err error, model string) Verdict {
 		Status: "", Message: "",
 		Scope: ScopeNone, Retryable: Retryable(err), SwitchAccount: true,
 		At: now,
+	}
+}
+
+// creditExhaustionVerdict maps a spent balance onto the capability state of the
+// channels that have one. They keep such an account in the pool for their free
+// tier instead of parking it outright, which is exactly why the distinction from
+// a plain rate limit matters: a plain 429 is re-admitted as fully capable as soon
+// as its cooldown elapses, so metered traffic reaches an account with nothing left
+// to spend.
+func creditExhaustionVerdict(acc *store.Account, message string, err error, at time.Time) (Verdict, bool) {
+	switch {
+	case strings.EqualFold(strings.TrimSpace(accountType(acc)), "workbuddy"):
+		return Verdict{
+			Status: store.AccountStatusWorkBuddyQuotaExhausted, Message: message,
+			Scope: ScopeAccount, Retryable: Retryable(err), SwitchAccount: true, At: at,
+		}, true
+	case strings.EqualFold(strings.TrimSpace(accountType(acc)), "qoder"):
+		return Verdict{
+			Status: store.AccountStatusQoderQuotaExhausted, Message: message,
+			Scope: ScopeAccount, Retryable: Retryable(err), SwitchAccount: true, At: at,
+		}, true
+	default:
+		return Verdict{}, false
 	}
 }
 
