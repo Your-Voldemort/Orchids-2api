@@ -69,6 +69,12 @@ type Verdict struct {
 	Cooldown time.Duration
 	// Model names the model the verdict is scoped to, when Scope is ScopeModel.
 	Model string
+	// ModelCooldownKind is what a ScopeModel cooldown means: a throttle that
+	// clears by waiting, or a plan the account does not have. It is stored beside
+	// the deadline because the selection layer cannot see the request that
+	// recorded it, and the kind is what decides whether an emptied pool is
+	// answered with "retry later" or with "this model is not available here".
+	ModelCooldownKind store.ModelCooldownReason
 	// At is when the result was observed; it anchors the cooldown.
 	At time.Time
 }
@@ -177,9 +183,12 @@ func Classify(acc *store.Account, err error, model string) Verdict {
 	// A plan/allowance refusal is about this account and this model, not the
 	// caller's input or the credential itself. Cool down only this pairing and
 	// allow the request to try another account with the required entitlement.
+	// The cooldown is labelled as an entitlement so the pool can answer an
+	// emptied one with "not available here" instead of "retry later".
 	if strings.EqualFold(accountType(acc), "qoder") && strings.Contains(lower, "no usable plan or allowance") {
 		return Verdict{Scope: ScopeModel, Message: message, Model: model,
-			Retryable: true, SwitchAccount: true, Cooldown: CooldownPayment, At: now}
+			Retryable: true, SwitchAccount: true, Cooldown: CooldownPayment,
+			ModelCooldownKind: store.ModelCooldownUnavailable, At: now}
 	}
 
 	// A queue/service refusal that names the whole upstream rather than this
@@ -266,7 +275,10 @@ func Classify(acc *store.Account, err error, model string) Verdict {
 			Retryable:     Retryable(err),
 			SwitchAccount: true,
 			Cooldown:      CooldownRateLimit,
-			At:            now,
+			// Most model-scoped complaints are a frequency limit that a wait
+			// clears; the plan ones are not, and the pool needs to know which.
+			ModelCooldownKind: modelCooldownKindFor(lower),
+			At:                now,
 		}
 	}
 
@@ -387,6 +399,27 @@ func isGlobalUpstreamRefusal(text string) bool {
 		strings.Contains(text, "10605") ||
 		strings.Contains(text, `"serviceavailable":false`) ||
 		strings.Contains(text, `"isqueued":true`)
+}
+
+// isEntitlementRefusal reports a model-scoped refusal that no amount of waiting
+// changes, because the account's plan does not include the model. The pool stores
+// this beside the cooldown so an emptied pool can be answered as "not available
+// here" rather than as "temporarily rate-limited".
+func isEntitlementRefusal(lower string) bool {
+	return strings.Contains(lower, "no usable plan or allowance") ||
+		strings.Contains(lower, "not subscribed to required model plan") ||
+		strings.Contains(lower, "only available via cline product surfaces") ||
+		(strings.Contains(lower, "http 403") && strings.Contains(lower, "entitlement"))
+}
+
+// modelCooldownKindFor labels a model-scoped cooldown with what it means. A
+// missing label would leave the pool guessing from the deadline alone, so every
+// model-scoped verdict is labelled here.
+func modelCooldownKindFor(lower string) store.ModelCooldownReason {
+	if isEntitlementRefusal(lower) {
+		return store.ModelCooldownUnavailable
+	}
+	return store.ModelCooldownThrottled
 }
 
 // isModelScopedFailure reports whether the message blames a model rather than

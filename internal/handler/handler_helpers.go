@@ -378,29 +378,48 @@ func (h *Handler) selectAccountRecordWithOptions(ctx context.Context, targetChan
 	// is the one extra channel whose catalog the filter below understands.
 	needsFilter := model != "" && (honorsModelCooldown(channel) || channel == "cline")
 	if needsFilter {
-		return h.loadBalancer.GetNextAccountExcludingByChannelWithTrackerFilter(ctx, failedAccountIDs, targetChannel, h.connTracker, func(acc *store.Account) bool {
+		return h.loadBalancer.GetNextAccountExcludingByChannelWithTrackerFilter(ctx, failedAccountIDs, targetChannel, h.connTracker, func(acc *store.Account) error {
 			if channel == "cline" && !cline.CatalogSupportsModel(acc.ClineModelIDs, model) {
-				return false
+				return loadbalancer.ErrAccountNotEligible
 			}
-			if honorsModelCooldown(channel) && store.ModelCooldownRemaining(acc, model, time.Now()) != 0 {
-				return false
+			if honorsModelCooldown(channel) {
+				// The verdict that recorded the cooldown travels with it, so an
+				// emptied pool can say whether waiting could ever help.
+				switch store.ModelCooldownKind(acc, model, time.Now()) {
+				case store.ModelCooldownUnavailable:
+					return loadbalancer.RejectModelUnavailable
+				case store.ModelCooldownThrottled:
+					return loadbalancer.RejectModelThrottled
+				}
 			}
 			switch strings.TrimSpace(acc.StatusCode) {
 			case "402":
 				if channel == "qoder" {
-					return qoder.IsFreeModel(acc.QoderModelIDs, model) && h.isCurrentFreeModel(ctx, "qoder", model)
+					if qoder.IsFreeModel(acc.QoderModelIDs, model) && h.isCurrentFreeModel(ctx, "qoder", model) {
+						return nil
+					}
+					return loadbalancer.ErrAccountNotEligible
 				}
 				if channel == "workbuddy" {
-					return workbuddy.IsFreeModelInCatalog(acc.WorkBuddyModelIDs, model)
+					if workbuddy.IsFreeModelInCatalog(acc.WorkBuddyModelIDs, model) {
+						return nil
+					}
+					return loadbalancer.ErrAccountNotEligible
 				}
 			case store.AccountStatusQoderQuotaExhausted:
-				return channel == "qoder" && qoder.IsFreeModel(acc.QoderModelIDs, model) && h.isCurrentFreeModel(ctx, "qoder", model)
+				if channel == "qoder" && qoder.IsFreeModel(acc.QoderModelIDs, model) && h.isCurrentFreeModel(ctx, "qoder", model) {
+					return nil
+				}
+				return loadbalancer.ErrAccountNotEligible
 			case store.AccountStatusWorkBuddyQuotaExhausted:
-				return channel == "workbuddy" && workbuddy.IsFreeModelInCatalog(acc.WorkBuddyModelIDs, model)
+				if channel == "workbuddy" && workbuddy.IsFreeModelInCatalog(acc.WorkBuddyModelIDs, model) {
+					return nil
+				}
+				return loadbalancer.ErrAccountNotEligible
 			default:
-				return true
+				return nil
 			}
-			return false
+			return loadbalancer.ErrAccountNotEligible
 		})
 	}
 	return h.loadBalancer.GetNextAccountExcludingByChannelWithTracker(ctx, failedAccountIDs, targetChannel, h.connTracker)

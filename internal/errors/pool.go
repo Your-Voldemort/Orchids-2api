@@ -96,6 +96,16 @@ func ClassifyPoolExhaustion(selectErr error, lastErr string) PoolExhaustion {
 		return PoolExhaustion{Category: "rate_limit", Message: PoolQoderModelMessage}
 	case strings.Contains(lowerSelect, "cooling down for the requested model"):
 		return PoolExhaustion{Category: "rate_limit", Message: PoolModelCooldownMessage}
+	case strings.Contains(lowerSelect, "not covered by any matching account's plan"):
+		// Every account of this channel carries a model cooldown, and every one of
+		// those cooldowns is a plan verdict rather than a throttle. Waiting cannot
+		// change a plan, so the client is told the model is unavailable here
+		// instead of being invited to retry it.
+		return PoolExhaustion{Category: "model_unavailable", Message: PoolModelUnavailableMessage}
+	case strings.Contains(lowerSelect, "cooling down on some matching accounts"):
+		// Part of the pool only needs a wait, so a retry can still work — and
+		// another model always does.
+		return PoolExhaustion{Category: "rate_limit", Message: PoolModelCooldownMessage}
 	case strings.Contains(lowerSelect, "rate-limited or cooling down"):
 		return PoolExhaustion{Category: "rate_limit", Message: PoolRateLimitedMessage}
 	case strings.Contains(lowerSelect, "concurrency limit"):

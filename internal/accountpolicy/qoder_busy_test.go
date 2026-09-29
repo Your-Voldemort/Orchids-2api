@@ -206,3 +206,27 @@ func TestDeadCredentialStillRotates(t *testing.T) {
 		t.Fatalf("switch disagreement: policy=%v classifier=%v", verdict.SwitchAccount, class.SwitchAccount)
 	}
 }
+
+// TestModelCooldownKindTravelsWithTheVerdict pins the label the pool reads back
+// later. The verdict is the only place that knows whether a cooled model is
+// throttled or missing from the account's plan, and the selection layer sees only
+// what was stored.
+func TestModelCooldownKindTravelsWithTheVerdict(t *testing.T) {
+	acc := &store.Account{ID: 22, AccountType: "qoder", Enabled: true}
+
+	entitlement := Classify(acc, errors.New("qoder account has no usable plan or allowance; the model requires a subscription"), "ultimate")
+	if entitlement.Scope != ScopeModel {
+		t.Fatalf("scope = %q, want model", entitlement.Scope)
+	}
+	if entitlement.ModelCooldownKind != store.ModelCooldownUnavailable {
+		t.Fatalf("kind = %q, want unavailable for a plan refusal", entitlement.ModelCooldownKind)
+	}
+
+	throttle := Classify(acc, errors.New("qoder model rate limited: code=6004"), "efficient")
+	if throttle.Scope != ScopeModel {
+		t.Fatalf("scope = %q, want model", throttle.Scope)
+	}
+	if throttle.ModelCooldownKind != store.ModelCooldownThrottled {
+		t.Fatalf("kind = %q, want throttled for a frequency limit", throttle.ModelCooldownKind)
+	}
+}

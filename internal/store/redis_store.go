@@ -565,11 +565,70 @@ func mergeModelCooldowns(existing, incoming map[string]time.Time) map[string]tim
 	return merged
 }
 
+// mergeModelCooldownReasons keeps a reason only while the deadline it describes
+// is alive, so a label cannot outlive its cooldown. A writer records the deadline
+// and its reason together, which makes the incoming label the right one exactly
+// when the incoming deadline survived the merge; when the stored deadline
+// outlasts it, the stored label still describes what is on disk.
+func mergeModelCooldownReasons(existing, incoming map[string]ModelCooldownReason, existingUntil, incomingUntil map[string]time.Time) map[string]ModelCooldownReason {
+	if len(existing) == 0 && len(incoming) == 0 {
+		return nil
+	}
+	now := time.Now()
+	merged := make(map[string]ModelCooldownReason, len(existing)+len(incoming))
+	for model, reason := range existing {
+		name := strings.TrimSpace(model)
+		until := existingUntil[name]
+		if name == "" || until.IsZero() || !until.After(now) {
+			continue
+		}
+		if known := knownModelCooldownReason(reason); known != "" {
+			merged[name] = known
+		}
+	}
+	for model, reason := range incoming {
+		name := strings.TrimSpace(model)
+		until, ok := incomingUntil[name]
+		if name == "" || !ok || until.IsZero() || !until.After(now) {
+			continue
+		}
+		if stored, had := existingUntil[name]; had && stored.After(until) {
+			continue
+		}
+		if known := knownModelCooldownReason(reason); known != "" {
+			merged[name] = known
+		}
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
+}
+
+// knownModelCooldownReason returns the reason when it is one this build
+// understands, and "" otherwise so the caller falls back to the deadline.
+func knownModelCooldownReason(reason ModelCooldownReason) ModelCooldownReason {
+	switch reason {
+	case ModelCooldownThrottled, ModelCooldownUnavailable:
+		return reason
+	default:
+		return ""
+	}
+}
+
 // RecordModelCooldown marks one model of an account as throttled until the given
 // deadline. Only the named model is affected: the account stays in the pool for
 // its other models, which is the difference between "this model is hot" and
 // "this account is dead".
 func RecordModelCooldown(acc *Account, model string, until time.Time) {
+	RecordModelCooldownWithReason(acc, model, until, ModelCooldownThrottled)
+}
+
+// RecordModelCooldownWithReason is RecordModelCooldown plus the verdict the
+// deadline came from. The reason is what lets the selection layer tell a throttle
+// from a model this account's plan does not cover: one is worth retrying, the
+// other never becomes true by waiting.
+func RecordModelCooldownWithReason(acc *Account, model string, until time.Time, reason ModelCooldownReason) {
 	if acc == nil || until.IsZero() || !until.After(time.Now()) {
 		return
 	}
@@ -580,8 +639,20 @@ func RecordModelCooldown(acc *Account, model string, until time.Time) {
 	if acc.ModelCooldowns == nil {
 		acc.ModelCooldowns = map[string]time.Time{}
 	}
-	if current, ok := acc.ModelCooldowns[name]; !ok || until.After(current) {
-		acc.ModelCooldowns[name] = until
+	if current, ok := acc.ModelCooldowns[name]; ok && !until.After(current) {
+		// The stored deadline outlasts this one, so its reason still describes
+		// what is on disk: a shorter throttle must not relabel a day-long plan
+		// verdict.
+		return
+	}
+	acc.ModelCooldowns[name] = until
+	if acc.ModelCooldownReasons == nil {
+		acc.ModelCooldownReasons = map[string]ModelCooldownReason{}
+	}
+	if known := knownModelCooldownReason(reason); known != "" {
+		acc.ModelCooldownReasons[name] = known
+	} else {
+		acc.ModelCooldownReasons[name] = ModelCooldownThrottled
 	}
 }
 
@@ -600,6 +671,34 @@ func ModelCooldownRemaining(acc *Account, model string, now time.Time) time.Dura
 		return 0
 	}
 	return until.Sub(now)
+}
+
+// ModelCooldownKind reports what one model's cooldown on this account means, or
+// "" when the model is not cooling down at all.
+//
+// A deadline recorded before reasons were stored carries no label and the
+// deadline itself is then the only signal left. That fallback reads a long hold
+// as a plan verdict because the two verdicts that create a handler-path model
+// cooldown are a 30s throttle and a day-long plan refusal; anything still running
+// after an hour cannot be the throttle. Channels that hold a model for their own
+// windows (a free-usage window, an inference cap) are unaffected: they do not
+// reach this reader, their filters answer with their own reasons.
+func ModelCooldownKind(acc *Account, model string, now time.Time) ModelCooldownReason {
+	if acc == nil {
+		return ""
+	}
+	name := strings.TrimSpace(model)
+	remaining := ModelCooldownRemaining(acc, name, now)
+	if remaining <= 0 {
+		return ""
+	}
+	if known := knownModelCooldownReason(acc.ModelCooldownReasons[name]); known != "" {
+		return known
+	}
+	if remaining > ModelCooldownEntitlementFloor {
+		return ModelCooldownUnavailable
+	}
+	return ModelCooldownThrottled
 }
 
 func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
@@ -715,6 +814,9 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 		// path that did not touch them (a request counter, a quota refresh) must not
 		// drop a cooldown another path just recorded.
 		updated.ModelCooldowns = mergeModelCooldowns(existing.ModelCooldowns, acc.ModelCooldowns)
+		// The labels move with the deadlines they describe, or the pool would
+		// report the previous verdict for a model that was just re-judged.
+		updated.ModelCooldownReasons = mergeModelCooldownReasons(existing.ModelCooldownReasons, acc.ModelCooldownReasons, existing.ModelCooldowns, acc.ModelCooldowns)
 		// WorkBuddy credentials are rotated by the upstream (Keycloak rotates the
 		// refresh token on every renewal) and account updates are frequently
 		// partial, so an empty value means "keep what is stored", never "erase".

@@ -901,7 +901,10 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 					// WorkBuddy code 6004 is a model-frequency limit. Persist only
 					// that model's cooldown; applying an empty account status here
 					// would either be skipped or accidentally clear unrelated state.
-					store.RecordModelCooldown(currentAccount, verdict.Model, time.Now().Add(verdict.Cooldown))
+					// The verdict's kind travels with the deadline: the selection
+					// layer cannot see this request, and has to know whether the
+					// model is throttled or simply not covered by the plan.
+					store.RecordModelCooldownWithReason(currentAccount, verdict.Model, time.Now().Add(verdict.Cooldown), verdict.ModelCooldownKind)
 					if persistErr := h.loadBalancer.Store.UpdateAccount(r.Context(), currentAccount); persistErr != nil {
 						slog.Warn("persist model cooldown failed", "account_id", currentAccount.ID, "model", verdict.Model, "error", persistErr)
 					}

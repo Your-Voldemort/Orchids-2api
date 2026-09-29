@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -74,5 +75,33 @@ func TestPoolAnswerDistinguishesEntitlementFromThrottle(t *testing.T) {
 	}
 	if got := StatusForCategory(unavailable.Category); got != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", got)
+	}
+}
+
+// TestPoolAnswerReadsTheSelectorReason covers the other entrance: a request the
+// selection layer refuses before any upstream call. All it can report is its own
+// note, so the note has to carry the reason the filter gave — modelling a
+// day-long plan verdict as "cooling down" is what invited a retry that could only
+// fail the same way.
+func TestPoolAnswerReadsTheSelectorReason(t *testing.T) {
+	plan := "no enabled accounts available for channel: qoder (the requested model is not covered by any matching account's plan)"
+	got := ClassifyPoolExhaustion(errors.New(plan), plan)
+	if got.Category != "model_unavailable" {
+		t.Fatalf("category = %q, want model_unavailable", got.Category)
+	}
+	if status := StatusForCategory(got.Category); status != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", status)
+	}
+
+	mixed := "no enabled accounts available for channel: qoder (the requested model is cooling down on some matching accounts and not covered by the plans of the rest)"
+	got = ClassifyPoolExhaustion(errors.New(mixed), mixed)
+	if got.Category != "rate_limit" {
+		t.Fatalf("category = %q, want rate_limit: part of the pool only needs a wait", got.Category)
+	}
+
+	throttled := "no enabled accounts available for channel: qoder (all matching accounts are cooling down for the requested model)"
+	got = ClassifyPoolExhaustion(errors.New(throttled), throttled)
+	if got.Category != "rate_limit" {
+		t.Fatalf("category = %q, want rate_limit", got.Category)
 	}
 }
