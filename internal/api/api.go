@@ -107,7 +107,7 @@ const auditScanCap = 2000
 // writeAccountCheckBusy tells the caller that a refresh of this account is already
 // running, so the click was merged instead of racing a second refresh.
 func writeAccountCheckBusy(w http.ResponseWriter) {
-	writeJSONStatus(w, http.StatusConflict, map[string]interface{}{
+	util.WriteJSONStatus(w, http.StatusConflict, map[string]interface{}{
 		"error": map[string]interface{}{
 			"type":    "check_in_progress",
 			"message": "this account is already being refreshed; the request was merged",
@@ -1384,7 +1384,7 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 			}
 			normalized = append(normalized, normalizeAccountOutputWithUsage(acc, observed))
 		}
-		writeJSON(w, normalized)
+		util.WriteJSON(w, normalized)
 
 	case http.MethodPost:
 		var acc store.Account
@@ -1476,7 +1476,7 @@ func (a *API) HandleAccounts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		writeJSONStatus(w, http.StatusCreated, normalizeAccountOutput(&acc))
+		util.WriteJSONStatus(w, http.StatusCreated, normalizeAccountOutput(&acc))
 
 	default:
 		writeMethodNotAllowed(w)
@@ -1582,7 +1582,7 @@ func (a *API) startGrokDeviceAuthorization(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	go a.pollGrokDeviceAuthorization(pollContext, id, authenticator)
-	writeJSON(w, newDeviceLoginResponse(id, login))
+	util.WriteJSON(w, newDeviceLoginResponse(id, login))
 }
 
 func (a *API) getGrokDeviceAuthorization(w http.ResponseWriter, id string) {
@@ -1592,7 +1592,7 @@ func (a *API) getGrokDeviceAuthorization(w http.ResponseWriter, id string) {
 		http.Error(w, "Grok device login not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, response)
+	util.WriteJSON(w, response)
 }
 
 func (a *API) cancelGrokDeviceAuthorization(w http.ResponseWriter, id string) {
@@ -1737,7 +1737,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			for k, v := range buildQuotaResponseFields(account) {
 				resp[k] = v
 			}
-			writeJSON(w, resp)
+			util.WriteJSON(w, resp)
 			return
 		}
 		if isCheck {
@@ -1844,10 +1844,10 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "Failed to save checked account: "+err.Error(), http.StatusInternalServerError)
 				return
 			}
-			writeJSON(w, a.normalizeAccountOutputObserved(r.Context(), acc))
+			util.WriteJSON(w, a.normalizeAccountOutputObserved(r.Context(), acc))
 			return
 		}
-		writeJSON(w, a.normalizeAccountOutputObserved(r.Context(), account))
+		util.WriteJSON(w, a.normalizeAccountOutputObserved(r.Context(), account))
 
 	case http.MethodPut:
 		existing := account
@@ -1949,7 +1949,7 @@ func (a *API) HandleAccountByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, normalizeAccountOutput(&acc))
+		util.WriteJSON(w, normalizeAccountOutput(&acc))
 
 	case http.MethodDelete:
 		if err := a.store.DeleteAccount(r.Context(), id); err != nil {
@@ -1995,7 +1995,7 @@ func (a *API) HandleExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Disposition", "attachment; filename=accounts_export.json")
-	writeJSON(w, exportData)
+	util.WriteJSON(w, exportData)
 }
 
 // restoreExportCredentials puts back the credential a channel needs to be usable
@@ -2129,7 +2129,7 @@ func (a *API) HandleImport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, result)
+	util.WriteJSON(w, result)
 }
 
 func generateApiKey() (string, error) {
@@ -2154,7 +2154,7 @@ func (a *API) HandleKeys(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, keys)
+		util.WriteJSON(w, keys)
 
 	case http.MethodPost:
 		var req struct {
@@ -2223,7 +2223,7 @@ func (a *API) HandleKeys(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSONStatus(w, http.StatusCreated, newCreateKeyResponse(&key, fullKey))
+		util.WriteJSONStatus(w, http.StatusCreated, newCreateKeyResponse(&key, fullKey))
 
 	default:
 		writeMethodNotAllowed(w)
@@ -2282,7 +2282,7 @@ func (a *API) HandleKeyByID(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			writeJSON(w, key)
+			util.WriteJSON(w, key)
 			return
 		}
 
@@ -2313,7 +2313,7 @@ func (a *API) HandleKeyByID(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			writeJSON(w, newCreateKeyResponse(key, fullKey))
+			util.WriteJSON(w, newCreateKeyResponse(key, fullKey))
 			return
 		}
 
@@ -2388,7 +2388,7 @@ func (a *API) HandleKeyByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, key)
+		util.WriteJSON(w, key)
 
 	case http.MethodDelete:
 		if err := a.store.DeleteApiKey(r.Context(), id); err != nil {
@@ -2415,12 +2415,12 @@ func (a *API) HandleModels(w http.ResponseWriter, r *http.Request) {
 		// grok2api's admin client expects, without breaking the old shape.
 		page, pageSize, paged := adminModelPaging(r)
 		if !paged {
-			writeJSON(w, models)
+			util.WriteJSON(w, models)
 			return
 		}
 		models = filterAdminModels(models, r.URL.Query().Get("search"))
 		items, total := paginateAdminRows(models, page, pageSize)
-		writeJSON(w, adminModelListEnvelope{
+		util.WriteJSON(w, adminModelListEnvelope{
 			Items:    items,
 			Page:     page,
 			PageSize: pageSize,
@@ -2439,7 +2439,7 @@ func (a *API) HandleModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSONStatus(w, http.StatusCreated, m)
+		util.WriteJSONStatus(w, http.StatusCreated, m)
 
 	default:
 		writeMethodNotAllowed(w)
@@ -2471,7 +2471,7 @@ func (a *API) HandleModelByID(w http.ResponseWriter, r *http.Request) {
 			writeModelStoreError(w, err)
 			return
 		}
-		writeJSON(w, m)
+		util.WriteJSON(w, m)
 
 	case http.MethodPut:
 		var patch store.Model
@@ -2498,7 +2498,7 @@ func (a *API) HandleModelByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, m)
+		util.WriteJSON(w, m)
 
 	case http.MethodDelete:
 		if err := a.store.DeleteModel(r.Context(), id); err != nil {

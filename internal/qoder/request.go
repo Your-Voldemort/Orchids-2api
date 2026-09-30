@@ -923,23 +923,7 @@ func retryAfterDelay(value string) time.Duration {
 }
 
 func retryAfterDelayAt(value string, now time.Time) time.Duration {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0
-	}
-	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
-		if seconds <= 0 {
-			return 0
-		}
-		if seconds >= int64(30*time.Second/time.Second) {
-			return 30 * time.Second
-		}
-		return time.Duration(seconds) * time.Second
-	}
-	if at, err := http.ParseTime(value); err == nil {
-		return capWait(at.Sub(now))
-	}
-	return 0
+	return util.ParseRetryAfter(value, now, 30*time.Second)
 }
 
 func capWait(wait time.Duration) time.Duration {

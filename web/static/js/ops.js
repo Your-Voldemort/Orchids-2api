@@ -20,6 +20,7 @@
     // Prevent slow overview/runtime requests from overlapping on each refresh
     // tick and multiplying server aggregation plus SVG rendering work.
     loading: false,
+    alertRequest: 0,
     overview: null,
     // outcome selects which cohort the latency cards describe: every request, the
     // ones that ended in a failure, or the ones where an upstream attempt failed
@@ -78,6 +79,12 @@
   // drill-down hands to the log centre. The chart and the list must cover the same
   // minutes, so the range is derived once here instead of in each click handler.
   function windowRange() {
+    const overview = state.overview;
+    if (overview && Number(overview.window_minutes) === state.window) {
+      const since = new Date(overview.since);
+      const until = new Date(overview.until);
+      if (Number.isFinite(since.getTime()) && Number.isFinite(until.getTime()) && since <= until) return { since, until };
+    }
     const until = new Date();
     const since = new Date(until.getTime() - state.window * 60 * 1000);
     return { since, until };
@@ -1027,21 +1034,29 @@
     if (!table) return;
     const body = table.querySelector('tbody');
     const severity = (el('opsAlertSeverity') || {}).value || '';
-    const channel = (el('opsAlertChannel') || {}).value || '';
+    const localChannel = (el('opsAlertChannel') || {}).value || '';
+    const channel = state.channel || localChannel;
+    const scope = { window: state.window, channel: state.channel };
+    const request = ++state.alertRequest;
+    const current = () => request === state.alertRequest && scope.window === state.window && scope.channel === state.channel;
+    const range = windowRange();
     body.replaceChildren();
     try {
-      const params = assignParams(new URLSearchParams({ kind: 'system', action: 'alert_', limit: '50' }), { channel });
+      const params = assignParams(new URLSearchParams({ kind: 'system', action: 'alert_', limit: '50' }), {
+        channel, since: range.since.toISOString(), until: range.until.toISOString(),
+      });
       const response = await ConsoleAPI.request('/api/journal/records?' + params.toString(), { credentials: 'same-origin' });
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const payload = await response.json();
+      if (!current()) return;
       const rows = (payload.data || []).filter((record) => {
         const event = record.event || {};
         if (event.action !== 'alert_fired' && event.action !== 'alert_recovered') return false;
         const level = (event.metadata && event.metadata.severity) || '';
-        return !severity || level === severity;
+        return (!severity || level === severity) && (!localChannel || event.channel === localChannel);
       });
       if (!rows.length) {
-        emptyRow(body, 6, '暂无告警事件（保留窗口内）。');
+        emptyRow(body, 6, '所选时间范围及渠道内暂无告警事件。');
         return;
       }
       rows.forEach((record) => {
@@ -1073,6 +1088,7 @@
         body.appendChild(tr);
       });
     } catch (error) {
+      if (!current()) return;
       emptyRow(body, 6, '读取告警事件失败：' + (error.message || error));
     }
   }
@@ -1314,8 +1330,11 @@
       setText('opsRefreshedAt', fmtClock(new Date()));
       setStatus('就绪', '');
       state.countdown = state.refreshSeconds;
+      await loadAlertEvents();
     } catch (error) {
       if (scope.window !== state.window || scope.channel !== state.channel) return;
+      // A failed filter change has no valid historical scope to display.
+      state.overview = null;
       if (!state.overview) {
         renderHero({ available: false });
         renderResources({ available: false, note: '运行时指标尚未读取成功。' });
@@ -1336,6 +1355,8 @@
       // failure instead of the retention it could not read.
       setText('opsCoverage', `指标读取失败：${String(error.message || error)}。会话可能已过期，请重新登录后刷新。`);
       setStatus('读取失败', 'is-error');
+      renderMatrix([]);
+      await loadAlertEvents();
     } finally {
       state.loading = false;
       // Coalesce every refresh requested while this one was in flight into one
@@ -1464,7 +1485,6 @@
     state.refreshPending = false;
     state.countdown = state.refreshSeconds;
     load();
-    loadAlertEvents();
   }
 
   // applyUrlState puts the page back where the URL says it should be: the filters
@@ -1488,12 +1508,11 @@
   }
 
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => { applyUrlState(); bind(); load(); loadAlertEvents(); });
+    document.addEventListener('DOMContentLoaded', () => { applyUrlState(); bind(); load(); });
   } else {
     applyUrlState();
     bind();
     load();
-    loadAlertEvents();
   }
   if (typeof document.addEventListener === 'function') {
     document.addEventListener('visibilitychange', flushPendingRefresh);

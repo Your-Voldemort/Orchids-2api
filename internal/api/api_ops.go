@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"orchids-api/internal/util"
 	"sort"
 	"strconv"
 	"strings"
@@ -135,7 +136,7 @@ func (a *API) HandleOpsOverview(w http.ResponseWriter, r *http.Request) {
 	if a.opsAggregator == nil || !a.opsAggregator.Enabled() {
 		payload["available"] = false
 		payload["note"] = "指标聚合需要 Redis；当前部署未启用。"
-		writeJSON(w, payload)
+		util.WriteJSON(w, payload)
 		return
 	}
 	payload["available"] = true
@@ -164,7 +165,7 @@ func (a *API) HandleOpsOverview(w http.ResponseWriter, r *http.Request) {
 	payload["alerts"] = a.firingAlerts()
 	payload["concurrency"] = a.currentConcurrency()
 
-	writeJSON(w, payload)
+	util.WriteJSON(w, payload)
 }
 
 // HandleOpsAlertRules exposes the exact policy used by the alert engine. Saved
@@ -172,14 +173,14 @@ func (a *API) HandleOpsOverview(w http.ResponseWriter, r *http.Request) {
 func (a *API) HandleOpsAlertRules(w http.ResponseWriter, r *http.Request) {
 	defaults := alerting.DefaultRules()
 	if a == nil || a.alertEngine == nil || a.store == nil || a.store.RedisClient() == nil {
-		writeJSON(w, map[string]interface{}{
+		util.WriteJSON(w, map[string]interface{}{
 			"rules": defaults, "defaults": defaults, "editable": false,
 			"note": "告警规则需要 Redis 和告警引擎。",
 		})
 		return
 	}
 	if r.Method == http.MethodGet {
-		writeJSON(w, map[string]interface{}{
+		util.WriteJSON(w, map[string]interface{}{
 			"rules": a.alertEngine.Thresholds(), "defaults": defaults, "editable": true,
 		})
 		return
@@ -206,7 +207,7 @@ func (a *API) HandleOpsAlertRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = a.alertEngine.SetThresholds(rules)
-	writeJSON(w, map[string]interface{}{"rules": rules, "defaults": defaults, "editable": true})
+	util.WriteJSON(w, map[string]interface{}{"rules": rules, "defaults": defaults, "editable": true})
 }
 
 // journalAttemptLookback bounds the extra scan that recovers upstream attempts whose
@@ -439,7 +440,7 @@ func (a *API) writeJournalList(w http.ResponseWriter, r *http.Request) {
 	case int64(len(entries)) >= scanCap && len(entries) > 0:
 		nextCursor = entries[len(entries)-1].ID
 	}
-	writeJSON(w, map[string]interface{}{
+	util.WriteJSON(w, map[string]interface{}{
 		"data":        records,
 		"next_cursor": nextCursor,
 		"kind":        kind,
