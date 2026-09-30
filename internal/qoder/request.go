@@ -3,6 +3,7 @@ package qoder
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/goccy/go-json"
 
+	"orchids-api/internal/debug"
 	"orchids-api/internal/prompt"
 	"orchids-api/internal/upstream"
 	"orchids-api/internal/util"
@@ -745,7 +747,7 @@ func filterTags(tags []string) []string {
 }
 
 // attemptChat performs one upstream attempt and consumes its stream.
-func (c *Client) attemptChat(ctx context.Context, url string, body []byte, model modelEntry, requestID string, fields RuntimeFields, creds Credentials, toolsEnabled bool, emit func(upstream.SSEMessage)) (streamResult, error) {
+func (c *Client) attemptChat(ctx context.Context, url string, body []byte, model modelEntry, requestID string, fields RuntimeFields, creds Credentials, toolsEnabled bool, emit func(upstream.SSEMessage)) (result streamResult, attemptErr error) {
 	reqCtx, cancel := util.WithDefaultTimeout(ctx, c.requestTimeout)
 	defer cancel()
 
@@ -757,13 +759,59 @@ func (c *Client) attemptChat(ctx context.Context, url string, body []byte, model
 		return streamResult{}, &attemptStreamError{err: err}
 	}
 	req.Header.Set("Accept", "text/event-stream")
-
+	attempt := debug.BeginUpstream(ctx, req.Method, req.URL.String(), req.Header, body)
+	traceCtx, latency := attempt.Trace(req.Context(), map[string]interface{}{"provider": "qoder", "model_key": model.Key, "model_source": model.Source, "host": req.URL.Host, "httpdns_ip": req.Header.Get("X-Qoder-Httpdns-Ip"), "body_bytes": len(body), "protocol_profile": c.protocol.name})
+	if latency != nil {
+		c.stateMu.RLock()
+		if c.account != nil {
+			latency.Set("account_id", c.account.ID)
+		}
+		c.stateMu.RUnlock()
+		if transport, ok := c.stream.Transport.(*http.Transport); ok {
+			proxy := "direct"
+			if transport.Proxy != nil {
+				if u, e := transport.Proxy(req); e == nil && u != nil {
+					proxy = u.Scheme + "://" + u.Host
+				}
+			}
+			latency.Set("proxy", proxy)
+		}
+		if raw, e := decodeBody(body); e == nil {
+			var wire chatBody
+			if json.Unmarshal(raw, &wire) == nil {
+				latency.Set("parameters", wire.Parameters)
+				latency.Set("messages_count", len(wire.Messages))
+				latency.Set("tools_count", len(wire.Tools))
+				latency.Set("conversation_fingerprint", fmt.Sprintf("%x", sha256.Sum256([]byte(wire.SessionID)))[:12])
+			}
+		}
+	}
+	req = req.WithContext(traceCtx)
+	defer func() { latency.Finish(attemptErr) }()
+	originalEmit := emit
+	emit = func(m upstream.SSEMessage) {
+		if m.Type == "model.text-delta" {
+			latency.Mark("first_text_ms")
+		}
+		if m.Type == "model.reasoning-delta" {
+			latency.Mark("first_reasoning_ms")
+		}
+		if m.Type == "model.tool-call" {
+			latency.Mark("first_tool_ms")
+		}
+		if originalEmit != nil {
+			originalEmit(m)
+		}
+	}
 	resp, err := c.stream.Do(req)
+	attempt.Response(resp, err)
+	latency.Response(resp)
 	if err != nil {
 		// Only a connection-level hiccup is worth another attempt; a bad URL or
 		// an untrusted certificate would fail identically every time.
 		return streamResult{}, &attemptStreamError{err: fmt.Errorf("send qoder request: %w", err), retryable: IsTransientTransport(err)}
 	}
+	resp.Body = attempt.CaptureBody(resp.Body)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -771,7 +819,12 @@ func (c *Client) attemptChat(ctx context.Context, url string, body []byte, model
 		return streamResult{}, classifyStatus(resp.StatusCode, resp.Header.Get("Retry-After"), raw)
 	}
 
-	result, err := consumeStreamWithTools(resp.Body, toolsEnabled, emit)
+	result, err = consumeStreamObserved(resp.Body, toolsEnabled, emit, func() { latency.Mark("first_sse_ms") })
+	for _, key := range []string{"firstTokenDuration", "totalDuration", "serverDuration"} {
+		if v, ok := result.Usage[key]; ok {
+			latency.Set("upstream_"+key, v)
+		}
+	}
 	if err != nil {
 		var target *attemptStreamError
 		if errors.As(err, &target) {

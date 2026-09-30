@@ -1116,7 +1116,13 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 				trackedAccountID = 0
 				slotReleasedForWait = true
 			}
-			if retryDelayForAttempt > 0 && !util.SleepWithContext(r.Context(), retryDelayForAttempt) {
+			waitStarted := time.Now()
+			waitCompleted := true
+			if retryDelayForAttempt > 0 {
+				waitCompleted = util.SleepWithContext(r.Context(), retryDelayForAttempt)
+				debug.RecordWait(r.Context(), errClass.Category, retryDelayForAttempt, time.Since(waitStarted), !waitCompleted)
+			}
+			if !waitCompleted {
 				sh.finishResponse("end_turn")
 				return
 			}
