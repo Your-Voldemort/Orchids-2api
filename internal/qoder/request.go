@@ -179,10 +179,11 @@ type chatMessage struct {
 
 // chatPart is one content part of a multimodal user message.
 type chatPart struct {
-	Type     string          `json:"type"`
-	Text     string          `json:"text,omitempty"`
-	ImageURL *chatImageURL   `json:"image_url,omitempty"`
-	Source   json.RawMessage `json:"source,omitempty"`
+	CacheControl *prompt.CacheControl `json:"cache_control,omitempty"`
+	Type         string               `json:"type"`
+	Text         string               `json:"text,omitempty"`
+	ImageURL     *chatImageURL        `json:"image_url,omitempty"`
+	Source       json.RawMessage      `json:"source,omitempty"`
 }
 
 type chatImageURL struct {
@@ -191,6 +192,7 @@ type chatImageURL struct {
 
 // chatToolCall is the OpenAI tool-call shape the gateway expects in history.
 type chatToolCall struct {
+	Index    *int   `json:"index,omitempty"`
 	ID       string `json:"id"`
 	Type     string `json:"type"`
 	Function struct {
@@ -280,7 +282,7 @@ func buildChatBodyProfile(req upstream.UpstreamRequest, model modelEntry, sessio
 		ChatTask:          chatTask,
 		ChatContext:       referenceChatContext(req, model),
 		IsReply:           true,
-		IsRetry:           req.Attempt > 1,
+		IsRetry:           false, // Official queued attempts keep this false; Attempt is local bookkeeping.
 		Source:            sourceValue,
 		Version:           "3",
 		AgentID:           agentID,
@@ -348,7 +350,7 @@ func refreshedReplayBody(encoded []byte, requestID string) ([]byte, error) {
 	// capture keeps them constant while request_id changes between the requests
 	// of one task. A replay is the same task, so they stay put.
 	body.Business.BeginAt = time.Now().UnixMilli()
-	body.IsRetry = true
+	body.IsRetry = false
 	updated, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal qoder replay body: %w", err)
@@ -389,6 +391,14 @@ func latestUserText(req upstream.UpstreamRequest) string {
 		}
 	}
 	return strings.TrimSpace(req.Prompt)
+}
+
+// Scope explicit conversation identities to the account without retaining raw IDs.
+func conversationSessionID(uid, conversation string) string {
+	sum := sha256.Sum256([]byte("qoder-session\x00" + uid + "\x00" + conversation))
+	sum[6] = (sum[6] & 0x0f) | 0x80
+	sum[8] = (sum[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", sum[:4], sum[4:6], sum[6:8], sum[8:10], sum[10:16])
 }
 
 // buildMessages renders the history. System items become a leading system
@@ -433,7 +443,7 @@ func buildMessages(req upstream.UpstreamRequest) ([]chatMessage, string, error) 
 			}
 			message := chatMessage{Role: normalRole(role), Content: text}
 			if role == "assistant" {
-				message.Reasoning = strings.TrimSpace(msg.ReasoningContent)
+				message.Reasoning = msg.ReasoningContent
 				message.ReasoningItem = msg.ReasoningItem
 			}
 			out = append(out, message)
@@ -479,7 +489,7 @@ func normalRole(role string) string {
 // convertAssistantMessage maps text, thinking and tool_use blocks onto one
 // assistant message.
 func convertAssistantMessage(msg prompt.Message, toolCallIDs map[string]bool) (chatMessage, bool) {
-	message := chatMessage{Role: "assistant", Reasoning: strings.TrimSpace(msg.ReasoningContent), ReasoningItem: msg.ReasoningItem}
+	message := chatMessage{Role: "assistant", Reasoning: msg.ReasoningContent, ReasoningItem: msg.ReasoningItem}
 	texts := make([]string, 0, 2)
 	for _, block := range msg.Content.GetBlocks() {
 		switch block.Type {
@@ -489,7 +499,7 @@ func convertAssistantMessage(msg prompt.Message, toolCallIDs map[string]bool) (c
 			}
 		case "thinking":
 			if message.Reasoning == "" {
-				message.Reasoning = strings.TrimSpace(block.Thinking)
+				message.Reasoning = block.Thinking
 			}
 		case "tool_use":
 			name := strings.TrimSpace(block.Name)
@@ -500,7 +510,7 @@ func convertAssistantMessage(msg prompt.Message, toolCallIDs map[string]bool) (c
 			if id == "" {
 				id = NewToolCallID()
 			}
-			call := chatToolCall{ID: id, Type: "function"}
+			call := chatToolCall{ID: id, Type: "function", Index: block.ToolIndex}
 			call.Function.Name = name
 			call.Function.Arguments = util.CompactToolInput(block.Input)
 			message.ToolCalls = append(message.ToolCalls, call)
@@ -520,39 +530,42 @@ func convertBlockMessage(role string, msg prompt.Message, toolCallIDs map[string
 	blocks := msg.Content.GetBlocks()
 	out := make([]chatMessage, 0, len(blocks))
 	pendingParts := make([]chatPart, 0, len(blocks))
-	hasImage := false
+	preserveParts := false
 
 	flush := func() {
 		if len(pendingParts) == 0 {
 			return
 		}
 		message := chatMessage{Role: normalRole(role)}
-		if !hasImage {
+		if !preserveParts {
 			texts := make([]string, 0, len(pendingParts))
 			for _, part := range pendingParts {
 				texts = append(texts, part.Text)
 			}
 			message.Content = strings.Join(texts, "\n")
 		} else {
-			// Preserve the original text/image interleaving. Transfer ownership
+			// Preserve text/image interleaving and per-part cache hints. Transfer ownership
 			// of this slice so the next segment cannot overwrite earlier parts.
 			message.Contents = pendingParts
 		}
 		out = append(out, message)
 		pendingParts = nil
-		hasImage = false
+		preserveParts = false
 	}
 
 	for _, block := range blocks {
 		switch block.Type {
 		case "text":
 			if strings.TrimSpace(block.Text) != "" {
-				pendingParts = append(pendingParts, chatPart{Type: "text", Text: block.Text})
+				pendingParts = append(pendingParts, chatPart{Type: "text", Text: block.Text, CacheControl: block.CacheControl})
+				if block.CacheControl != nil {
+					preserveParts = true
+				}
 			}
 		case "image":
 			if url := blockImageURL(block); url != "" {
-				pendingParts = append(pendingParts, chatPart{Type: "image_url", ImageURL: &chatImageURL{URL: url}})
-				hasImage = true
+				pendingParts = append(pendingParts, chatPart{Type: "image_url", ImageURL: &chatImageURL{URL: url}, CacheControl: block.CacheControl})
+				preserveParts = true
 			}
 		case "tool_result":
 			flush()

@@ -220,6 +220,11 @@ func (c *Client) SendRequestWithPayload(ctx context.Context, req upstream.Upstre
 	if err != nil {
 		return err
 	}
+	if conversation := strings.TrimSpace(req.ConversationID); conversation != "" {
+		sessionID = conversationSessionID(creds.UID, conversation)
+	} else if conversation := strings.TrimSpace(req.ChatSessionID); conversation != "" {
+		sessionID = conversationSessionID(creds.UID, conversation)
+	}
 	// aliyun_user_type is deliberately empty: the QoderWork client sends no
 	// account class, and the account's own class is still reported through the
 	// quota path.
