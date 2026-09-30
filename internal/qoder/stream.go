@@ -331,7 +331,11 @@ func consumeStreamObserved(body io.Reader, toolsEnabled bool, onMessage func(ups
 	}
 
 	emitTools := func() {
-		upstream.EmitToolCalls(onMessage, tools.CompleteAll(), &result.SawMeaningfulEvent, &result.ToolCallCount)
+		completed := tools.CompleteAll()
+		for _, call := range completed {
+			call.Arguments = normalizeCommandEscalation(call.Name, call.Arguments)
+		}
+		upstream.EmitToolCalls(onMessage, completed, &result.SawMeaningfulEvent, &result.ToolCallCount)
 	}
 
 	sawFinish := false
