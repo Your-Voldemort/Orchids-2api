@@ -67,6 +67,7 @@ type API struct {
 
 	// opsAggregator and alerts back the operations overview. They are optional:
 	// a Redis-less deployment simply reports "no sample" instead of failing.
+	auditHealth   func() audit.Health
 	diagnostics   *debug.DiagnosticStore
 	alertRulesMu  sync.Mutex
 	opsAggregator *opsagg.Aggregator
@@ -406,7 +407,7 @@ func (f auditQueryFilter) describe() map[string]interface{} {
 // UI can state what the numbers actually cover instead of promising a fixed
 // retention period.
 func (a *API) auditCoverage(ctx context.Context) map[string]interface{} {
-	coverage := map[string]interface{}{"entries": 0, "oldest": nil, "newest": nil, "counts": map[string]int{}}
+	coverage := map[string]interface{}{"available": false, "entries": 0, "oldest": nil, "newest": nil, "counts": map[string]int{}}
 	if a == nil || a.store == nil || a.store.RedisClient() == nil {
 		return coverage
 	}
@@ -417,6 +418,7 @@ func (a *API) auditCoverage(ctx context.Context) map[string]interface{} {
 	if err != nil {
 		return coverage
 	}
+	coverage["available"] = true
 	coverage["entries"] = total
 	counts := map[string]int{}
 	var newest, oldest string
@@ -2815,3 +2817,6 @@ func (a *API) persistConfig(ctx context.Context, current, newCfg *config.Config)
 	a.notifyConfigChanged(storedCfg)
 	return nil
 }
+
+// SetAuditHealthReporter exposes process-local sink health without coupling queries to writes.
+func (a *API) SetAuditHealthReporter(reporter func() audit.Health) { a.auditHealth = reporter }

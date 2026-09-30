@@ -1223,8 +1223,17 @@
   function renderCoverage(payload) {
     const node = el('opsCoverage');
     if (!node) return;
+    const health = payload.ingestion;
+    const aggregationHealth = payload.aggregation_health;
+    setText("opsIngestion", health
+      ? `本实例日志采集：队列 ${health.queue} 条 / ${health.queued_bytes} 字节；已写入 ${health.written}；丢弃 ${health.dropped}；写入失败 ${health.write_failed}` + (health.last_success ? `；最近成功 ${health.last_success}` : "；尚无成功写入") + ((health.dropped || health.write_failed) ? "；日志可能不完整，请检查 Redis 和流量压力。" : "")
+      : "本实例日志采集健康状态不可用");
+    if (aggregationHealth && aggregationHealth.write_failed) {
+ const node = el("opsIngestion");
+ if (node) node.textContent += `；本实例指标聚合写入失败 ${aggregationHealth.write_failed} 次，统计可能不完整。`;
+ }
     const coverage = payload.coverage || {};
-    const parts = typeof coverage.entries === 'number'
+    const parts = coverage.available !== false && typeof coverage.entries === 'number'
       ? [`审计日志保留 ${coverage.entries} 条`]
         .concat(coverage.oldest ? [`最早 ${coverage.oldest}`] : [])
         .concat(coverage.newest ? [`最新 ${coverage.newest}`] : [])
@@ -1236,6 +1245,7 @@
     parts.push('因此页面只承诺“保留窗口内”的结论，不承诺固定天数。');
     const excluded = (payload.excluded_aggregates || []).map(excludedLabel);
     if (excluded.length) parts.push('已计数但不在渠道矩阵中显示：' + excluded.join('；'));
+    if (payload.latency_precision) parts.push(payload.latency_precision);
     parts.push('Token / TPS 只统计上报了用量的请求；未上报用量的渠道其 TPS 会偏低。');
     // When the aggregation itself is disabled the reason matters more than the
     // coverage caveat: the whole page is showing nothing because of it.
@@ -1328,7 +1338,9 @@
       if (runtimePayload) renderResources(runtimePayload);
       else renderResources({ available: false, note: '运行时指标读取失败。' });
       setText('opsRefreshedAt', fmtClock(new Date()));
-      setStatus('就绪', '');
+      const collectionLoss = payload.ingestion && (payload.ingestion.dropped || payload.ingestion.write_failed);
+      const aggregationLoss = payload.aggregation_health && payload.aggregation_health.write_failed;
+      setStatus(collectionLoss ? '日志采集存在丢失' : aggregationLoss ? '指标采集存在丢失' : '就绪', collectionLoss || aggregationLoss ? 'is-warn' : '');
       state.countdown = state.refreshSeconds;
       await loadAlertEvents();
     } catch (error) {
@@ -1353,6 +1365,7 @@
       }
       // A failed read has no window to describe, so the coverage line states the
       // failure instead of the retention it could not read.
+      setText('opsIngestion', '采集健康状态未能更新，请重试。');
       setText('opsCoverage', `指标读取失败：${String(error.message || error)}。会话可能已过期，请重新登录后刷新。`);
       setStatus('读取失败', 'is-error');
       renderMatrix([]);

@@ -308,3 +308,26 @@ test('an aggregation-disabled response still fills the coverage card', async () 
   await new Promise((resolve) => setImmediate(resolve));
   assert.match(node('opsCoverage').textContent, /Redis/, 'the disabled reason is not shown');
 });
+
+test('collection loss stays visible even when overview queries succeed', async () => {
+  const { node } = renderPage({ ...realPayload, ingestion: { queue: 2, queued_bytes: 128, written: 10, dropped: 3, write_failed: 1 } });
+  await settle();
+  assert.match(node('opsIngestion').textContent, /丢弃 3/);
+  assert.match(node('opsIngestion').textContent, /写入失败 1/);
+  assert.match(node('opsIngestion').textContent, /可能不完整/);
+  assert.equal(node('opsStatusText').textContent, '日志采集存在丢失');
+});
+
+test('unavailable coverage is not presented as an empty retained log', async () => {
+  const { node } = renderPage({ ...realPayload, coverage: { available: false, entries: 0 } });
+  await settle();
+  assert.match(node('opsCoverage').textContent, /未能读取/);
+  assert.doesNotMatch(node('opsCoverage').textContent, /保留 0 条/);
+});
+
+test('aggregation failures are distinct from healthy audit ingestion', async () => {
+  const { node } = renderPage({ ...realPayload, ingestion: { queue: 0, queued_bytes: 0, written: 10, dropped: 0, write_failed: 0 }, aggregation_health: { available: true, write_failed: 2 } });
+  await settle();
+  assert.match(node('opsIngestion').textContent, /指标聚合写入失败 2/);
+  assert.equal(node('opsStatusText').textContent, '指标采集存在丢失');
+});

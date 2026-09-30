@@ -98,8 +98,11 @@ func (a *API) HandleOpsOverview(w http.ResponseWriter, r *http.Request) {
 	if !requireMethod(w, r, http.MethodGet) {
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	r = r.WithContext(ctx)
 	window, since, until := a.parseOpsWindow(r)
-	channels, aggregates, _ := a.opsChannels(r.Context(), r, since, until)
+	channels, aggregates, channelErr := a.opsChannels(r.Context(), r, since, until)
 	target := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("channel")))
 
 	payload := map[string]interface{}{
@@ -129,6 +132,11 @@ func (a *API) HandleOpsOverview(w http.ResponseWriter, r *http.Request) {
 	// ("阈值 <50%"); the page does not draw it yet, but keeping it in the same
 	// response means the two numbers an operator compares have one source.
 	successTargetValue, targetSource := successTarget(a.alertEngine)
+	if a.auditHealth != nil {
+		payload["ingestion"] = a.auditHealth()
+	}
+	payload["aggregation_health"] = a.opsAggregator.Health()
+	payload["latency_precision"] = "每个渠道分钟桶最多保留最近 5000 个延迟样本，模型分钟桶最多 2000 个；P95 为保留样本的最近秩分位数，窗口按整分钟边界统计。"
 	payload["success_target"] = successTargetValue
 	payload["success_target_source"] = targetSource
 	payload["success_target_critical"] = successTargetCritical(a.alertEngine)
@@ -137,6 +145,10 @@ func (a *API) HandleOpsOverview(w http.ResponseWriter, r *http.Request) {
 		payload["available"] = false
 		payload["note"] = "指标聚合需要 Redis；当前部署未启用。"
 		util.WriteJSON(w, payload)
+		return
+	}
+	if channelErr != nil {
+		http.Error(w, "failed to discover metric channels", http.StatusServiceUnavailable)
 		return
 	}
 	payload["available"] = true
@@ -161,9 +173,18 @@ func (a *API) HandleOpsOverview(w http.ResponseWriter, r *http.Request) {
 		SamplesProvided: true,
 	})
 	payload["series"] = opsSeries(buckets)
-	payload["matrix"] = a.opsMatrix(r.Context(), channels, since, until)
+	matrix, err := a.opsMatrix(r.Context(), channels, since, until)
+	if err != nil {
+		http.Error(w, "failed to read channel metrics", http.StatusServiceUnavailable)
+		return
+	}
+	payload["matrix"] = matrix
 	payload["alerts"] = a.firingAlerts()
 	payload["concurrency"] = a.currentConcurrency()
+	if err := ctx.Err(); err != nil {
+		http.Error(w, "monitoring query timed out", http.StatusServiceUnavailable)
+		return
+	}
 
 	util.WriteJSON(w, payload)
 }
@@ -490,8 +511,8 @@ func (a *API) opsBucketsWithSamples(ctx context.Context, scope string, since, un
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		durations, ttfts := a.opsAggregator.SamplesFor(ctx, scope, buckets)
-		return buckets, durations, ttfts, nil
+		durations, ttfts, err := a.opsAggregator.SamplesForChecked(ctx, scope, buckets)
+		return buckets, durations, ttfts, err
 	}
 
 	channels, err := a.opsAggregator.Channels(ctx, since, until)
@@ -510,7 +531,10 @@ func (a *API) opsBucketsWithSamples(ctx context.Context, scope string, since, un
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		channelDurations, channelTTFTs := a.opsAggregator.SamplesFor(ctx, channel, buckets)
+		channelDurations, channelTTFTs, err := a.opsAggregator.SamplesForChecked(ctx, channel, buckets)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		durations = append(durations, channelDurations...)
 		ttfts = append(ttfts, channelTTFTs...)
 
@@ -526,6 +550,18 @@ func (a *API) opsBucketsWithSamples(ctx context.Context, scope string, since, un
 			combined.Success += bucket.Success
 			combined.Failed += bucket.Failed
 			combined.Input += bucket.Input
+			combined.Cached += bucket.Cached
+			combined.Reasoning += bucket.Reasoning
+			if bucket.Total > 0 {
+				combined.Total += bucket.Total
+			} else {
+				combined.Total += bucket.Input + bucket.Output
+			}
+			combined.PricedRequests += bucket.PricedRequests
+			combined.UnpricedRequests += bucket.UnpricedRequests
+			combined.PricedTokens += bucket.PricedTokens
+			combined.UnpricedTokens += bucket.UnpricedTokens
+			combined.CostInUSDTicks += bucket.CostInUSDTicks
 			combined.Output += bucket.Output
 			merged[bucket.Minute] = combined
 		}
@@ -554,8 +590,11 @@ func opsSeries(buckets []opsagg.Bucket) []map[string]interface{} {
 
 // opsMatrix builds the channel × model status rows. A row with no samples is
 // reported as such (samples = 0) instead of a green, traffic-free channel.
-func (a *API) opsMatrix(ctx context.Context, channels []string, since, until time.Time) []map[string]interface{} {
-	accounts, _ := a.store.ListAccounts(ctx)
+func (a *API) opsMatrix(ctx context.Context, channels []string, since, until time.Time) ([]map[string]interface{}, error) {
+	accounts, err := a.store.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
 	ids := make([]int64, 0, len(accounts))
 	for _, acc := range accounts {
 		if acc != nil {
@@ -599,7 +638,10 @@ func (a *API) opsMatrix(ctx context.Context, channels []string, since, until tim
 		if a.opsAggregator != nil && a.opsAggregator.Enabled() {
 			buckets, err := a.opsAggregator.Range(ctx, channel, since, until)
 			if err == nil {
-				durations, ttfts := a.opsAggregator.SamplesFor(ctx, channel, buckets)
+				durations, ttfts, err := a.opsAggregator.SamplesForChecked(ctx, channel, buckets)
+				if err != nil {
+					return nil, err
+				}
 				summary := a.opsAggregator.SummarizeWith(ctx, opsagg.SummaryInput{
 					Channel:         channel,
 					Buckets:         buckets,
@@ -609,14 +651,20 @@ func (a *API) opsMatrix(ctx context.Context, channels []string, since, until tim
 					SamplesProvided: true,
 				})
 				row["summary"] = summary
-				row["models"] = a.opsAggregator.ModelStatsFromBuckets(ctx, channel, buckets)
+				models, err := a.opsAggregator.ModelStatsFromBucketsChecked(ctx, channel, buckets)
+				if err != nil {
+					return nil, err
+				}
+				row["models"] = models
 				row["has_sample"] = summary.Requests > 0
 				row["series"] = opsSeries(buckets)
+			} else {
+				return nil, err
 			}
 		}
 		rows = append(rows, row)
 	}
-	return rows
+	return rows, nil
 }
 
 // poolCounts summarizes a channel's account pool for the matrix.
