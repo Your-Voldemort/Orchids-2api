@@ -388,7 +388,7 @@ func latestUserText(req upstream.UpstreamRequest) string {
 			}
 		}
 	}
-	return ""
+	return strings.TrimSpace(req.Prompt)
 }
 
 // buildMessages renders the history. System items become a leading system
