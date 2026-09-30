@@ -2608,7 +2608,7 @@ func normalizeConfigPatchValue(key string, value interface{}) interface{} {
 	case "retry_delay", "request_timeout", "refresh_interval",
 		"redis_db", "token_refresh_interval", "load_balancer_cache_ttl", "concurrency_limit",
 		"concurrency_timeout", "max_retries", "credential_retries",
-		"shared_refusal_wait_budget_ms":
+		"shared_refusal_wait_budget_ms", "qoder_queue_retry_interval_ms":
 		if i, ok := parseIntish(value); ok {
 			return i
 		}
