@@ -1,0 +1,41 @@
+?   	orchids-api/cmd/providerregistry	[no test files]
+ok  	orchids-api/cmd/server	12.320s
+ok  	orchids-api/internal/accountevents	1.561s
+ok  	orchids-api/internal/accountpolicy	1.499s
+ok  	orchids-api/internal/adapter	1.370s
+ok  	orchids-api/internal/alerting	1.324s
+ok  	orchids-api/internal/api	24.273s
+ok  	orchids-api/internal/audit	(cached)
+ok  	orchids-api/internal/auth	1.828s
+?   	orchids-api/internal/buildinfo	[no test files]
+ok  	orchids-api/internal/channel	1.466s
+ok  	orchids-api/internal/cline	1.799s
+ok  	orchids-api/internal/config	1.496s
+ok  	orchids-api/internal/debug	2.488s
+ok  	orchids-api/internal/errors	1.482s
+ok  	orchids-api/internal/grok	7.786s
+ok  	orchids-api/internal/grok/egress	1.878s
+ok  	orchids-api/internal/handler	4.290s
+ok  	orchids-api/internal/loadbalancer	(cached)
+?   	orchids-api/internal/logutil	[no test files]
+ok  	orchids-api/internal/middleware	(cached)
+ok  	orchids-api/internal/modelcatalog	1.346s
+ok  	orchids-api/internal/modelpolicy	1.345s [no tests to run]
+ok  	orchids-api/internal/opsagg	2.133s
+ok  	orchids-api/internal/perf	1.346s
+?   	orchids-api/internal/perfprobe	[no test files]
+ok  	orchids-api/internal/pricing	1.408s
+ok  	orchids-api/internal/prompt	1.375s
+?   	orchids-api/internal/provider	[no test files]
+ok  	orchids-api/internal/qoder	7.775s
+ok  	orchids-api/internal/refreshqueue	1.391s
+ok  	orchids-api/internal/secureblob	1.390s
+ok  	orchids-api/internal/selfupdate	1.833s
+ok  	orchids-api/internal/store	(cached)
+ok  	orchids-api/internal/template	1.381s
+ok  	orchids-api/internal/tiktoken	1.357s
+?   	orchids-api/internal/toolname	[no test files]
+ok  	orchids-api/internal/upstream	1.498s
+ok  	orchids-api/internal/util	(cached)
+ok  	orchids-api/internal/workbuddy	1.768s
+ok  	orchids-api/web	1.580s

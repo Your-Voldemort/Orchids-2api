@@ -1,0 +1,8 @@
+LOCAL_OPEN_LOOP {"TargetRPS":100000,"Offered":3000000,"Accepted":2999911,"Completed":2999911,"Errors":0,"Dropped":89,"OfferSeconds":30.0003002,"TotalSeconds":30.0003002,"CompletedRPS":99996.03270636605,"P50ms":0.3214,"P95ms":1.0223,"P99ms":2.1868,"GCPercent":"400","MemoryLimit":"512MiB","GCCycles":1168,"Warmup":true,"GCPauseMs":72.1669,"HeapInuseMiB":90.15625,"HeapSysMiB":155.6875,"AllocBytesPerAccepted":14198.080959068453}
+goos: windows
+goarch: amd64
+pkg: orchids-api/internal/qoder
+cpu: Intel(R) Core(TM) Ultra 5 125H
+BenchmarkProviderLocal-18    	       1	30355103900 ns/op
+PASS
+ok  	orchids-api/internal/qoder	30.489s

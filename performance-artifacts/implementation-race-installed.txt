@@ -1,0 +1,6 @@
+ok  	orchids-api/internal/qoder	8.114s
+ok  	orchids-api/internal/middleware	3.561s
+ok  	orchids-api/internal/loadbalancer	1.853s
+ok  	orchids-api/internal/store	6.289s
+ok  	orchids-api/internal/audit	1.717s
+ok  	orchids-api/internal/util	1.874s

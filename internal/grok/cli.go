@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/goccy/go-json"
+	"encoding/json"
 
 	"orchids-api/internal/accountpolicy"
 	"orchids-api/internal/config"
@@ -54,7 +54,7 @@ func NewCLIClient(cfg *config.Config) *CLIClient {
 	client := &CLIClient{cfg: cfg, responseHeaderTimeout: defaultCLIResponseHeaderTimeout}
 	// Shared browser client keeps the utls Chrome TLS fingerprint; the CLI
 	// upstream tolerates browser-like TLS even though headers are CLI identity.
-	client.httpClient = util.GetSharedBrowserHTTPClientWithHeaderTimeout("cli|"+util.GenerateProxyKeyFromConfig(cfg), cfg.GrokRequestTimeout(ProviderBuild), 0, util.ProxyFuncFromConfig(cfg))
+	client.httpClient = util.GetSharedBrowserHTTPClientWithLimits("cli|"+util.GenerateProxyKeyFromConfig(cfg), cfg.GrokRequestTimeout(ProviderBuild), 0, util.ProxyFuncFromConfig(cfg), cfg)
 	client.oauth = NewCLIOAuth(cfg, client.httpClient)
 	client.egress = egress.NewManager(cfg)
 	return client

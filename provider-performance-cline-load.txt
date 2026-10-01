@@ -1,0 +1,8 @@
+LOCAL_OPEN_LOOP {"TargetRPS":100000,"Offered":500000,"Accepted":480384,"Completed":480384,"Errors":0,"Dropped":19616,"OfferSeconds":5.0000986,"TotalSeconds":5.0021151,"CompletedRPS":96036.17477734569,"P50ms":1.936,"P95ms":15.1445,"P99ms":24.3615}
+goos: windows
+goarch: amd64
+pkg: orchids-api/internal/cline
+cpu: Intel(R) Core(TM) Ultra 5 125H
+BenchmarkProviderLocal-18    	       1	5079716500 ns/op
+PASS
+ok  	orchids-api/internal/cline	5.795s

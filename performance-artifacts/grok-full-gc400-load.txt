@@ -1,0 +1,8 @@
+LOCAL_OPEN_LOOP {"TargetRPS":100000,"Offered":500000,"Accepted":488926,"Completed":488926,"Errors":0,"Dropped":11074,"OfferSeconds":5.0002599,"TotalSeconds":5.0063758,"CompletedRPS":97660.66702383789,"P50ms":0.6114,"P95ms":8.2891,"P99ms":20.5035,"GCPercent":"400","MemoryLimit":"512MiB","GCCycles":404,"Warmup":true,"GCPauseMs":135.0546,"HeapInuseMiB":38.9296875,"HeapSysMiB":327.5625,"AllocBytesPerAccepted":24642.796676797716}
+goos: windows
+goarch: amd64
+pkg: orchids-api/internal/grok
+cpu: Intel(R) Core(TM) Ultra 5 125H
+BenchmarkProviderLocal-18    	       1	5100880400 ns/op
+PASS
+ok  	orchids-api/internal/grok	5.247s

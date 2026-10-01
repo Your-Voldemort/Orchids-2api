@@ -1,0 +1,4 @@
+# orchids-api/internal/grok
+# [orchids-api/internal/grok]
+vet.exe: internal\grok\grok2api_sse.go:107:12: undefined: util
+FAIL	orchids-api/internal/grok [build failed]

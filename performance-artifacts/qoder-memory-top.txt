@@ -1,0 +1,20 @@
+File: qoder.test.exe
+Build ID: D:\Code\API-Console\qoder.test.exe2026-10-01 10:07:48.8233657 +0800 CST
+Type: alloc_space
+Time: 2026-10-01 10:08:39 CST
+Showing nodes accounting for 1996.41MB, 67.95% of 2938.14MB total
+Dropped 88 nodes (cum <= 14.69MB)
+Showing top 12 nodes out of 77
+      flat  flat%   sum%        cum   cum%
+  306.19MB 10.42% 10.42%   470.21MB 16.00%  orchids-api/internal/qoder.readSSE
+  258.34MB  8.79% 19.21%  1688.44MB 57.47%  orchids-api/internal/qoder.(*Client).attemptChat
+  241.09MB  8.21% 27.42%   244.59MB  8.32%  orchids-api/internal/qoder.newCatalog
+  233.19MB  7.94% 35.36%   239.69MB  8.16%  net/textproto.MIMEHeader.Set (inline)
+  179.39MB  6.11% 41.46%   180.39MB  6.14%  orchids-api/internal/qoder.signRequest
+  140.15MB  4.77% 46.23%   140.15MB  4.77%  net/http.Header.Clone (inline)
+  133.54MB  4.55% 50.78%   451.64MB 15.37%  orchids-api/internal/qoder.catalogFromIDs
+  123.18MB  4.19% 54.97%   123.18MB  4.19%  orchids-api/internal/qoder.swapOuterThirds (inline)
+  118.17MB  4.02% 58.99%   241.35MB  8.21%  orchids-api/internal/qoder.EncodeBody
+  100.61MB  3.42% 62.42%   247.72MB  8.43%  encoding/json.Marshal
+   90.52MB  3.08% 65.50%    90.52MB  3.08%  orchids-api/internal/qoder.referenceChatContext
+   72.04MB  2.45% 67.95%    72.04MB  2.45%  encoding/base64.(*Encoding).EncodeToString

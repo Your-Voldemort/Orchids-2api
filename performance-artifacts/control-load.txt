@@ -1,0 +1,8 @@
+LOCAL_OPEN_LOOP {"TargetRPS":100000,"Offered":500000,"Accepted":500000,"Completed":500000,"Errors":0,"Dropped":0,"OfferSeconds":5.0003238,"TotalSeconds":5.0003238,"CompletedRPS":99993.5244193586,"P50ms":0.2914,"P95ms":0.5483,"P99ms":0.5819}
+goos: windows
+goarch: amd64
+pkg: orchids-api/internal/perfprobe
+cpu: Intel(R) Core(TM) Ultra 5 125H
+BenchmarkOpenLoopControl-18    	       1	5043256400 ns/op
+PASS
+ok  	orchids-api/internal/perfprobe	5.412s

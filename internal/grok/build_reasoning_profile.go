@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/goccy/go-json"
+	"encoding/json"
 
 	"orchids-api/internal/modelcatalog"
 	"orchids-api/internal/modelpolicy"
