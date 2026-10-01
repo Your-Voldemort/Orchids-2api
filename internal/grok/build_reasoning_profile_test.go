@@ -22,9 +22,9 @@ func TestBuildChatAppliesSelectedAccountReasoningProfile(t *testing.T) {
 		name, requested, expected string
 		status                    int
 	}{
-		{"none uses catalog default", "none", "high", http.StatusOK},
+		{"unsupported explicit none", "none", "", http.StatusBadRequest},
 		{"unsupported effort", "ultra", "", http.StatusBadRequest},
-		{"catalog default", "", "high", http.StatusOK},
+		{"safe default", "", "low", http.StatusOK},
 		{"explicit low", "low", "low", http.StatusOK},
 		{"max alias", "max", "xhigh", http.StatusOK},
 	} {
@@ -86,12 +86,13 @@ func TestBuildPayloadForAccountUsesCatalogDefaultAndValidation(t *testing.T) {
 		t.Fatal(err)
 	}
 	reasoning := payload["reasoning"].(map[string]interface{})
-	if reasoning["effort"] != "high" {
+	if reasoning["effort"] != "low" {
 		t.Fatalf("effort=%v", reasoning["effort"])
 	}
-	payload, err = buildPayloadForAccount(map[string]interface{}{"reasoning": map[string]interface{}{"effort": "none"}}, acc, "grok-4.7")
-	if err != nil || payload["reasoning"].(map[string]interface{})["effort"] != "high" {
-		t.Fatalf("none fallback payload=%v err=%v", payload, err)
+	_, err = buildPayloadForAccount(map[string]interface{}{"reasoning": map[string]interface{}{"effort": "none"}}, acc, "grok-4.7")
+	var noneErr *buildReasoningProfileError
+	if !errors.As(err, &noneErr) {
+		t.Fatalf("none err=%v", err)
 	}
 	_, err = buildPayloadForAccount(map[string]interface{}{"reasoning": map[string]interface{}{"effort": "ultra"}}, acc, "grok-4.7")
 	var profileErr *buildReasoningProfileError
@@ -118,15 +119,15 @@ func TestBuildPayloadForAccountDoesNotMutateImmutableSource(t *testing.T) {
 	}
 }
 
-func TestBuildNoneEffortFallbacks(t *testing.T) {
+func TestBuildExplicitNoneIsNeverSilentlyRewritten(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		profile *modelcatalog.Profile
-		want    string
+		wantErr bool
 	}{
-		{"missing default chooses supported low", &modelcatalog.Profile{ModelID: "grok-4.7", SupportsReasoningEffort: true, ReasoningEfforts: []string{"high", "low"}}, "low"},
-		{"missing catalog lets upstream choose", nil, ""},
-		{"no effort capability omits none", &modelcatalog.Profile{ModelID: "grok-4.7"}, ""},
+		{"catalog rejects unsupported none", &modelcatalog.Profile{ModelID: "grok-4.7", SupportsReasoningEffort: true, ReasoningEfforts: []string{"high", "low"}}, true},
+		{"missing catalog preserves explicit none", nil, false},
+		{"no effort capability rejects explicit none", &modelcatalog.Profile{ModelID: "grok-4.7"}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source := map[string]interface{}{"reasoning": map[string]interface{}{"effort": " NONE ", "summary": "auto"}}
@@ -135,16 +136,40 @@ func TestBuildNoneEffortFallbacks(t *testing.T) {
 				acc.GrokModelCatalog = []modelcatalog.Profile{*tc.profile}
 			}
 			payload, err := buildPayloadForAccount(source, acc, "grok-4.7")
+			if tc.wantErr {
+				var profileErr *buildReasoningProfileError
+				if !errors.As(err, &profileErr) {
+					t.Fatalf("err=%v", err)
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
 			reasoning := payload["reasoning"].(map[string]interface{})
-			if got := interfaceString(reasoning["effort"]); got != tc.want {
-				t.Fatalf("effort=%q want %q", got, tc.want)
+			if got := interfaceString(reasoning["effort"]); !strings.EqualFold(got, "none") {
+				t.Fatalf("effort=%q", got)
 			}
 			if reasoning["summary"] != "auto" || source["reasoning"].(map[string]interface{})["effort"] != " NONE " {
 				t.Fatal("summary or immutable source changed")
 			}
 		})
+	}
+}
+
+func TestBuildMissingCatalogDefaultsKnownReasoningModelToLow(t *testing.T) {
+	payload, err := buildPayloadForAccount(map[string]interface{}{}, &store.Account{}, "grok-4.7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := payload["reasoning"].(map[string]interface{})["effort"]; got != "low" {
+		t.Fatalf("effort=%v", got)
+	}
+	payload, err = buildPayloadForAccount(map[string]interface{}{}, &store.Account{}, "unknown-model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := payload["reasoning"]; exists {
+		t.Fatalf("unexpected reasoning=%v", payload["reasoning"])
 	}
 }

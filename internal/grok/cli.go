@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/http/httptrace"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/goccy/go-json"
@@ -31,21 +33,25 @@ const (
 	defaultCLIBaseURL = "https://cli-chat-proxy.grok.com/v1"
 	// cli-chat-proxy rejects generic boolean token-auth headers. These values
 	// mirror the official Grok shell identity used with Build OAuth tokens.
-	defaultCLITokenAuth  = "xai-grok-cli"
-	defaultCLIClientMode = "headless"
+	defaultCLITokenAuth             = "xai-grok-cli"
+	defaultCLIClientMode            = "headless"
+	defaultCLIResponseHeaderTimeout = 30 * time.Second
 )
+
+var errCLIResponseHeaderTimeout = fmt.Errorf("grok upstream response header timeout")
 
 // CLIClient implements the Grok Build CLI upstream protocol.
 type CLIClient struct {
-	cfg        *config.Config
-	httpClient *http.Client
-	oauth      *CLIOAuth
-	egress     *egress.Manager
+	cfg                   *config.Config
+	httpClient            *http.Client
+	oauth                 *CLIOAuth
+	egress                *egress.Manager
+	responseHeaderTimeout time.Duration
 }
 
 // NewCLIClient builds a CLI upstream client from configuration.
 func NewCLIClient(cfg *config.Config) *CLIClient {
-	client := &CLIClient{cfg: cfg}
+	client := &CLIClient{cfg: cfg, responseHeaderTimeout: defaultCLIResponseHeaderTimeout}
 	// Shared browser client keeps the utls Chrome TLS fingerprint; the CLI
 	// upstream tolerates browser-like TLS even though headers are CLI identity.
 	client.httpClient = util.GetSharedBrowserHTTPClientWithHeaderTimeout("cli|"+util.GenerateProxyKeyFromConfig(cfg), cfg.GrokRequestTimeout(ProviderBuild), 0, util.ProxyFuncFromConfig(cfg))
@@ -522,8 +528,28 @@ func (c *CLIClient) request(ctx context.Context, acc *store.Account, method, end
 	if token == "" {
 		return nil, fmt.Errorf("grok cli account access token is empty")
 	}
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(body))
+	requestCtx := ctx
+	cancelRequest := func() {}
+	var headerTimer *time.Timer
+	var headerTimedOut atomic.Bool
+	if method == http.MethodPost && strings.HasSuffix(strings.TrimRight(endpoint, "/"), "/responses") && c.responseHeaderTimeout > 0 {
+		var cancel context.CancelFunc
+		requestCtx, cancel = context.WithCancel(ctx)
+		cancelRequest = cancel
+		headerTimer = time.AfterFunc(c.responseHeaderTimeout, func() {
+			headerTimedOut.Store(true)
+			cancel()
+		})
+		requestCtx = httptrace.WithClientTrace(requestCtx, &httptrace.ClientTrace{
+			GotFirstResponseByte: func() { headerTimer.Stop() },
+		})
+	}
+	req, err := http.NewRequestWithContext(requestCtx, method, endpoint, bytes.NewReader(body))
 	if err != nil {
+		if headerTimer != nil {
+			headerTimer.Stop()
+		}
+		cancelRequest()
 		return nil, err
 	}
 	req.Header = c.cliHeaders(acc, token)
@@ -533,13 +559,46 @@ func (c *CLIClient) request(ctx context.Context, acc *store.Account, method, end
 	attempt := debug.BeginUpstream(ctx, method, endpoint, req.Header, body)
 	req = attempt.TraceRequest(req)
 	resp, err := doUpstreamHTTP(req, func(req *http.Request) (*http.Response, error) {
-		return c.doCLIRequest(ctx, acc, req)
+		return c.doCLIRequest(requestCtx, acc, req)
 	}, c.cfg.GrokStreamIdleTimeoutFor(ProviderBuild), upstreamIdleBuildSemantic)
+	if headerTimer != nil {
+		headerTimer.Stop()
+	}
 	attempt.Response(resp, err)
+	if headerTimedOut.Load() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		cancelRequest()
+		return nil, fmt.Errorf("%w after %s", errCLIResponseHeaderTimeout, c.responseHeaderTimeout)
+	}
+	if err != nil {
+		cancelRequest()
+		return nil, err
+	}
 	if resp != nil {
 		resp.Body = attempt.CaptureBody(resp.Body)
+		if headerTimer != nil && resp.Body != nil {
+			resp.Body = &cancelOnCloseBody{ReadCloser: resp.Body, cancel: cancelRequest}
+		} else {
+			cancelRequest()
+		}
 	}
-	return resp, err
+	return resp, nil
+}
+
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel func()
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	err := b.ReadCloser.Close()
+	if b.cancel != nil {
+		b.cancel()
+		b.cancel = nil
+	}
+	return err
 }
 
 func cliEgressAffinity(acc *store.Account) string {
