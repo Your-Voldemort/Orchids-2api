@@ -344,6 +344,26 @@ type Profile struct {
 	OrgTags []string `json:"organization_tags"`
 }
 
+// ApplyToAccount applies non-empty identity fields and copies tags, keeping the
+// caller's account independent of the profile response backing array.
+func (profile Profile) ApplyToAccount(acc *store.Account) {
+	if uid := strings.TrimSpace(profile.UID); uid != "" {
+		acc.QoderUserID = uid
+	}
+	if name := strings.TrimSpace(profile.Name); name != "" {
+		acc.QoderUserName = name
+	}
+	if email := strings.TrimSpace(profile.Email); email != "" {
+		acc.Email = email
+	}
+	if orgID := strings.TrimSpace(profile.OrgID); orgID != "" {
+		acc.QoderOrganizationID = orgID
+	}
+	if len(profile.OrgTags) > 0 {
+		acc.QoderOrganizationTags = append([]string(nil), profile.OrgTags...)
+	}
+}
+
 // DeviceToken is the token pair one device flow exchange returned.
 type DeviceToken struct {
 	AccessToken      string    `json:"token"`

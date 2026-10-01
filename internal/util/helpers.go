@@ -3,6 +3,7 @@ package util
 import (
 	"context"
 	"crypto/subtle"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -77,6 +78,27 @@ func FirstNonEmptyURL(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// AllowedLoginHost accepts only exact provider/configured hosts and loopback.
+func AllowedLoginHost(host, configured string, allowed []string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "" {
+		return false
+	}
+	if host == "localhost" || host == "::1" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	for _, candidate := range allowed {
+		if strings.EqualFold(host, candidate) {
+			return true
+		}
+	}
+	configured = strings.TrimSpace(strings.ToLower(configured))
+	return configured != "" && host == configured
 }
 
 // HostOf returns the host of an absolute URL, or "" when it cannot be parsed.

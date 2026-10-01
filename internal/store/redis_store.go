@@ -851,9 +851,7 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 			updated.WorkBuddyRefreshToken = strings.TrimSpace(acc.WorkBuddyRefreshToken)
 			updated.WorkBuddyExpiresAt = acc.WorkBuddyExpiresAt
 		}
-		if token := strings.TrimSpace(acc.WorkBuddyUID); token != "" {
-			updated.WorkBuddyUID = token
-		}
+		patchString(&updated.WorkBuddyUID, acc.WorkBuddyUID)
 		if len(acc.WorkBuddyModelIDs) > 0 {
 			updated.WorkBuddyModelIDs = append([]string(nil), acc.WorkBuddyModelIDs...)
 		}
@@ -876,15 +874,9 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 			updated.QoderRuntimeInfo = strings.TrimSpace(acc.QoderRuntimeInfo)
 			updated.QoderRuntimeKey = strings.TrimSpace(acc.QoderRuntimeKey)
 		}
-		if token := strings.TrimSpace(acc.QoderUserID); token != "" {
-			updated.QoderUserID = token
-		}
-		if token := strings.TrimSpace(acc.QoderUserName); token != "" {
-			updated.QoderUserName = token
-		}
-		if token := strings.TrimSpace(acc.QoderOrganizationID); token != "" {
-			updated.QoderOrganizationID = token
-		}
+		patchString(&updated.QoderUserID, acc.QoderUserID)
+		patchString(&updated.QoderUserName, acc.QoderUserName)
+		patchString(&updated.QoderOrganizationID, acc.QoderOrganizationID)
 		if len(acc.QoderOrganizationTags) > 0 {
 			updated.QoderOrganizationTags = append([]string(nil), acc.QoderOrganizationTags...)
 		}
@@ -909,16 +901,12 @@ func (s *redisStore) UpdateAccount(ctx context.Context, acc *Account) error {
 			updated.ClineRefreshToken = strings.TrimSpace(acc.ClineRefreshToken)
 			updated.ClineExpiresAt = acc.ClineExpiresAt
 		}
-		if email := strings.TrimSpace(acc.ClineEmail); email != "" {
-			updated.ClineEmail = email
-		}
+		patchString(&updated.ClineEmail, acc.ClineEmail)
 		// The tier follows the same rule as the credentials: an account update
 		// is frequently partial, so an empty value means "keep what is stored".
 		// That matters because "no tier recorded" and "tier is free" are
 		// different states, and only one of them is evidence.
-		if plan := strings.TrimSpace(acc.ClinePlan); plan != "" {
-			updated.ClinePlan = plan
-		}
+		patchString(&updated.ClinePlan, acc.ClinePlan)
 		if len(acc.ClineModelIDs) > 0 {
 			updated.ClineModelIDs = append([]string(nil), acc.ClineModelIDs...)
 		}
@@ -1030,23 +1018,12 @@ func (s *redisStore) updateAccountAtomic(ctx context.Context, id int64, mutate f
 
 func (s *redisStore) UpdateWorkBuddyCredentials(ctx context.Context, id int64, patch WorkBuddyCredentialPatch) error {
 	return s.updateAccountAtomic(ctx, id, func(acc *Account) error {
-		if expected := strings.TrimSpace(patch.ExpectedRefreshToken); expected != "" &&
-			acc.WorkBuddyRefreshToken != expected && acc.WorkBuddyRefreshToken != strings.TrimSpace(patch.RefreshToken) {
-			return fmt.Errorf("workbuddy credential changed concurrently")
+		if err := applyCredentialPatch("workbuddy", patch.ExpectedRefreshToken, patch.AccessToken, patch.RefreshToken, patch.ExpiresAt,
+			&acc.WorkBuddyAccessToken, &acc.WorkBuddyRefreshToken, &acc.WorkBuddyExpiresAt); err != nil {
+			return err
 		}
-		if token := strings.TrimSpace(patch.AccessToken); token != "" {
-			acc.WorkBuddyAccessToken = token
-		}
-		if token := strings.TrimSpace(patch.RefreshToken); token != "" {
-			acc.WorkBuddyRefreshToken = token
-			acc.ClientCookie = token
-		}
-		if !patch.ExpiresAt.IsZero() {
-			acc.WorkBuddyExpiresAt = patch.ExpiresAt
-		}
-		if uid := strings.TrimSpace(patch.UID); uid != "" {
-			acc.WorkBuddyUID = uid
-		}
+		patchString(&acc.ClientCookie, patch.RefreshToken)
+		patchString(&acc.WorkBuddyUID, patch.UID)
 		if email := strings.TrimSpace(patch.Email); email != "" && strings.TrimSpace(acc.Email) == "" {
 			acc.Email = email
 		}
@@ -1056,28 +1033,13 @@ func (s *redisStore) UpdateWorkBuddyCredentials(ctx context.Context, id int64, p
 
 func (s *redisStore) UpdateQoderAccount(ctx context.Context, id int64, patch QoderAccountPatch) error {
 	return s.updateAccountAtomic(ctx, id, func(acc *Account) error {
-		if expected := strings.TrimSpace(patch.ExpectedRefreshToken); expected != "" &&
-			acc.QoderRefreshToken != expected && acc.QoderRefreshToken != strings.TrimSpace(patch.RefreshToken) {
-			return fmt.Errorf("qoder credential changed concurrently")
+		if err := applyCredentialPatch("qoder", patch.ExpectedRefreshToken, patch.AccessToken, patch.RefreshToken, patch.ExpiresAt,
+			&acc.QoderAccessToken, &acc.QoderRefreshToken, &acc.QoderExpiresAt); err != nil {
+			return err
 		}
-		if token := strings.TrimSpace(patch.AccessToken); token != "" {
-			acc.QoderAccessToken = token
-		}
-		if token := strings.TrimSpace(patch.RefreshToken); token != "" {
-			acc.QoderRefreshToken = token
-		}
-		if !patch.ExpiresAt.IsZero() {
-			acc.QoderExpiresAt = patch.ExpiresAt
-		}
-		if uid := strings.TrimSpace(patch.UserID); uid != "" {
-			acc.QoderUserID = uid
-		}
-		if value := strings.TrimSpace(patch.RuntimeInfo); value != "" {
-			acc.QoderRuntimeInfo = value
-		}
-		if value := strings.TrimSpace(patch.RuntimeKey); value != "" {
-			acc.QoderRuntimeKey = value
-		}
+		patchString(&acc.QoderUserID, patch.UserID)
+		patchString(&acc.QoderRuntimeInfo, patch.RuntimeInfo)
+		patchString(&acc.QoderRuntimeKey, patch.RuntimeKey)
 		if patch.ModelIDs != nil {
 			acc.QoderModelIDs = append([]string(nil), patch.ModelIDs...)
 		}
@@ -1096,22 +1058,11 @@ func (s *redisStore) UpdateQoderAccount(ctx context.Context, id int64, patch Qod
 
 func (s *redisStore) UpdateClineCredentials(ctx context.Context, id int64, patch ClineCredentialPatch) error {
 	return s.updateAccountAtomic(ctx, id, func(acc *Account) error {
-		if expected := strings.TrimSpace(patch.ExpectedRefreshToken); expected != "" &&
-			acc.ClineRefreshToken != expected && acc.ClineRefreshToken != strings.TrimSpace(patch.RefreshToken) {
-			return fmt.Errorf("cline credential changed concurrently")
+		if err := applyCredentialPatch("cline", patch.ExpectedRefreshToken, patch.AccessToken, patch.RefreshToken, patch.ExpiresAt,
+			&acc.ClineAccessToken, &acc.ClineRefreshToken, &acc.ClineExpiresAt); err != nil {
+			return err
 		}
-		if token := strings.TrimSpace(patch.AccessToken); token != "" {
-			acc.ClineAccessToken = token
-		}
-		if token := strings.TrimSpace(patch.RefreshToken); token != "" {
-			acc.ClineRefreshToken = token
-		}
-		if !patch.ExpiresAt.IsZero() {
-			acc.ClineExpiresAt = patch.ExpiresAt
-		}
-		if email := strings.TrimSpace(patch.Email); email != "" {
-			acc.ClineEmail = email
-		}
+		patchString(&acc.ClineEmail, patch.Email)
 		if patch.ModelIDs != nil {
 			acc.ClineModelIDs = append([]string(nil), patch.ModelIDs...)
 		}
