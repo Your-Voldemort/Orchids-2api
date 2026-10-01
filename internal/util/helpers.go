@@ -41,9 +41,7 @@ func UniqueStrings(input []string) []string {
 }
 
 // SecureCompare compares secrets without leaking a matching prefix through timing.
-func SecureCompare(a, b string) bool {
-	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
-}
+func SecureCompare(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
 
 // FirstNonEmpty returns the first non-empty (after trimming) value, or "".
 // It is the single shared implementation of the firstNonEmpty helper that was

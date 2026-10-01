@@ -12,6 +12,7 @@ import (
 	"orchids-api/internal/config"
 	"orchids-api/internal/qoder"
 	"orchids-api/internal/store"
+	"orchids-api/internal/util"
 )
 
 // The Qoder channel is OAuth-only, and the console drives the whole flow:
@@ -213,9 +214,7 @@ func (a *API) buildQoderAccountFromCredentialsWithFactory(ctx context.Context, l
 		Weight:            1,
 		Enabled:           true,
 	}
-	if normalized.Email != "" {
-		acc.Email = normalized.Email
-	}
+	acc.Email = util.FirstNonEmpty(normalized.Email, acc.Email)
 
 	client := factory(acc, cfg)
 	defer client.Close()

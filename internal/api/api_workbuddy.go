@@ -113,9 +113,7 @@ func PreserveWorkBuddyCredentialsOnEdit(acc, existing *store.Account) {
 // isFullWorkBuddyCatalog reports whether a snapshot carries a plausible catalog.
 // The admin API never accepts the snapshot from a client, so this is a guard
 // against an accidental partial overwrite rather than a validation rule.
-func isFullWorkBuddyCatalog(ids []string) bool {
-	return len(ids) >= 4
-}
+func isFullWorkBuddyCatalog(ids []string) bool { return len(ids) >= 4 }
 
 // RedactWorkBuddyOutput hides the durable refresh token and unrelated legacy
 // secrets while leaving the access token visible (the management UI shows a

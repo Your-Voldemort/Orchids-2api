@@ -426,9 +426,7 @@ func newRedisStore(addr, password string, db int, prefix string, credentialKey [
 		return nil, fmt.Errorf("redis address is required")
 	}
 	prefix = strings.TrimSpace(prefix)
-	if prefix == "" {
-		prefix = "orchids:"
-	}
+	prefix = util.FirstNonEmptyUntrimmed(prefix, "orchids:")
 	if !strings.HasSuffix(prefix, ":") {
 		prefix += ":"
 	}
@@ -685,10 +683,7 @@ func ModelCooldownRemaining(acc *Account, model string, now time.Time) time.Dura
 		return 0
 	}
 	until, ok := acc.ModelCooldowns[strings.TrimSpace(model)]
-	if !ok || until.IsZero() {
-		return 0
-	}
-	if !until.After(now) {
+	if !ok || until.IsZero() || !until.After(now) {
 		return 0
 	}
 	return until.Sub(now)
@@ -2290,21 +2285,13 @@ func (s *redisStore) ReconcileDiscoveredModels(ctx context.Context, channel stri
 
 // Helpers
 
-func (s *redisStore) modelsKey(id string) string {
-	return s.prefix + "models:id:" + id
-}
+func (s *redisStore) modelsKey(id string) string { return s.prefix + "models:id:" + id }
 
-func (s *redisStore) modelsIDsKey() string {
-	return s.prefix + "models:ids"
-}
+func (s *redisStore) modelsIDsKey() string { return s.prefix + "models:ids" }
 
-func (s *redisStore) modelsNextIDKey() string {
-	return s.prefix + "models:next_id"
-}
+func (s *redisStore) modelsNextIDKey() string { return s.prefix + "models:next_id" }
 
-func (s *redisStore) modelsModelIDMapKey() string {
-	return s.prefix + "models:model_id_map"
-}
+func (s *redisStore) modelsModelIDMapKey() string { return s.prefix + "models:model_id_map" }
 
 func (s *redisStore) modelsChannelModelIDMapKey() string {
 	return s.prefix + "models:channel_model_id_map"

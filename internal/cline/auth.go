@@ -134,9 +134,7 @@ func (c Credentials) AccessValid(now time.Time) bool {
 
 // Bearer renders the request credential. The `workos:` prefix is part of the
 // value the upstream expects, not a scheme this client adds.
-func (c Credentials) Bearer() string {
-	return "workos:" + strings.TrimSpace(c.AccessToken)
-}
+func (c Credentials) Bearer() string { return "workos:" + strings.TrimSpace(c.AccessToken) }
 
 // Fields returns the normalized credential fields.
 func (c Credentials) Fields() (accessToken, refreshToken string, expiresAt time.Time, email string) {
@@ -332,6 +330,4 @@ func allowedLoginHost(host, configured string) bool {
 // newTaskID mints the per-request correlation id. The upstream uses it as the
 // session identity, so a retry of the same turn carries a new one exactly as a
 // new turn would.
-func newTaskID(now time.Time) string {
-	return fmt.Sprintf("%s%d", taskIDPrefix, now.UnixMilli())
-}
+func newTaskID(now time.Time) string { return fmt.Sprintf("%s%d", taskIDPrefix, now.UnixMilli()) }
