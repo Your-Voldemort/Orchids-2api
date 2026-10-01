@@ -1,8 +1,0 @@
-LOCAL_OPEN_LOOP {"TargetRPS":100000,"Offered":500000,"Accepted":349211,"Completed":349211,"Errors":0,"Dropped":150789,"OfferSeconds":5.0002688,"TotalSeconds":5.0007749,"CompletedRPS":69831.37753310992,"P50ms":3.8555,"P95ms":23.414,"P99ms":42.2908}
-goos: windows
-goarch: amd64
-pkg: orchids-api/internal/workbuddy
-cpu: Intel(R) Core(TM) Ultra 5 125H
-BenchmarkProviderLocal-18    	       1	5044620100 ns/op
-PASS
-ok  	orchids-api/internal/workbuddy	5.751s
