@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"orchids-api/internal/store"
+	"orchids-api/internal/testutil"
 )
 
 func timeDate(year int, month time.Month, day, hour, min, sec int) time.Time {
@@ -22,9 +23,7 @@ func TestFetchQuotaReadsTheWindowAndPlan(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if got := r.Header.Get("Authorization"); got != "Bearer access-1" {
-			t.Errorf("%s Authorization = %q", r.URL.Path, got)
-		}
+		testutil.CheckEqual(t, r.Header.Get("Authorization"), "Bearer access-1")
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v2/quota/usage":
@@ -45,18 +44,14 @@ func TestFetchQuotaReadsTheWindowAndPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FetchQuota() error = %v", err)
 	}
-	if quota.PlanTier != "Free" {
-		t.Fatalf("PlanTier = %q, want Free", quota.PlanTier)
-	}
+	testutil.Equal(t, quota.PlanTier, "Free")
 	if quota.PaidPlan {
 		t.Fatal("PaidPlan = true for a free account")
 	}
 	if !quota.Exhausted {
 		t.Fatal("Exhausted = false, want the gateway's verdict")
 	}
-	if quota.UpgradeURL == "" {
-		t.Fatal("UpgradeURL is empty, so the operator gets no next step")
-	}
+	testutil.NotEqual(t, quota.UpgradeURL, "")
 	if !quota.PeriodEnd.After(quota.SyncedAt) {
 		t.Fatalf("PeriodEnd = %v, want a millisecond timestamp normalized to the future", quota.PeriodEnd)
 	}

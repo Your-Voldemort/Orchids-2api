@@ -7,15 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
-
-	"orchids-api/internal/api"
 	"orchids-api/internal/config"
-	"orchids-api/internal/handler"
-	"orchids-api/internal/loadbalancer"
-	"orchids-api/internal/middleware"
-	"orchids-api/internal/store"
-	"orchids-api/internal/template"
+	"orchids-api/internal/testutil"
 )
 
 // workbuddyAuthStub is the local stand-in for the WorkBuddy authorization
@@ -27,9 +20,7 @@ func workbuddyAuthStub(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/v2/plugin/auth/state":
-			if r.URL.Query().Get("platform") != "workbuddy-ai" {
-				t.Errorf("platform = %q, want workbuddy-ai", r.URL.Query().Get("platform"))
-			}
+			testutil.CheckEqual(t, r.URL.Query().Get("platform"), "workbuddy-ai")
 			_, _ = w.Write([]byte(`{"code":0,"msg":"OK","data":{"state":"state-routes","authUrl":"https://www.workbuddy.ai/login?platform=workbuddy-ai&state=state-routes"}}`))
 		case "/v2/plugin/auth/token":
 			// Pending forever: the transaction is cancelled below, and no
@@ -45,13 +36,6 @@ func workbuddyAuthStub(t *testing.T) *httptest.Server {
 // and the official browser login are reachable through the real route table and
 // stay behind their respective auth layers.
 func TestRegisterRoutes_WorkBuddyEndpoints(t *testing.T) {
-	mini := miniredis.RunT(t)
-	s, err := store.New(store.Options{RedisAddr: mini.Addr(), RedisPrefix: "routes:"})
-	if err != nil {
-		t.Fatalf("store.New() error = %v", err)
-	}
-	t.Cleanup(func() { _ = s.Close() })
-
 	auth := workbuddyAuthStub(t)
 	defer auth.Close()
 
@@ -63,18 +47,7 @@ func TestRegisterRoutes_WorkBuddyEndpoints(t *testing.T) {
 		WorkBuddyBaseURL:  auth.URL,
 		AnonymousAllowIPs: []string{"192.0.2.1"},
 	}
-	lb := loadbalancer.NewWithCacheTTL(s, 0)
-	h := handler.NewWithLoadBalancer(cfg, lb)
-	t.Cleanup(h.Close)
-	apiHandler := api.New(s, cfg.AdminUser, cfg.AdminPass, cfg)
-	renderer, err := template.NewRenderer()
-	if err != nil {
-		t.Fatalf("template.NewRenderer() error = %v", err)
-	}
-	limiter := middleware.NewConcurrencyLimiter(4, 0)
-
-	mux := http.NewServeMux()
-	registerRoutes(mux, cfg, s, h, nil, apiHandler, limiter, nil, renderer)
+	mux, _, _ := newRouteMux(t, "routes:", cfg)
 
 	// The login endpoints must not be usable without an admin session.
 	unauth := httptest.NewRecorder()
@@ -93,9 +66,7 @@ func TestRegisterRoutes_WorkBuddyEndpoints(t *testing.T) {
 	req.Host = "localhost"
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("authorized login status = %d body=%s", rec.Code, rec.Body.String())
-	}
+	testutil.Equal(t, rec.Code, http.StatusOK)
 	var started struct {
 		ID                      string `json:"id"`
 		Status                  string `json:"status"`
@@ -116,25 +87,19 @@ func TestRegisterRoutes_WorkBuddyEndpoints(t *testing.T) {
 	pollReq.Header.Set("X-Admin-Token", "admintoken")
 	pollRec := httptest.NewRecorder()
 	mux.ServeHTTP(pollRec, pollReq)
-	if pollRec.Code != http.StatusOK {
-		t.Fatalf("poll status = %d body=%s", pollRec.Code, pollRec.Body.String())
-	}
+	testutil.Equal(t, pollRec.Code, http.StatusOK)
 	cancelReq := httptest.NewRequest(http.MethodDelete, "/api/workbuddy/login/"+started.ID, nil)
 	cancelReq.Header.Set("X-Admin-Token", "admintoken")
 	cancelRec := httptest.NewRecorder()
 	mux.ServeHTTP(cancelRec, cancelReq)
-	if cancelRec.Code != http.StatusNoContent {
-		t.Fatalf("cancel status = %d", cancelRec.Code)
-	}
+	testutil.Equal(t, cancelRec.Code, http.StatusNoContent)
 
 	// An unregistered path is what a missing route looks like on this mux; every
 	// path below must answer differently, which is what proves it is routed.
 	unknown := httptest.NewRecorder()
 	mux.ServeHTTP(unknown, httptest.NewRequest(http.MethodPost, "/definitely-not-registered", strings.NewReader("{}")))
 	unknownBody := unknown.Body.String()
-	if !strings.Contains(unknownBody, "404 page not found") {
-		t.Fatalf("the control path was routed: status=%d body=%q", unknown.Code, unknownBody)
-	}
+	testutil.MustContain(t, unknownBody, "404 page not found")
 
 	// Inference auth must reject untrusted clients, but an authorized/allowlisted
 	// control must get through it. Otherwise the blanket /v1 guard also returns
@@ -163,9 +128,7 @@ func TestRegisterRoutes_WorkBuddyEndpoints(t *testing.T) {
 		channelReq.RemoteAddr = "198.51.100.1:12345"
 		channelRec := httptest.NewRecorder()
 		mux.ServeHTTP(channelRec, channelReq)
-		if channelRec.Code != http.StatusUnauthorized {
-			t.Fatalf("%s unauthenticated status=%d body=%s, want 401", target, channelRec.Code, channelRec.Body.String())
-		}
+		testutil.Equal(t, channelRec.Code, http.StatusUnauthorized)
 		allowedReq := httptest.NewRequest(method, target, strings.NewReader(`{"model":"hy3","messages":[]}`))
 		allowedReq.RemoteAddr = "192.0.2.1:12345"
 		allowedRec := httptest.NewRecorder()

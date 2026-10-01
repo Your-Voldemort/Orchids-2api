@@ -425,18 +425,6 @@ func channelFromBucketKey(prefix, key string) (string, bool) {
 	return channel, true
 }
 
-func (a *Aggregator) bucket(ctx context.Context, minute time.Time, channel string) (*Bucket, error) {
-	key := a.key(minute, channel)
-	fields, err := a.client.HGetAll(ctx, key).Result()
-	if err != nil {
-		return nil, err
-	}
-	if len(fields) == 0 {
-		return nil, nil
-	}
-	return bucketFromFields(minute, channel, fields), nil
-}
-
 // SamplesForChecked batches bounded list reads and preserves read failures;
 // an unavailable Redis is not a population with zero latency samples.
 func (a *Aggregator) SamplesForChecked(ctx context.Context, channel string, buckets []Bucket) (durations []int64, ttfts []int64, err error) {

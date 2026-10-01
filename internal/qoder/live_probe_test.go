@@ -33,6 +33,7 @@ import (
 	"orchids-api/internal/config"
 	"orchids-api/internal/prompt"
 	"orchids-api/internal/store"
+	"orchids-api/internal/testutil"
 	"orchids-api/internal/upstream"
 	"orchids-api/internal/util"
 
@@ -117,9 +118,7 @@ func TestLiveProbe(t *testing.T) {
 	}
 	cfg, s := probeEnvironment(t)
 	accounts := probeAccounts(t, s)
-	if len(accounts) == 0 {
-		t.Fatalf("PROBE no usable qoder account with remaining allowance")
-	}
+	testutil.NotEqual(t, len(accounts), 0)
 	if want := strings.TrimSpace(os.Getenv("QODER_PROBE_ACCOUNT")); want != "" {
 		filtered := accounts[:0]
 		for _, candidate := range accounts {
@@ -127,17 +126,13 @@ func TestLiveProbe(t *testing.T) {
 				filtered = append(filtered, candidate)
 			}
 		}
-		if len(filtered) == 0 {
-			t.Fatalf("PROBE account %s is not usable", want)
-		}
+		testutil.NotEqual(t, len(filtered), 0)
 		accounts = filtered
 	}
 	acc := accounts[0]
 	client := NewFromAccount(acc, cfg)
 	creds := ResolveCredentials(acc)
-	if err := client.PrepareCurrentRuntimeFields(context.Background()); err != nil {
-		t.Fatalf("PROBE runtime prepare: %v", err)
-	}
+	testutil.NoError(t, client.PrepareCurrentRuntimeFields(context.Background()), "PROBE runtime prepare: %v")
 	fields := client.RuntimeFields()
 	if strings.TrimSpace(fields.Key) == "" || strings.TrimSpace(fields.EncryptUserInfo) == "" {
 		t.Fatalf("PROBE runtime fields unavailable for account %d", acc.ID)
@@ -163,9 +158,7 @@ func TestLiveProbe(t *testing.T) {
 		if err != nil {
 			t.Fatalf("PROBE body dump: %v", err)
 		}
-		if err := os.WriteFile(out, raw, 0o600); err != nil {
-			t.Fatalf("PROBE body dump write: %v", err)
-		}
+		testutil.NoError(t, os.WriteFile(out, raw, 0o600), "PROBE body dump write: %v")
 		fmt.Printf("PROBE body_dump=%s bytes=%d\n", out, len(raw))
 	}
 

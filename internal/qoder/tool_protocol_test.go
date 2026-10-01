@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 
 	"orchids-api/internal/prompt"
+	"orchids-api/internal/testutil"
 	"orchids-api/internal/upstream"
 )
 
@@ -21,9 +22,7 @@ func decodeChatBodyForTest(t *testing.T, req upstream.UpstreamRequest) map[strin
 		t.Fatalf("DecodeBody() error = %v", err)
 	}
 	var body map[string]interface{}
-	if err := json.Unmarshal(raw, &body); err != nil {
-		t.Fatalf("unmarshal body: %v", err)
-	}
+	testutil.NoError(t, json.Unmarshal(raw, &body), "unmarshal body: %v")
 	return body
 }
 
@@ -50,9 +49,7 @@ func TestBuildChatBodyDropsDanglingAndDuplicateToolResults(t *testing.T) {
 			}
 		}
 	}
-	if toolMessages != 1 {
-		t.Fatalf("tool messages=%d want 1: %#v", toolMessages, messages)
-	}
+	testutil.Equal(t, toolMessages, 1)
 }
 
 func sampleQoderTool() map[string]interface{} {
@@ -73,17 +70,13 @@ func TestBuildChatBodyPlacesToolControlsAtTopLevel(t *testing.T) {
 	body := decodeChatBodyForTest(t, upstream.UpstreamRequest{
 		Tools: []interface{}{sampleQoderTool()},
 	})
-	if got := body["tool_choice"]; got != "auto" {
-		t.Fatalf("tool_choice = %#v, want top-level auto", got)
-	}
+	testutil.Equal(t, body["tool_choice"], "auto")
 	parameters, _ := body["parameters"].(map[string]interface{})
 	if _, exists := parameters["tool_choice"]; exists {
 		t.Fatalf("parameters.tool_choice must be absent: %#v", parameters)
 	}
 	tools, _ := body["tools"].([]interface{})
-	if len(tools) != 1 {
-		t.Fatalf("tools len = %d, want 1", len(tools))
-	}
+	testutil.Equal(t, len(tools), 1)
 }
 
 func TestBuildChatBodyNormalizesAnthropicToolControls(t *testing.T) {
@@ -119,18 +112,12 @@ func TestConsumeStreamConvertsTextToolFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("consumeStreamObserved() error = %v", err)
 	}
-	if got := result.FinishReason(); got != "tool_use" {
-		t.Fatalf("FinishReason() = %q, want tool_use", got)
-	}
+	testutil.Equal(t, result.FinishReason(), "tool_use")
 	if len(events) != 1 || events[0].Type != "model.tool-call" {
 		t.Fatalf("events = %#v, want one tool call", events)
 	}
-	if got := events[0].Event["toolName"]; got != "read_file" {
-		t.Fatalf("toolName = %#v", got)
-	}
-	if got := events[0].Event["input"]; got != `{"path":"README.md"}` {
-		t.Fatalf("input = %#v", got)
-	}
+	testutil.Equal(t, events[0].Event["toolName"], "read_file")
+	testutil.Equal(t, events[0].Event["input"], `{"path":"README.md"}`)
 }
 
 func TestConsumeStreamDoesNotParseTextFallbackWithoutTools(t *testing.T) {
@@ -265,9 +252,7 @@ func TestBuildChatBodyCarriesThinkingSwitch(t *testing.T) {
 	if _, present := params["reasoning_effort"]; present {
 		t.Fatalf("default reasoning model must not set effort: %#v", params)
 	}
-	if body["model_config"].(map[string]interface{})["is_reasoning"] != true {
-		t.Fatalf("model_config must report the model's reasoning capability: %#v", body)
-	}
+	testutil.Equal(t, body["model_config"].(map[string]interface{})["is_reasoning"], true)
 	body = decodeChatBodyForTestWithModel(t, plain, upstream.UpstreamRequest{})
 	params, _ = body["parameters"].(map[string]interface{})
 	if _, present := params["enable_thinking"]; present {
@@ -289,9 +274,7 @@ func TestBuildChatBodyCarriesThinkingSwitch(t *testing.T) {
 	// asks for them.
 	body = decodeChatBodyForTestWithModel(t, modelEntry{Key: "qfmodel", IsReasoning: true}, upstream.UpstreamRequest{})
 	params, _ = body["parameters"].(map[string]interface{})
-	if body["model_config"].(map[string]interface{})["is_reasoning"] != true {
-		t.Fatalf("qfmodel must report its reasoning capability: %#v", body)
-	}
+	testutil.Equal(t, body["model_config"].(map[string]interface{})["is_reasoning"], true)
 	if _, present := params["reasoning_effort"]; present {
 		t.Fatalf("qfmodel default carried reasoning_effort: %#v", params)
 	}
@@ -299,9 +282,7 @@ func TestBuildChatBodyCarriesThinkingSwitch(t *testing.T) {
 	// "none" disables thinking explicitly.
 	body = decodeChatBodyForTestWithModel(t, reasoning, upstream.UpstreamRequest{ReasoningEffort: "none"})
 	params, _ = body["parameters"].(map[string]interface{})
-	if params["enable_thinking"] != false {
-		t.Fatalf("parameters = %#v, want enable_thinking=false", params)
-	}
+	testutil.Equal(t, params["enable_thinking"], false)
 	if _, present := params["reasoning_effort"]; present {
 		t.Fatalf("none must not forward an effort level, got %#v", params["reasoning_effort"])
 	}
@@ -318,8 +299,6 @@ func decodeChatBodyForTestWithModel(t *testing.T, model modelEntry, req upstream
 		t.Fatalf("DecodeBody() error = %v", err)
 	}
 	var body map[string]interface{}
-	if err := json.Unmarshal(raw, &body); err != nil {
-		t.Fatalf("unmarshal body: %v", err)
-	}
+	testutil.NoError(t, json.Unmarshal(raw, &body), "unmarshal body: %v")
 	return body
 }

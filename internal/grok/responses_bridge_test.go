@@ -14,6 +14,7 @@ import (
 	"orchids-api/internal/loadbalancer"
 	"orchids-api/internal/middleware"
 	"orchids-api/internal/store"
+	"orchids-api/internal/testutil"
 )
 
 // responsesBridgeFixture builds a handler whose Build upstream answers with the
@@ -78,9 +79,7 @@ func TestHandleResponses_RelaysUpstreamFailureStatus(t *testing.T) {
 
 	h.HandleResponses(rec, req)
 
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d body=%s, want 503 for an upstream credential failure", rec.Code, rec.Body.String())
-	}
+	testutil.Equal(t, rec.Code, http.StatusServiceUnavailable)
 	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
 		t.Fatalf("Content-Type = %q, want application/json", got)
 	}
@@ -98,13 +97,9 @@ func TestHandleResponses_RelaysUpstreamFailureStatus(t *testing.T) {
 		t.Fatalf("error code/type = %q/%q, want upstream_error/server_error", payload.Error.Code, payload.Error.Type)
 	}
 	const wantMessage = "The upstream account session has expired. Re-authenticate the account and retry."
-	if payload.Error.Message != wantMessage {
-		t.Fatalf("message = %q, want %q", payload.Error.Message, wantMessage)
-	}
+	testutil.Equal(t, payload.Error.Message, wantMessage)
 	for _, leak := range []string{sensitiveBody, "OAuth token is invalid", "bridge-private-team", "bridge-secret-token", "x.ai/private-diagnostics", "status=", "body="} {
-		if strings.Contains(rec.Body.String(), leak) {
-			t.Errorf("upstream detail %q leaked to the client: %s", leak, rec.Body.String())
-		}
+		testutil.CheckNotContain(t, rec.Body.String(), leak)
 	}
 }
 
@@ -125,7 +120,5 @@ func TestHandleResponses_ForbiddenModelIsNotServerError(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer test-key")
 	wrapped(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("status = %d body=%s, want 403", rec.Code, rec.Body.String())
-	}
+	testutil.Equal(t, rec.Code, http.StatusForbidden)
 }

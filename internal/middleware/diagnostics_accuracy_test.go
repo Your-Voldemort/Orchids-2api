@@ -10,11 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
 	"orchids-api/internal/audit"
 	"orchids-api/internal/debug"
 	"orchids-api/internal/opsagg"
+	"orchids-api/internal/testutil"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 )
 
 type diagnosticJournal struct{ events []audit.Event }
@@ -83,9 +85,7 @@ func TestDiagnosticsUniqueIdentityAndUnifiedCompletion(t *testing.T) {
 				found = s.Payload == body
 			}
 		}
-		if !found {
-			t.Fatal("wrong captured request")
-		}
+		testutil.True(t, found, "wrong captured request")
 	}
 	// Verify earlier bundles are still independently addressable after later saves.
 	for id := range ids {
@@ -112,9 +112,7 @@ func TestDiagnosticsStreamFailureSummaryMatchesJournal(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/responses", nil))
 	requestID := rec.Header().Get(DiagnosticRequestIDHeader)
-	if requestID == "" {
-		t.Fatal("missing diagnostic request ID")
-	}
+	testutil.NotEqual(t, requestID, "")
 	b, err := store.Get(context.Background(), requestID)
 	if err != nil || b == nil {
 		t.Fatalf("diagnostic bundle missing: %v", err)
@@ -130,15 +128,11 @@ func TestDiagnosticsStreamFailureSummaryMatchesJournal(t *testing.T) {
 			}
 			found = true
 			var v map[string]interface{}
-			if err := json.Unmarshal([]byte(s.Payload), &v); err != nil {
-				t.Fatalf("invalid HTTP summary: %v", err)
-			}
+			testutil.NoError(t, json.Unmarshal([]byte(s.Payload), &v), "invalid HTTP summary: %v")
 			if v["status"] != float64(200) || v["stream_failed"] != true {
 				t.Fatal(v)
 			}
 		}
 	}
-	if !found {
-		t.Fatal("diagnostic bundle is missing 6_http_summary.json")
-	}
+	testutil.True(t, found, "diagnostic bundle is missing 6_http_summary.json")
 }

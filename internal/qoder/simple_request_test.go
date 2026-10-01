@@ -2,6 +2,7 @@ package qoder
 
 import (
 	"encoding/json"
+	"orchids-api/internal/testutil"
 	"orchids-api/internal/upstream"
 	"testing"
 )
@@ -36,8 +37,6 @@ func TestSimplePromptRequestRetainsContextAndExplicitBudget(t *testing.T) {
 			want = limit
 		}
 		parameters := body.Parameters.(map[string]interface{})
-		if parameters["max_tokens"] != float64(want) {
-			t.Fatalf("budget=%v want=%d", parameters["max_tokens"], want)
-		}
+		testutil.EqualAny(t, parameters["max_tokens"], float64(want))
 	}
 }

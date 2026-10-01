@@ -11,6 +11,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 
 	"orchids-api/internal/store"
+	"orchids-api/internal/testutil"
 )
 
 // planClient stands up a control plane that answers /users/me/plan with the
@@ -53,9 +54,7 @@ func TestPlanReadsASubscriberNamesThePlan(t *testing.T) {
 	if !plan.Explicit {
 		t.Error("Explicit = false for a plan row the upstream returned")
 	}
-	if plan.Name != "Cline Pass (Monthly)" {
-		t.Errorf("Name = %q, want the plan name", plan.Name)
-	}
+	testutil.CheckEqual(t, plan.Name, "Cline Pass (Monthly)")
 }
 
 // TestPlanNoHistoryMeansFree pins the free verdict on the sentence the upstream
@@ -111,9 +110,7 @@ func TestPlanRefusedCredentialIsNotAFreeVerdict(t *testing.T) {
 	if err == nil {
 		t.Fatalf("FetchPlan() = %+v, want an error", plan)
 	}
-	if plan.Name != "" {
-		t.Errorf("Name = %q, want it empty", plan.Name)
-	}
+	testutil.CheckEqual(t, plan.Name, "")
 }
 
 // TestClineAccountCarriesThePlanTier pins the storage contract the console
@@ -125,42 +122,29 @@ func TestClineAccountCarriesThePlanTier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("store.New() error = %v", err)
 	}
-	defer func() {
-		_ = s.Close()
-		mini.Close()
-	}()
+	defer func() { _ = s.Close() }()
 
 	ctx := context.Background()
 	// A new account has never been probed: the field must stay empty rather
 	// than defaulting to a tier the console would then display as fact.
 	acc := &store.Account{AccountType: "cline", Enabled: true, Weight: 1}
-	if err := s.CreateAccount(ctx, acc); err != nil {
-		t.Fatalf("CreateAccount() error = %v", err)
-	}
-	if acc.ClinePlan != "" {
-		t.Errorf("ClinePlan = %q, want empty before a probe", acc.ClinePlan)
-	}
+	testutil.NoError(t, s.CreateAccount(ctx, acc), "CreateAccount() error = %v")
+	testutil.CheckEqual(t, acc.ClinePlan, "")
 	stored, err := s.GetAccount(ctx, acc.ID)
 	if err != nil {
 		t.Fatalf("GetAccount() error = %v", err)
 	}
-	if stored.ClinePlan != "" {
-		t.Errorf("stored ClinePlan = %q, want empty before a probe", stored.ClinePlan)
-	}
+	testutil.CheckEqual(t, stored.ClinePlan, "")
 
 	// A probed free tier survives a write and a reload, so "probed and free"
 	// is distinguishable from the empty value above.
 	acc.ClinePlan = "free"
-	if err := s.UpdateAccount(ctx, acc); err != nil {
-		t.Fatalf("UpdateAccount() error = %v", err)
-	}
+	testutil.NoError(t, s.UpdateAccount(ctx, acc), "UpdateAccount() error = %v")
 	stored, err = s.GetAccount(ctx, acc.ID)
 	if err != nil {
 		t.Fatalf("GetAccount() error = %v", err)
 	}
-	if stored.ClinePlan != "free" {
-		t.Errorf("stored ClinePlan = %q, want free", stored.ClinePlan)
-	}
+	testutil.CheckEqual(t, stored.ClinePlan, "free")
 }
 
 // TestPlanRequestSendsTheProductIdentity proves the tier read goes out with the
@@ -173,9 +157,7 @@ func TestPlanRequestSendsTheProductIdentity(t *testing.T) {
 		t.Fatalf("FetchPlan() error = %v", err)
 	}
 	for _, name := range []string{"X-CLIENT-TYPE", "X-CORE-VERSION", "User-Agent"} {
-		if got := seen.Get(name); got != defaultClientHeaders[name] {
-			t.Errorf("header %s = %q, want %q", name, got, defaultClientHeaders[name])
-		}
+		testutil.CheckEqual(t, seen.Get(name), defaultClientHeaders[name])
 	}
 	if got := seen.Get("Authorization"); !strings.HasPrefix(got, "Bearer workos:") {
 		t.Errorf("Authorization = %q, want the workos bearer prefix", got)

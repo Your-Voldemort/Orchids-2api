@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"orchids-api/internal/config"
+	"orchids-api/internal/testutil"
 	"orchids-api/internal/upstream"
 )
 
@@ -134,9 +135,7 @@ func TestProtocolProfileChatBodyAndHeadersAgree(t *testing.T) {
 					return
 				}
 				wantPayload := map[string]string{"version": "v1", "requestId": body.RequestID, "info": fields.EncryptUserInfo, "cosyVersion": c.clientVersion, "ideVersion": ""}
-				if len(payload) != len(wantPayload) {
-					t.Errorf("COSY payload field count = %d, want %d", len(payload), len(wantPayload))
-				}
+				testutil.CheckEqual(t, len(payload), len(wantPayload))
 				for key, want := range wantPayload {
 					if got, ok := payload[key]; !ok || got != want {
 						t.Errorf("COSY payload %q = %q (present=%t), want %q", key, got, ok, want)
@@ -154,12 +153,8 @@ func TestProtocolProfileChatBodyAndHeadersAgree(t *testing.T) {
 			}))
 			defer srv.Close()
 			c = NewFromAccount(signedTestAccount(), &config.Config{QoderProtocolProfile: name, QoderInferenceURL: srv.URL})
-			if err := c.SendRequestWithPayload(context.Background(), upstream.UpstreamRequest{Model: "Qwen3.7-Max", Prompt: "hello"}, nil, nil); err != nil {
-				t.Fatal(err)
-			}
-			if hits != 1 {
-				t.Fatalf("hits=%d", hits)
-			}
+			testutil.NoError(t, c.SendRequestWithPayload(context.Background(), upstream.UpstreamRequest{Model: "Qwen3.7-Max", Prompt: "hello"}, nil, nil))
+			testutil.Equal(t, hits, 1)
 		})
 	}
 }
@@ -176,9 +171,7 @@ func TestDefaultUpstreamEndpoints(t *testing.T) {
 		openAPI:   "https://openapi.qoder.sh",
 		inference: "https://api2.qoder.sh",
 	}
-	if c.endpoints != want {
-		t.Fatalf("default endpoints = %+v, want %+v", c.endpoints, want)
-	}
+	testutil.Equal(t, c.endpoints, want)
 	if got, wantURL := chatURL(c.endpoints.inference), "https://api2.qoder.sh"+inferPath+inferQuery; got != wantURL {
 		t.Fatalf("chatURL() = %q, want %q", got, wantURL)
 	}
@@ -187,7 +180,5 @@ func TestDefaultUpstreamEndpoints(t *testing.T) {
 	}
 	// The skill-cli dialect uses a different client identity but the same node.
 	skill := NewFromAccount(signedTestAccount(), &config.Config{QoderProtocolProfile: ProfileSkillCLI})
-	if skill.endpoints.inference != "https://api2.qoder.sh" {
-		t.Fatalf("skill-cli inference endpoint = %q, want https://api2.qoder.sh", skill.endpoints.inference)
-	}
+	testutil.Equal(t, skill.endpoints.inference, "https://api2.qoder.sh")
 }

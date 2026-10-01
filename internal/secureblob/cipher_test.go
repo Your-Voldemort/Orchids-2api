@@ -4,7 +4,7 @@ import (
 	"crypto/aes"
 	cryptocipher "crypto/cipher"
 	"encoding/base64"
-	"strings"
+	"orchids-api/internal/testutil"
 	"testing"
 )
 
@@ -20,9 +20,7 @@ func TestSealOpenRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Seal: %v", err)
 	}
-	if strings.Contains(sealed, "gateway state") {
-		t.Fatal("sealed output contains the plaintext")
-	}
+	testutil.MustNotContain(t, sealed, "gateway state")
 	plain, err := cipher.Open(sealed)
 	if err != nil || plain != "gateway state" {
 		t.Fatalf("Open=%q err=%v", plain, err)
@@ -33,9 +31,7 @@ func TestSealOpenRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Seal: %v", err)
 	}
-	if again == sealed {
-		t.Fatal("two seals produced identical output (nonce reuse)")
-	}
+	testutil.NotEqual(t, again, sealed)
 }
 
 func TestCipherRejectsForeignAndTamperedBlobs(t *testing.T) {

@@ -3,6 +3,7 @@ package qoder
 import (
 	"encoding/json"
 	"orchids-api/internal/prompt"
+	"orchids-api/internal/testutil"
 	"orchids-api/internal/upstream"
 	"strings"
 	"testing"
@@ -56,9 +57,7 @@ func TestReasoningItemSurvivesToolHistory(t *testing.T) {
 
 func TestReasoningOnlyHistoryIsNotDropped(t *testing.T) {
 	var msg prompt.Message
-	if err := json.Unmarshal([]byte(`{"role":"assistant","content":"","reasoning_item":{"opaque":"signature"}}`), &msg); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, json.Unmarshal([]byte(`{"role":"assistant","content":"","reasoning_item":{"opaque":"signature"}}`), &msg))
 	messages, _, err := buildMessages(upstream.UpstreamRequest{Messages: []prompt.Message{msg}})
 	if err != nil || len(messages) != 1 || len(messages[0].ReasoningItem) == 0 {
 		t.Fatalf("reasoning-only history lost: %#v %v", messages, err)

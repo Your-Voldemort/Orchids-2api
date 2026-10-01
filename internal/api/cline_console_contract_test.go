@@ -1,6 +1,7 @@
 package api
 
 import (
+	"orchids-api/internal/testutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,22 +29,16 @@ func TestAccountsJSPinsClineOfficialLoginLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read accounts.js: %v", err)
 	}
-	if !strings.Contains(source, `OrchidsProviderRegistry?.get(key)`) {
-		t.Error("accounts.js does not resolve the cline account type")
-	}
+	testutil.CheckContain(t, source, `OrchidsProviderRegistry?.get(key)`)
 	// The login lifecycle must be stopped with the others: a transaction left
 	// polling after the modal closes keeps exchanging a live device code.
-	if !strings.Contains(source, `function stopClineLogin()`) {
-		t.Error("accounts.js never stops the Cline login")
-	}
+	testutil.CheckContain(t, source, `function stopClineLogin()`)
 	if calls := strings.Count(source, "stopClineLogin();"); calls < 2 {
 		t.Errorf("stopClineLogin is called %d times, want at least 2 (open + close)", calls)
 	}
 	// All supported channels use official login for creation; only existing
 	// accounts may submit their settings through this form.
-	if !strings.Contains(source, `if (!id) {`) || !strings.Contains(source, `官方网页登录`) {
-		t.Error("accounts.js lets a new account be submitted without official login")
-	}
+	testutil.CheckContainAll(t, source, `if (!id) {`, `官方网页登录`)
 }
 
 // TestCommonJSPinsTheCredentialVerdictAndQuotaGuard pins the current account read
@@ -59,9 +54,7 @@ func TestCommonJSPinsTheCredentialVerdictAndQuotaGuard(t *testing.T) {
 		`acc?.has_credential === true`,
 		`isQuotaOnlyStatus`,
 	} {
-		if !strings.Contains(source, want) {
-			t.Errorf("common.js is missing %s", want)
-		}
+		testutil.CheckContain(t, source, want)
 	}
 }
 
@@ -72,9 +65,7 @@ func TestModelsJSLabelsClineCatalogSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read models.js: %v", err)
 	}
-	if !strings.Contains(source, "cline_recommended_models") {
-		t.Error("models.js does not label the Cline catalog source")
-	}
+	testutil.CheckContain(t, source, "cline_recommended_models")
 }
 
 // TestAccountsJSRendersTheClineRowCells protects the plan, quota, and
@@ -87,25 +78,15 @@ func TestAccountsJSRendersTheClineRowCells(t *testing.T) {
 	// 配额: an unmetered channel is now dropped from the Cline page rather than
 	// rendered as a permanent "未计量". The verdict itself stays in the source
 	// for every other surface that still renders the cell.
-	if !strings.Contains(source, "unmetered: true") {
-		t.Error("getQuotaStats has no unmetered verdict for Cline")
-	}
-	if !strings.Contains(source, "未计量") {
-		t.Error("buildQuotaMarkup does not name the unmetered verdict")
-	}
-	if !strings.Contains(source, "clinePageOnly") {
-		t.Error("the 配额 column is not hidden on the Cline page")
-	}
+	testutil.CheckContain(t, source, "unmetered: true")
+	testutil.CheckContain(t, source, "未计量")
+	testutil.CheckContain(t, source, "clinePageOnly")
 	// 等级: the tier now comes from the upstream plan endpoint. What is pinned
 	// is that the badge reads that field at all — a tier inferred from the
 	// catalog cannot tell a free account from a subscriber's, which is exactly
 	// the mistake the old "免费目录" label made.
-	if !strings.Contains(source, `cline_plan`) {
-		t.Error("subscriptionBadge does not read the Cline plan the server observed")
-	}
+	testutil.CheckContain(t, source, `cline_plan`)
 	// 状态: the credential verdict must come from has_credential, not from the
 	// session columns this channel never writes.
-	if !strings.Contains(source, `cline: '缺少 Cline WorkOS 凭据`) || !strings.Contains(source, `hasSidebarAccountCredential(acc)`) {
-		t.Error("evaluateAccountStatus does not use the server credential verdict for Cline")
-	}
+	testutil.CheckContainAll(t, source, `cline: '缺少 Cline WorkOS 凭据`, `hasSidebarAccountCredential(acc)`)
 }

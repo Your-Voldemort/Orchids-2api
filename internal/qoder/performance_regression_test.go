@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"orchids-api/internal/testutil"
 	"orchids-api/internal/upstream"
 )
 
@@ -47,13 +48,9 @@ func TestPackedBearerPreservesPayloadAndSignatureIncludingLargePayload(t *testin
 			t.Fatalf("payload is not standard base64: %v", err)
 		}
 		var fields map[string]string
-		if err := json.Unmarshal(raw, &fields); err != nil {
-			t.Fatal(err)
-		}
+		testutil.NoError(t, json.Unmarshal(raw, &fields))
 		wantFields := map[string]string{"version": "v1", "requestId": "request", "info": info, "cosyVersion": "version", "ideVersion": ""}
-		if len(fields) != len(wantFields) {
-			t.Fatalf("payload field count = %d, want %d", len(fields), len(wantFields))
-		}
+		testutil.Equal(t, len(fields), len(wantFields))
 		for key, want := range wantFields {
 			if value, ok := fields[key]; !ok || value != want {
 				t.Fatalf("payload field %q = %q (present=%t), want %q", key, value, ok, want)
@@ -69,9 +66,7 @@ func TestPackedBearerPreservesPayloadAndSignatureIncludingLargePayload(t *testin
 			t.Fatal("packed payload changed field order, escaping, or trailing bytes")
 		}
 		wantSignature := fmt.Sprintf("%x", md5.Sum([]byte(parts[1]+"\nkey\n123\nencoded-body\n/path")))
-		if parts[2] != wantSignature {
-			t.Fatalf("signature = %q, want %q", parts[2], wantSignature)
-		}
+		testutil.Equal(t, parts[2], wantSignature)
 	}
 }
 
@@ -134,9 +129,7 @@ func TestPooledJSONEncodingPreservesWireAndOwnership(t *testing.T) {
 func TestPackedAuthHeaderValuesDoNotAliasOnAdd(t *testing.T) {
 	c := NewFromAccount(signedTestAccount(), nil)
 	req, _ := http.NewRequest(http.MethodPost, "http://mock.invalid/chat", nil)
-	if err := c.applyAuthHeaders(req, credsOf(signedTestAccount()), RuntimeFields{EncryptUserInfo: "info", Key: "key"}, "request", "model", "system", "body", "/chat"); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, c.applyAuthHeaders(req, credsOf(signedTestAccount()), RuntimeFields{EncryptUserInfo: "info", Key: "key"}, "request", "model", "system", "body", "/chat"))
 	want := req.Header.Clone()
 	req.Header.Add("Accept", "additional")
 	for key, values := range want {

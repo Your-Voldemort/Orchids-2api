@@ -2,6 +2,7 @@ package opsagg
 
 import (
 	"context"
+	"orchids-api/internal/testutil"
 	"testing"
 	"time"
 
@@ -63,18 +64,14 @@ func TestObserve_RollsUpIntoOneMinuteBucket(t *testing.T) {
 		t.Fatalf("SamplesForChecked() error = %v", err)
 	}
 	summary := agg.SummarizeWith(ctx, SummaryInput{Channel: "grok", Buckets: buckets, Durations: durations, FirstTokenMS: ttfts, SamplesProvided: true})
-	if summary.Requests != 3 {
-		t.Fatalf("summary = %+v", summary)
-	}
+	testutil.Equal(t, summary.Requests, 3)
 	if got, want := summary.SuccessRate, 2.0/3.0; got < want-0.001 || got > want+0.001 {
 		t.Fatalf("success rate = %v, want %v", got, want)
 	}
 	if summary.DurationP95MS == 0 || summary.FirstTokenP95MS == 0 {
 		t.Fatalf("percentiles missing: %+v", summary)
 	}
-	if summary.Samples != 3 {
-		t.Fatalf("samples = %d, want 3 latency observations", summary.Samples)
-	}
+	testutil.Equal(t, summary.Samples, 3)
 }
 
 // TestSummarize_NoSamplesIsZero is what makes the UI able to say "暂无样本"
@@ -85,9 +82,7 @@ func TestSummarize_NoSamplesIsZero(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Range() error = %v", err)
 	}
-	if len(buckets) != 0 {
-		t.Fatalf("buckets = %v, want none for an idle channel", buckets)
-	}
+	testutil.Equal(t, len(buckets), 0)
 	ctx := context.Background()
 	durations, ttfts, err := agg.SamplesForChecked(ctx, "workbuddy", buckets)
 	if err != nil {
@@ -122,9 +117,7 @@ func TestRange_BatchBoundariesAndErrors(t *testing.T) {
 		}
 	}
 	mini.Del(agg.key(base.Add(256*time.Minute), "grok"))
-	if err := mini.Set(agg.key(base.Add(256*time.Minute), "grok"), "not-a-hash"); err != nil {
-		t.Fatal(err)
-	}
+	testutil.NoError(t, mini.Set(agg.key(base.Add(256*time.Minute), "grok"), "not-a-hash"))
 	buckets, err = agg.Range(ctx, "grok", from, until)
 	if err == nil || buckets != nil {
 		t.Fatalf("wrongtype in second batch: buckets=%v err=%v, want nil and error", buckets, err)
@@ -161,9 +154,7 @@ func TestRange_SpansMinutesInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Range() error = %v", err)
 	}
-	if len(buckets) != 3 {
-		t.Fatalf("buckets = %d, want 3", len(buckets))
-	}
+	testutil.Equal(t, len(buckets), 3)
 	for i := 1; i < len(buckets); i++ {
 		if !buckets[i].Minute.After(buckets[i-1].Minute) {
 			t.Fatalf("buckets are not in chronological order: %+v", buckets)
@@ -197,9 +188,7 @@ func TestModelStatsFromBuckets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ModelStatsFromBucketsChecked() error = %v", err)
 	}
-	if len(stats) != 2 {
-		t.Fatalf("stats = %+v, want two models", stats)
-	}
+	testutil.Equal(t, len(stats), 2)
 	// Sorted by request count: grok-4.6 leads.
 	if stats[0].Model != "grok-4.6" || stats[0].Requests != 3 || stats[0].Success != 2 || stats[0].Failed != 1 {
 		t.Fatalf("leading model = %+v", stats[0])
@@ -240,9 +229,7 @@ func TestModelStatsFromBuckets_MixedMinutesAndMissingDuration(t *testing.T) {
 	if got, want := mini.CommandCount()-before, 3+2*5; got != want {
 		t.Fatalf("model stats Redis reads=%d, want %d (3 hashes + 10 lists)", got, want)
 	}
-	if len(stats) != 3 {
-		t.Fatalf("model stats=%+v, want three models", stats)
-	}
+	testutil.Equal(t, len(stats), 3)
 	byName := make(map[string]ModelStats, len(stats))
 	for _, stat := range stats {
 		byName[stat.Model] = stat
@@ -307,22 +294,14 @@ func TestChannels_ReversedRangeAndExpiredEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(channels) != 0 {
-		t.Fatalf("channels=%v, want empty", channels)
-	}
+	testutil.Equal(t, len(channels), 0)
 }
 
 func TestPercentile_NearestRank(t *testing.T) {
 	values := []int64{10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
-	if got := percentile(values, 0.95); got != 100 {
-		t.Fatalf("p95 = %d, want 100", got)
-	}
-	if got := percentile(values, 0.5); got != 50 {
-		t.Fatalf("p50 = %d, want 50", got)
-	}
-	if got := percentile(nil, 0.95); got != 0 {
-		t.Fatalf("empty percentile = %d, want 0", got)
-	}
+	testutil.Equal(t, percentile(values, 0.95), 100)
+	testutil.Equal(t, percentile(values, 0.5), 50)
+	testutil.Equal(t, percentile(nil, 0.95), 0)
 }
 
 // TestChannels_IgnoresSideLists pins the rule that a percentile list must never
@@ -387,9 +366,7 @@ func TestSummarizeWith_RateUsesTheWindowNotTheBuckets(t *testing.T) {
 		FirstTokenMS:    ttfts,
 		SamplesProvided: true,
 	})
-	if summary.Requests != 1 {
-		t.Fatalf("requests = %d, want 1", summary.Requests)
-	}
+	testutil.Equal(t, summary.Requests, 1)
 	if summary.RPM > 0.02 || summary.RPM < 0.01 {
 		t.Fatalf("rpm = %v, want about 0.0167 for one request in an hour", summary.RPM)
 	}
@@ -435,9 +412,7 @@ func TestSummarizeWith_MergedSamplesProducePercentiles(t *testing.T) {
 		Channel: "all", Buckets: merged, WindowMinutes: 60,
 		Durations: durations, FirstTokenMS: ttfts, SamplesProvided: true,
 	})
-	if summary.Samples != 5 {
-		t.Fatalf("samples = %d, want the five merged observations", summary.Samples)
-	}
+	testutil.Equal(t, summary.Samples, 5)
 	if summary.DurationP95MS == 0 || summary.FirstTokenP95MS == 0 {
 		t.Fatalf("merged percentiles are zero: %+v", summary)
 	}
@@ -511,12 +486,8 @@ func TestObserveAggregatesCostByPricedAndUnpriced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Range: %v", err)
 	}
-	if len(buckets) != 1 {
-		t.Fatalf("buckets=%d want 1", len(buckets))
-	}
-	if buckets[0].CostInUSDTicks != 1_500_000 {
-		t.Fatalf("bucket cost=%d want 1500000", buckets[0].CostInUSDTicks)
-	}
+	testutil.Equal(t, len(buckets), 1)
+	testutil.Equal(t, buckets[0].CostInUSDTicks, 1_500_000)
 	if buckets[0].PricedRequests != 1 || buckets[0].UnpricedRequests != 1 {
 		t.Fatalf("priced=%d unpriced=%d", buckets[0].PricedRequests, buckets[0].UnpricedRequests)
 	}
@@ -525,9 +496,7 @@ func TestObserveAggregatesCostByPricedAndUnpriced(t *testing.T) {
 		t.Fatalf("SamplesForChecked: %v", err)
 	}
 	summary := aggregator.SummarizeWith(ctx, SummaryInput{Channel: "grok", Buckets: buckets, WindowMinutes: 1, Durations: durations, FirstTokenMS: ttfts, SamplesProvided: true})
-	if summary.CostInUSDTicks != 1_500_000 {
-		t.Fatalf("summary cost=%d", summary.CostInUSDTicks)
-	}
+	testutil.Equal(t, summary.CostInUSDTicks, 1_500_000)
 	if summary.PricedRequests != 1 || summary.UnpricedRequests != 1 {
 		t.Fatalf("summary priced=%d unpriced=%d", summary.PricedRequests, summary.UnpricedRequests)
 	}

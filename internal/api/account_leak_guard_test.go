@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"orchids-api/internal/store"
+	"orchids-api/internal/testutil"
 )
 
 // accountSecretFields is every field on a stored account that carries a
@@ -178,12 +179,8 @@ func TestAccountResponsesNeverCarryCredentials(t *testing.T) {
 			}
 			// Presence, not the value, is how the table proves a credential exists.
 			var row map[string]interface{}
-			if err := json.Unmarshal(raw, &row); err != nil {
-				t.Fatalf("decode rendered account: %v", err)
-			}
-			if row["has_credential"] != true {
-				t.Fatalf(`${channel}: has_credential = %v, want true`, row["has_credential"])
-			}
+			testutil.NoError(t, json.Unmarshal(raw, &row), "decode rendered account: %v")
+			testutil.Equal(t, row["has_credential"], true)
 		})
 	}
 }
@@ -198,9 +195,7 @@ func TestAccountResponsesHideCredentialKeys(t *testing.T) {
 		t.Fatalf("marshal account output: %v", err)
 	}
 	var row map[string]interface{}
-	if err := json.Unmarshal(raw, &row); err != nil {
-		t.Fatalf("decode rendered account: %v", err)
-	}
+	testutil.NoError(t, json.Unmarshal(raw, &row), "decode rendered account: %v")
 	for field := range accountSecretFields {
 		if _, exists := row[field]; exists {
 			t.Errorf("credential field %q was returned", field)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"orchids-api/internal/testutil"
 	"strings"
 	"testing"
 )
@@ -27,12 +28,8 @@ func TestLocalErrorKeepsItsStatusAndMessage(t *testing.T) {
 	for _, message := range local {
 		rec := httptest.NewRecorder()
 		writeGrokUpstreamError(rec, errors.New(message))
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("%q: status = %d, want 400 for a local error", message, rec.Code)
-		}
-		if !strings.Contains(rec.Body.String(), message) {
-			t.Errorf("%q: the local message was replaced: %s", message, rec.Body.String())
-		}
+		testutil.CheckEqual(t, rec.Code, http.StatusBadRequest)
+		testutil.CheckContain(t, rec.Body.String(), message)
 	}
 }
 
@@ -67,9 +64,7 @@ func TestUpstreamErrorIsStillSanitized(t *testing.T) {
 			writeGrokUpstreamError(rec, errors.New(tc.message))
 			// Credentials belong to the operator-owned pool, so legacy 403
 			// maps to 503 while a server-class upstream 502 stays 502.
-			if rec.Code != tc.wantStatus {
-				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
-			}
+			testutil.Equal(t, rec.Code, tc.wantStatus)
 			if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
 				t.Fatalf("Content-Type = %q, want application/json", got)
 			}
@@ -86,13 +81,9 @@ func TestUpstreamErrorIsStillSanitized(t *testing.T) {
 			if payload.Error.Code != tc.wantCode || payload.Error.Type != "server_error" {
 				t.Fatalf("error code/type = %q/%q, want %s/server_error", payload.Error.Code, payload.Error.Type, tc.wantCode)
 			}
-			if payload.Error.Message != tc.wantMessage {
-				t.Fatalf("message = %q, want %q", payload.Error.Message, tc.wantMessage)
-			}
+			testutil.Equal(t, payload.Error.Message, tc.wantMessage)
 			for _, leak := range []string{"body=", "status=", "classify-private-team", "classify-secret-token", "bad gateway from xai", "forbidden"} {
-				if strings.Contains(rec.Body.String(), leak) {
-					t.Errorf("upstream detail %q leaked to the client: %s", leak, rec.Body.String())
-				}
+				testutil.CheckNotContain(t, rec.Body.String(), leak)
 			}
 		})
 	}

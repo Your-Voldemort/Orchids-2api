@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"orchids-api/internal/testutil"
 	"os"
 	"strings"
 	"testing"
@@ -81,8 +82,6 @@ func TestSharedTransportProtocolAgainstLocalH2(t *testing.T) {
 	}
 	defer resp.Body.Close()
 	var out map[string]string
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
+	testutil.NoError(t, json.NewDecoder(resp.Body).Decode(&out), "decode: %v")
 	fmt.Printf("LOCALH2 client_proto=%s server_saw=%s alpn=%q\n", resp.Proto, out["proto"], out["alpn"])
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"fmt"
+	"orchids-api/internal/testutil"
 	"strings"
 	"testing"
 )
@@ -35,9 +36,7 @@ func TestEncodeBodyMatchesPrivateAlphabet(t *testing.T) {
 	want := swapOuterThirds([]byte(substituted.String()))
 
 	got := EncodeBody(raw)
-	if string(got) != string(want) {
-		t.Fatalf("EncodeBody() = %q, want %q", got, want)
-	}
+	testutil.Equal(t, string(got), string(want))
 	for _, b := range got {
 		if strings.ContainsRune("+/=", rune(b)) {
 			t.Fatalf("EncodeBody() left a standard-alphabet byte %q in %q", b, got)
@@ -64,9 +63,7 @@ func TestBodyCodecRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s DecodeBody(len=%d) error = %v", name, length, err)
 			}
-			if string(decoded) != string(raw) {
-				t.Fatalf("%s round trip mismatch at length %d", name, length)
-			}
+			testutil.Equal(t, string(decoded), string(raw))
 		}
 	}
 }
@@ -110,15 +107,9 @@ func TestCOSYSignatureSeparators(t *testing.T) {
 	)
 	want := md5.Sum([]byte(payload + "\n" + key + "\n" + seconds + "\n" + body + "\n" + path))
 	got := cosySignature([]byte(payload), key, seconds, []byte(body), path)
-	if got != want {
-		t.Fatalf("cosySignature() = %x, want %x", got, want)
-	}
-	if fmt.Sprintf("%x", got) != "fb256c9d505e6c4a4ae4c1525d583c9e" {
-		t.Fatalf("signature differs from fixed vector: %x", got)
-	}
-	if got == md5.Sum([]byte(payload+"\n"+key+"\n"+seconds+"\n"+body+"\n"+path+"\n")) {
-		t.Fatal("signature includes a trailing separator")
-	}
+	testutil.Equal(t, got, want)
+	testutil.Equal(t, fmt.Sprintf("%x", got), "fb256c9d505e6c4a4ae4c1525d583c9e")
+	testutil.NotEqual(t, got, md5.Sum([]byte(payload+"\n"+key+"\n"+seconds+"\n"+body+"\n"+path+"\n")))
 }
 
 // TestCOSYAuthorizationFixedVector pins the prefix, payload field order and
@@ -131,9 +122,7 @@ func TestCOSYAuthorizationFixedVector(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != want {
-		t.Fatalf("buildCOSYAuthorization() = %q, want %q", got, want)
-	}
+	testutil.Equal(t, got, want)
 }
 
 // TestSignPathStripsAlgoAndQuery pins the signed path: the covered path drops
@@ -147,9 +136,7 @@ func TestSignPathStripsAlgoAndQuery(t *testing.T) {
 		"/algo/api/v2/quota/usage?Encode=1": "/api/v2/quota/usage",
 	}
 	for raw, want := range cases {
-		if got := signPath(raw); got != want {
-			t.Errorf("signPath(%q) = %q, want %q", raw, got, want)
-		}
+		testutil.CheckEqual(t, signPath(raw), want)
 	}
 }
 
@@ -160,7 +147,5 @@ func TestChatURLCarriesFixedAgentQuery(t *testing.T) {
 
 	got := chatURL("https://api2.qoder.sh")
 	want := "https://api2.qoder.sh/algo/api/v2/service/pro/sse/agent_chat_generation?FetchKeys=llm_model_result&AgentId=agent_common&Encode=1"
-	if got != want {
-		t.Fatalf("chatURL() = %q, want %q", got, want)
-	}
+	testutil.Equal(t, got, want)
 }
