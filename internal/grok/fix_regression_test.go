@@ -10,6 +10,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
+
+	"orchids-api/internal/loadbalancer"
+	"orchids-api/internal/store"
 )
 
 // The client-facing error object has to be parseable by an OpenAI SDK: the
@@ -732,8 +737,96 @@ func TestReasoningForCallsIndexesOnlyProofs(t *testing.T) {
 	}
 }
 
+// TestAccumulatedInputItemsWalksTheContinuationChain drives the real chain
+// builder: ancestor inputs are appended nearest-first, the walk stops at the
+// documented bound, and a cycle terminates instead of looping forever.
 func TestAccumulatedInputItemsWalksTheContinuationChain(t *testing.T) {
-	if got := maxStoredInputChainDepth; got < 1 || got > 64 {
-		t.Fatalf("chain depth = %d, want a bounded positive value", got)
+	t.Parallel()
+	if maxStoredInputChainDepth < 1 || maxStoredInputChainDepth > 64 {
+		t.Fatalf("chain depth = %d, want a bounded positive value no greater than 64", maxStoredInputChainDepth)
+	}
+
+	mini := miniredis.RunT(t)
+	s, err := store.New(store.Options{RedisAddr: mini.Addr(), RedisDB: 0, RedisPrefix: "chain:"})
+	if err != nil {
+		t.Fatalf("store.New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Close()
+		mini.Close()
+	})
+	h := NewHandler(nil, loadbalancer.NewWithCacheTTL(s, 0))
+
+	ctx := context.Background()
+	save := func(id, previous, text string) {
+		raw, err := json.Marshal([]map[string]string{{"role": "user", "content": text}})
+		if err != nil {
+			t.Fatalf("marshal %s: %v", id, err)
+		}
+		if err := s.SaveStoredResponse(ctx, &store.StoredResponse{
+			ResponseID:         id,
+			OwnerHash:          "owner",
+			PreviousResponseID: previous,
+			InputItems:         raw,
+		}, time.Hour); err != nil {
+			t.Fatalf("SaveStoredResponse(%s) error = %v", id, err)
+		}
+	}
+
+	// A cycle: the walk must stop on the seen set.
+	save("resp_a", "resp_b", "a")
+	save("resp_b", "resp_a", "b")
+
+	// A chain longer than the bound: only the nearest ancestors are folded in.
+	const chainLength = maxStoredInputChainDepth + 4
+	for i := 0; i <= chainLength; i++ {
+		previous := ""
+		if i < chainLength {
+			previous = fmt.Sprintf("resp_c%d", i+1)
+		}
+		save(fmt.Sprintf("resp_c%d", i), previous, fmt.Sprintf("c%d", i))
+	}
+
+	itemText := func(item interface{}) string {
+		entry, ok := item.(map[string]interface{})
+		if !ok {
+			t.Fatalf("input item = %#v, want an object", item)
+		}
+		return fmt.Sprint(entry["content"])
+	}
+
+	cases := []struct {
+		name      string
+		previous  string
+		wantOrder []string
+	}{
+		{name: "cycle terminates", previous: "resp_a", wantOrder: []string{"current", "a", "b"}},
+		{name: "bound keeps the nearest ancestors", previous: "resp_c0", wantOrder: append([]string{"current"}, func() []string {
+			ids := make([]string, 0, maxStoredInputChainDepth)
+			for i := 0; i < maxStoredInputChainDepth; i++ {
+				ids = append(ids, fmt.Sprintf("c%d", i))
+			}
+			return ids
+		}()...)},
+		{name: "unknown ancestor adds nothing", previous: "resp_missing", wantOrder: []string{"current"}},
+		{name: "no ancestor", previous: "", wantOrder: []string{"current"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := map[string]interface{}{
+				"input":                []interface{}{map[string]interface{}{"role": "user", "content": "current"}},
+				"previous_response_id": tc.previous,
+			}
+			req := httptest.NewRequest(http.MethodGet, "/v1/responses", nil)
+			got := h.accumulatedInputItems(req, "owner", payload)
+			if len(got) != len(tc.wantOrder) {
+				t.Fatalf("input items = %d (%v), want %d entries %v", len(got), got, len(tc.wantOrder), tc.wantOrder)
+			}
+			for i, want := range tc.wantOrder {
+				if text := itemText(got[i]); text != want {
+					t.Fatalf("item[%d] = %q, want %q (order %v)", i, text, want, tc.wantOrder)
+				}
+			}
+		})
 	}
 }

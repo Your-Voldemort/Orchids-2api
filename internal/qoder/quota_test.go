@@ -68,6 +68,7 @@ func TestApplyQuotaStoresRemainingAsUsageCurrent(t *testing.T) {
 	t.Parallel()
 
 	acc := &store.Account{AccountType: "qoder"}
+	synced := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	ApplyQuota(acc, &Quota{
 		Limit:      100,
 		Used:       40,
@@ -75,6 +76,7 @@ func TestApplyQuotaStoresRemainingAsUsageCurrent(t *testing.T) {
 		PlanTier:   "Pro",
 		Unit:       "credits",
 		UpgradeURL: "https://qoder.com/pricing?client=qoder",
+		SyncedAt:   synced,
 	})
 	if acc.UsageLimit != 100 || acc.UsageCurrent != 60 {
 		t.Fatalf("usage = %v/%v, want limit 100 and remaining 60", acc.UsageLimit, acc.UsageCurrent)
@@ -82,8 +84,8 @@ func TestApplyQuotaStoresRemainingAsUsageCurrent(t *testing.T) {
 	if acc.QoderQuota.PlanTier != "Pro" || acc.QoderQuota.Used != 40 {
 		t.Fatalf("snapshot = %+v", acc.QoderQuota)
 	}
-	if !acc.QoderQuota.SyncedAt.Equal(acc.QoderQuota.SyncedAt) {
-		t.Fatal("snapshot carries no sync time")
+	if !acc.QoderQuota.SyncedAt.Equal(synced) {
+		t.Fatalf("snapshot sync time = %v, want the observation time %v", acc.QoderQuota.SyncedAt, synced)
 	}
 }
 

@@ -26,6 +26,8 @@ type spyConnTracker struct {
 	acquireCalls   int
 	releaseCalls   int
 	getCountsCalls int
+	fullObserved   chan struct{}
+	observeOnce    sync.Once
 }
 
 func newSpyConnTracker(counts map[int64]int64) *spyConnTracker {
@@ -65,6 +67,9 @@ func (t *spyConnTracker) GetCounts(accountIDs []int64) map[int64]int64 {
 	counts := make(map[int64]int64, len(accountIDs))
 	for _, id := range accountIDs {
 		counts[id] = t.counts[id]
+		if t.fullObserved != nil && counts[id] > 0 {
+			t.observeOnce.Do(func() { close(t.fullObserved) })
+		}
 	}
 	return counts
 }
@@ -171,33 +176,72 @@ func TestAcquireReservedAccountSelection_WaitsForShortLease(t *testing.T) {
 	acc := createEnabledTestAccount(t, s, "busy-workbuddy", "workbuddy")
 	lb := loadbalancer.NewWithCacheTTL(s, time.Second)
 	h := NewWithLoadBalancer(&config.Config{RequestTimeout: 10}, lb)
+	// The only account is held at its documented single-slot ceiling, so the
+	// request has to wait rather than succeed immediately: the old 225ms retry
+	// window could return 503 before this release landed.
+	acc.MaxConcurrent = 1
+	if err := s.UpdateAccount(context.Background(), acc); err != nil {
+		t.Fatalf("UpdateAccount() error = %v", err)
+	}
+	if got := effectiveAccountConcurrencyLimit(acc); got != 1 {
+		t.Fatalf("effective limit = %d, want 1 so the lease is actually saturated", got)
+	}
 	tracker := newSpyConnTracker(map[int64]int64{acc.ID: 1})
+	tracker.fullObserved = make(chan struct{})
 	h.connTracker = tracker
+	// A signal under the same lock as the count change proves selection cannot
+	// finish before the outstanding lease is released.
+	released := make(chan struct{})
 	h.SetClientFactory(func(acc *store.Account, cfg *config.Config) UpstreamClient {
 		return &trackerTestUpstream{}
 	})
 
-	// A request finishing on the only account must be visible to the selector;
-	// the old 225ms retry window could return 503 before this release landed.
 	go func() {
+		// Start the delay only after the selector has observed the occupied
+		// single slot, rather than while Redis/fixture setup is still running.
+		select {
+		case <-tracker.fullObserved:
+		case <-time.After(3 * time.Second):
+		}
 		time.Sleep(350 * time.Millisecond)
 		tracker.mu.Lock()
 		tracker.counts[acc.ID] = 0
+		close(released)
 		tracker.mu.Unlock()
 	}()
+	// Also join the helper on failure, so it cannot outlive this test.
+	defer func() { <-released }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, selected, release, trackedID, err := h.acquireReservedAccountSelection(ctx, "workbuddy", true, nil, accountSelectionOptions{ModelID: "deepseek-v4-flash"})
+	_, chosen, release, trackedID, err := h.acquireReservedAccountSelection(ctx, "workbuddy", true, nil, accountSelectionOptions{ModelID: "deepseek-v4-flash"})
 	defer release()
+	select {
+	case <-tracker.fullObserved:
+	default:
+		t.Fatal("selector never observed the saturated account")
+	}
+	select {
+	case <-released:
+	default:
+		t.Fatal("the selection succeeded before the lease was released")
+	}
 	if err != nil {
 		t.Fatalf("acquireReservedAccountSelection() error = %v", err)
 	}
-	if selected == nil || selected.ID != acc.ID {
-		t.Fatalf("selected account = %#v, want account %d", selected, acc.ID)
+	if chosen == nil || chosen.ID != acc.ID {
+		t.Fatalf("selected account = %#v, want account %d", chosen, acc.ID)
 	}
 	if trackedID != acc.ID {
 		t.Fatalf("tracked account id = %d, want %d", trackedID, acc.ID)
+	}
+	if got := tracker.GetCount(acc.ID); got != 1 {
+		t.Fatalf("new request lease count = %d, want 1", got)
+	}
+	h.releaseTrackedAccount(trackedID)
+	release() // The client cache lease is separate from the concurrency slot.
+	if got := tracker.GetCount(acc.ID); got != 0 {
+		t.Fatalf("released request retained %d leases", got)
 	}
 }
 
@@ -209,39 +253,74 @@ func TestAcquireReservedAccountSelection_WaitsForBusyAccountLease(t *testing.T) 
 	}()
 
 	acc := createEnabledTestAccount(t, s, "busy-workbuddy", "workbuddy")
+	// One slot, already taken: the selector must wait for the release below
+	// instead of admitting the request against the shared default ceiling.
+	acc.MaxConcurrent = 1
 	if err := s.UpdateAccount(context.Background(), acc); err != nil {
 		t.Fatalf("UpdateAccount() error = %v", err)
+	}
+	if got := effectiveAccountConcurrencyLimit(acc); got != 1 {
+		t.Fatalf("effective limit = %d, want 1 so the lease is actually saturated", got)
 	}
 
 	lb := loadbalancer.NewWithCacheTTL(s, time.Second)
 	h := NewWithLoadBalancer(&config.Config{RequestTimeout: 10}, lb)
 	tracker := newSpyConnTracker(map[int64]int64{acc.ID: 1})
+	tracker.fullObserved = make(chan struct{})
 	h.connTracker = tracker
+	released := make(chan struct{})
 	h.SetClientFactory(func(acc *store.Account, cfg *config.Config) UpstreamClient {
 		return &trackerTestUpstream{}
 	})
 
 	go func() {
+		// Start the delay only after the selector has observed the occupied
+		// single slot, rather than while Redis/fixture setup is still running.
+		select {
+		case <-tracker.fullObserved:
+		case <-time.After(3 * time.Second):
+		}
 		time.Sleep(350 * time.Millisecond)
 		tracker.mu.Lock()
 		tracker.counts[acc.ID] = 0
+		close(released)
 		tracker.mu.Unlock()
 	}()
+	// Also join the helper on failure, so it cannot outlive this test.
+	defer func() { <-released }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, selected, release, trackedID, err := h.acquireReservedAccountSelection(ctx, "workbuddy", true, nil, accountSelectionOptions{
+	_, chosen, release, trackedID, err := h.acquireReservedAccountSelection(ctx, "workbuddy", true, nil, accountSelectionOptions{
 		ModelID: "claude-opus-5",
 	})
 	defer release()
+	select {
+	case <-tracker.fullObserved:
+	default:
+		t.Fatal("selector never observed the saturated account")
+	}
+	select {
+	case <-released:
+	default:
+		t.Fatal("the selection succeeded before the lease was released")
+	}
 	if err != nil {
 		t.Fatalf("acquireReservedAccountSelection() error = %v", err)
 	}
-	if selected == nil || selected.ID != acc.ID {
-		t.Fatalf("selected account = %#v, want account %d", selected, acc.ID)
+	if chosen == nil || chosen.ID != acc.ID {
+		t.Fatalf("selected account = %#v, want account %d", chosen, acc.ID)
 	}
 	if trackedID != acc.ID {
 		t.Fatalf("tracked account id = %d, want %d", trackedID, acc.ID)
+	}
+	if got := tracker.GetCount(acc.ID); got != 1 {
+		t.Fatalf("new request lease count = %d, want 1", got)
+	}
+	h.releaseTrackedAccount(trackedID)
+	release() // The client cache lease is separate from the concurrency slot.
+	if got := tracker.GetCount(acc.ID); got != 0 {
+		t.Fatalf("released request retained %d leases", got)
 	}
 }
 

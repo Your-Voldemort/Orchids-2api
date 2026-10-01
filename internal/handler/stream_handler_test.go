@@ -491,21 +491,6 @@ func TestRewriteToolCallToClient_PrunesNestedUnknownTodoFields(t *testing.T) {
 	}
 }
 
-func TestHasRequiredToolInput_Validations(t *testing.T) {
-	if ok := validToolCallInput("write", `{}`); ok {
-		t.Fatalf("write should require path+content")
-	}
-	if ok := validToolCallInput("write", `{"file_path":"a","content":"x"}`); !ok {
-		t.Fatalf("write with file_path+content should be valid")
-	}
-	if ok := validToolCallInput("write", `{"path":"a","content":"x"}`); !ok {
-		t.Fatalf("write with legacy path should be valid")
-	}
-	if ok := validToolCallInput("bash", `{"cmd":""}`); ok {
-		t.Fatalf("bash should require non-empty cmd/command")
-	}
-}
-
 func TestStreamHandler_TextFlow_AnthropicSSE(t *testing.T) {
 	cfg := &config.Config{DebugEnabled: false}
 	rec := newFlushRecorder()

@@ -1,8 +1,10 @@
+//go:build live
+
 package util
 
 // Opt-in probes for the shared transport's TLS/ALPN behaviour. They make real
-// network connections, so they only run when the matching environment variable
-// is set:
+// network connections, so they require -tags live and the matching environment
+// variable to be set:
 //
 //	TLS_PROBE_HOST=api2.qoder.sh:443   -> what ALPN the shared transport offers
 //	TLS_PROBE_H2_LOCAL=127.0.0.1:8443  -> what protocol it speaks to a local h2 server

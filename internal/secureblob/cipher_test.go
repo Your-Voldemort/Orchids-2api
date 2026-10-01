@@ -1,6 +1,8 @@
 package secureblob
 
 import (
+	"crypto/aes"
+	cryptocipher "crypto/cipher"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -104,16 +106,39 @@ func TestDerivedKeyIsDomainSeparated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Seal: %v", err)
 	}
+	// The same root must also work across independently constructed instances,
+	// as it does after a gateway restart.
+	restarted, err := NewCipher(append([]byte(nil), root...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain, err := restarted.Open(sealed); err != nil || plain != "state" {
+		t.Fatalf("same-root cipher after restart failed: plain=%q err=%v", plain, err)
+	}
 	// A cipher built from the raw root key (what the credential path uses) must
 	// not be able to open a sealed blob.
-	raw, err := NewCipher(append([]byte(nil), root...))
+	block, err := aes.NewCipher(root)
 	if err != nil {
-		t.Fatalf("NewCipher: %v", err)
+		t.Fatal(err)
 	}
-	if plain, err := raw.Open(sealed); err != nil || plain != "state" {
-		t.Fatalf("same-root cipher failed: plain=%q err=%v", plain, err)
+	rawAEAD, err := cryptocipher.NewGCM(block)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if domain == "" {
-		t.Fatal("domain separation label is empty")
+	blob, err := base64.RawURLEncoding.DecodeString(sealed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(blob) < rawAEAD.NonceSize() {
+		t.Fatal("sealed blob has no nonce")
+	}
+	if _, err := rawAEAD.Open(nil, blob[:rawAEAD.NonceSize()], blob[rawAEAD.NonceSize():], nil); err == nil {
+		t.Fatal("raw credential key opened a domain-separated secure blob")
+	}
+	// The opposite direction must be isolated too.
+	nonce := make([]byte, rawAEAD.NonceSize())
+	credentialBlob := rawAEAD.Seal(nonce, nonce, []byte("credential state"), nil)
+	if _, err := cipher.Open(base64.RawURLEncoding.EncodeToString(credentialBlob)); err == nil {
+		t.Fatal("secure blob cipher opened a raw credential-key ciphertext")
 	}
 }

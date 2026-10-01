@@ -68,9 +68,20 @@ func TestTraceparentAcceptsEveryIdentifierShape(t *testing.T) {
 	if again := Traceparent(uuid); again != Traceparent(uuid) {
 		t.Fatal("Traceparent is not deterministic for one request id")
 	}
-	for _, input := range []string{"", "   ", "not-a-uuid", "zzzz", "-", "0"} {
-		if got := Traceparent(input); !traceparentPattern.MatchString(got) {
-			t.Errorf("Traceparent(%q) = %q, want a valid trace context", input, got)
+	for _, input := range []string{"", "   ", "not-a-uuid", "zzzz", "-", "0", strings.Repeat("0", 32), strings.Repeat("0", 16) + strings.Repeat("a", 16)} {
+		got := Traceparent(input)
+		if !traceparentPattern.MatchString(got) {
+			t.Fatalf("Traceparent(%q) = %q, want a valid trace context", input, got)
 		}
+		parts := strings.Split(got, "-")
+		if parts[1] == strings.Repeat("0", 32) || parts[2] == strings.Repeat("0", 16) {
+			t.Errorf("Traceparent(%q) has a forbidden zero trace/span ID: %q", input, got)
+		}
+		if got != Traceparent(input) {
+			t.Errorf("fallback is not deterministic for %q", input)
+		}
+	}
+	if Traceparent("") == Traceparent("zzzz") {
+		t.Fatal("distinct degenerate request IDs share a fallback trace")
 	}
 }

@@ -2,7 +2,10 @@ package qoder
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -29,16 +32,45 @@ func TestCatalogCacheRefreshesOnlyOnSnapshotChange(t *testing.T) {
 	}
 }
 
-func TestPackedBearerMatchesReferenceIncludingLargePayload(t *testing.T) {
+func TestPackedBearerPreservesPayloadAndSignatureIncludingLargePayload(t *testing.T) {
 	for _, info := range []string{"encrypted-info", "中文 <>&\n\"", strings.Repeat("large", 2000)} {
-		payload, err := buildCOSYPayload("request", info, "version")
+		got, err := buildCOSYAuthorization("request", info, "version", "key", "123", []byte("encoded-body"), "/path")
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := composeBearer(payload, signRequest(payload, "key", "123", "encoded-body", "/path"))
-		got, err := buildCOSYAuthorization("request", info, "version", "key", "123", []byte("encoded-body"), "/path")
-		if err != nil || got != want {
-			t.Fatal("packed bearer changed signed bytes")
+		parts := strings.Split(got, ".")
+		if len(parts) != 3 || parts[0] != "Bearer COSY" {
+			t.Fatalf("invalid authorization framing: %q", got)
+		}
+		raw, err := base64.StdEncoding.DecodeString(parts[1])
+		if err != nil {
+			t.Fatalf("payload is not standard base64: %v", err)
+		}
+		var fields map[string]string
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		wantFields := map[string]string{"version": "v1", "requestId": "request", "info": info, "cosyVersion": "version", "ideVersion": ""}
+		if len(fields) != len(wantFields) {
+			t.Fatalf("payload field count = %d, want %d", len(fields), len(wantFields))
+		}
+		for key, want := range wantFields {
+			if value, ok := fields[key]; !ok || value != want {
+				t.Fatalf("payload field %q = %q (present=%t), want %q", key, value, ok, want)
+			}
+		}
+		// Pin wire order and JSON escaping without recreating a payload builder.
+		quotedInfo, err := json.Marshal(info)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantRaw := `{"version":"v1","requestId":"request","info":` + string(quotedInfo) + `,"cosyVersion":"version","ideVersion":""}`
+		if string(raw) != wantRaw {
+			t.Fatal("packed payload changed field order, escaping, or trailing bytes")
+		}
+		wantSignature := fmt.Sprintf("%x", md5.Sum([]byte(parts[1]+"\nkey\n123\nencoded-body\n/path")))
+		if parts[2] != wantSignature {
+			t.Fatalf("signature = %q, want %q", parts[2], wantSignature)
 		}
 	}
 }

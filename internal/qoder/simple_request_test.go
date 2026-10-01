@@ -12,7 +12,7 @@ func TestSimplePromptRequestRetainsContextAndExplicitBudget(t *testing.T) {
 		if limit != 0 {
 			req.MaxTokens = &limit
 		}
-		encoded, err := buildChatBody(req, modelEntry{Key: "qfmodel"}, "session", "request", "set")
+		encoded, err := buildChatBodyProfile(req, modelEntry{Key: "qfmodel"}, "session", "request", "set", DefaultClientVersion, "", sceneBusinessProduct)
 		if err != nil {
 			t.Fatal(err)
 		}

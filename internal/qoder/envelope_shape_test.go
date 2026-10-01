@@ -48,7 +48,7 @@ func TestStreamReportsAQueueRefusalAsBusy(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, streamErr := consumeStreamWithTools(strings.NewReader("data: "+string(frame)+"\n\n"), true, nil)
+			_, streamErr := consumeStreamObserved(strings.NewReader("data: "+string(frame)+"\n\n"), true, nil, nil)
 			if streamErr == nil {
 				t.Fatal("expected an error")
 			}

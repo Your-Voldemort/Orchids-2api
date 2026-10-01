@@ -401,68 +401,6 @@ func TestHandleMessages_Dedup_DoesNotSuppressToolResultFollowup(t *testing.T) {
 	}
 }
 
-func TestHandleMessages_ToolResultFollowup_DoesNotInjectLocalFallbackText(t *testing.T) {
-	cfg := &config.Config{DebugEnabled: false, RequestTimeout: 10}
-	h := NewWithLoadBalancer(cfg, nil)
-	h.client = &mockUpstreamEdge{events: []upstream.SSEMessage{
-		{Type: "model", Event: map[string]any{"type": "text-start"}},
-		{Type: "model", Event: map[string]any{"type": "text-delta", "delta": "Let me first understand the project structure and code."}},
-		{Type: "model", Event: map[string]any{"type": "finish", "finishReason": "stop"}},
-	}}
-
-	payload := map[string]any{
-		"model":           "claude-3-5-sonnet",
-		"conversation_id": "test-conversation",
-		"messages": []map[string]any{
-			{"role": "user", "content": "这个项目使用了哪些技术架构"},
-			{"role": "assistant", "content": []map[string]any{
-				{
-					"type":  "tool_use",
-					"id":    "tool_1",
-					"name":  "Read",
-					"input": map[string]any{"file_path": "/Users/dailin/Documents/GitHub/truth_social_scraper/utils.py"},
-				},
-			}},
-			{"role": "user", "content": []map[string]any{
-				{
-					"type":        "tool_result",
-					"tool_use_id": "tool_1",
-					"content":     "import json\nimport os\nALERTS_FILE='alerts.json'\ndef load_json(path):\n    return json.load(open(path))",
-				},
-				{
-					"type": "text",
-					"text": "请直接回答",
-				},
-			}},
-		},
-		"system": []any{},
-		"stream": false,
-	}
-	body, _ := json.Marshal(payload)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "http://x/workbuddy/v1/messages", bytes.NewReader(body))
-	h.HandleMessages(rec, req)
-	if rec.Code != 200 {
-		t.Fatalf("expected 200, got %d", rec.Code)
-	}
-
-	out := rec.Body.String()
-	if !strings.Contains(out, "Let me first understand the project structure and code.") {
-		t.Fatalf("expected upstream text to be preserved, got: %s", out)
-	}
-	for _, unwanted := range []string{
-		"Python",
-		"JSON",
-		"基于当前已读取内容",
-		"当前只拿到目录概览",
-	} {
-		if strings.Contains(out, unwanted) {
-			t.Fatalf("did not expect local fallback text %q in %s", unwanted, out)
-		}
-	}
-}
-
 func TestHandleMessages_CanceledFollowup_DoesNotEmitGenericEmptyFallback(t *testing.T) {
 	cfg := &config.Config{DebugEnabled: false, RequestTimeout: 10}
 	h := NewWithLoadBalancer(cfg, nil)

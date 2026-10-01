@@ -84,7 +84,7 @@ func TestParseQuotaNoticeToleratesAFrameTerminator(t *testing.T) {
 }
 
 // TestQuotaExceededFrameReachesTheAttemptResult is the end-to-end half: the
-// notice has to survive consumeStreamWithTools, because that is the only place
+// notice has to survive consumeStreamObserved, because that is the only place
 // the account-facing record is written from.
 func TestQuotaExceededFrameReachesTheAttemptResult(t *testing.T) {
 	t.Parallel()
@@ -94,13 +94,13 @@ func TestQuotaExceededFrameReachesTheAttemptResult(t *testing.T) {
 	stream := "data:" + notice + "\n\n" + "data:" + answer + "\n\n" + "event:finish\n\n"
 
 	var text strings.Builder
-	res, err := consumeStreamWithTools(strings.NewReader(stream), false, func(m upstream.SSEMessage) {
+	res, err := consumeStreamObserved(strings.NewReader(stream), false, func(m upstream.SSEMessage) {
 		if m.Type == "model.text-delta" {
 			if delta, ok := m.Event["delta"].(string); ok {
 				text.WriteString(delta)
 			}
 		}
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("a quota_exceeded control frame aborted the stream: %v", err)
 	}

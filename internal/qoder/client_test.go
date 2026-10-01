@@ -444,7 +444,7 @@ func TestConfiguredClientVersionMatchesReferenceBodyAndHeader(t *testing.T) {
 	t.Parallel()
 	cfg := &config.Config{QoderClientVersion: "9.8.7"}
 	client := NewFromAccount(signedTestAccount(), cfg)
-	body, err := buildChatBodyVersion(upstream.UpstreamRequest{}, modelEntry{Key: "m"}, "session", "request", "request-set", client.clientVersion)
+	body, err := buildChatBodyProfile(upstream.UpstreamRequest{}, modelEntry{Key: "m"}, "session", "request", "request-set", client.clientVersion, "", sceneBusinessProduct)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +493,7 @@ func TestReferenceRuntimeIdentityRebuiltAfterTokenRotation(t *testing.T) {
 func TestReferenceChatBodyCarriesPromptContextAndModel(t *testing.T) {
 	model := modelEntry{Key: "qfmodel", DisplayName: "Qwen3.8-Flash", IsReasoning: true, MaxInputTokens: 180000}
 	req := upstream.UpstreamRequest{Messages: []prompt.Message{{Role: "user", Content: prompt.MessageContent{Text: "你好 qoder"}}}}
-	encoded, err := buildChatBody(req, model, "session-id", "request-id", "request-set-id")
+	encoded, err := buildChatBodyProfile(req, model, "session-id", "request-id", "request-set-id", DefaultClientVersion, "", sceneBusinessProduct)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +535,7 @@ func TestReferenceChatBodyCarriesPromptContextAndModel(t *testing.T) {
 }
 
 func TestRefreshedReplayUsesFreshIdentityAndRetryFlag(t *testing.T) {
-	original, err := buildChatBodyVersion(upstream.UpstreamRequest{}, modelEntry{Key: "m"}, "session", "old", "request-set", "1.2.3")
+	original, err := buildChatBodyProfile(upstream.UpstreamRequest{}, modelEntry{Key: "m"}, "session", "old", "request-set", "1.2.3", "", sceneBusinessProduct)
 	if err != nil {
 		t.Fatal(err)
 	}

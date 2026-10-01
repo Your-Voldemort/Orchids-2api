@@ -84,20 +84,21 @@ func TestGetModelByChannelAndModelID_AllowsDuplicateModelIDsAcrossChannels(t *te
 	// The store publishes nothing on its own, so the two channels' fixtures are
 	// created explicitly. The point of the test is that the lookup index is keyed
 	// by channel *and* model id, not that either channel has a catalog.
+	const sharedModelID = "shared-model"
 	if err := s.CreateModel(ctx, &Model{
-		Channel: "WorkBuddy", ModelID: "deepseek-v4-pro", Name: "deepseek-v4-pro",
+		Channel: "WorkBuddy", ModelID: sharedModelID, Name: "WorkBuddy Shared",
 		Status: ModelStatusAvailable, Verified: true,
 	}); err != nil {
 		t.Fatalf("CreateModel(workbuddy) error = %v", err)
 	}
 	if err := s.CreateModel(ctx, &Model{
-		Channel: "Qoder", ModelID: "auto-open", Name: "Qoder Auto Open",
+		Channel: "Qoder", ModelID: sharedModelID, Name: "Qoder Shared",
 		Status: ModelStatusAvailable, Verified: true,
 	}); err != nil {
 		t.Fatalf("CreateModel(qoder) error = %v", err)
 	}
 
-	workBuddyModel, err := s.GetModelByChannelAndModelID(ctx, "workbuddy", "deepseek-v4-pro")
+	workBuddyModel, err := s.GetModelByChannelAndModelID(ctx, "workbuddy", sharedModelID)
 	if err != nil {
 		t.Fatalf("GetModelByChannelAndModelID(workbuddy) error = %v", err)
 	}
@@ -105,12 +106,16 @@ func TestGetModelByChannelAndModelID_AllowsDuplicateModelIDsAcrossChannels(t *te
 		t.Fatalf("workbuddy model channel = %q, want WorkBuddy", workBuddyModel.Channel)
 	}
 
-	qoderModel, err := s.GetModelByChannelAndModelID(ctx, "qoder", "auto-open")
+	qoderModel, err := s.GetModelByChannelAndModelID(ctx, "qoder", sharedModelID)
 	if err != nil {
 		t.Fatalf("GetModelByChannelAndModelID(qoder) error = %v", err)
 	}
 	if qoderModel.Channel != "Qoder" {
 		t.Fatalf("qoder model channel = %q, want Qoder", qoderModel.Channel)
+	}
+	if workBuddyModel.ModelID != sharedModelID || qoderModel.ModelID != sharedModelID ||
+		workBuddyModel.Name != "WorkBuddy Shared" || qoderModel.Name != "Qoder Shared" {
+		t.Fatalf("channel index mixed records: workbuddy=%+v qoder=%+v", workBuddyModel, qoderModel)
 	}
 	if qoderModel.ID == workBuddyModel.ID {
 		t.Fatalf("expected different records across channels, got same id %q", qoderModel.ID)

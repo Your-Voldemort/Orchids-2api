@@ -56,12 +56,17 @@ func TestBodyCodecRoundTrip(t *testing.T) {
 			raw[i] = byte(i * 7 % 251)
 		}
 		encoded := EncodeBody(raw)
-		decoded, err := decodeBodyForTest(encoded)
-		if err != nil {
-			t.Fatalf("DecodeBody(len=%d) error = %v", length, err)
-		}
-		if string(decoded) != string(raw) {
-			t.Fatalf("round trip mismatch at length %d", length)
+		for name, decoder := range map[string]func([]byte) ([]byte, error){
+			"production":               decodeBody,
+			"independent test decoder": decodeBodyForTest,
+		} {
+			decoded, err := decoder(encoded)
+			if err != nil {
+				t.Fatalf("%s DecodeBody(len=%d) error = %v", name, length, err)
+			}
+			if string(decoded) != string(raw) {
+				t.Fatalf("%s round trip mismatch at length %d", name, length)
+			}
 		}
 	}
 }
@@ -72,16 +77,28 @@ func TestDecodeBodyRejectsLineBreaks(t *testing.T) {
 	t.Parallel()
 
 	encoded := EncodeBody([]byte(`{"a":1}`))
-	if _, err := decodeBodyForTest(append(encoded[:4], append([]byte{'\n'}, encoded[4:]...)...)); err == nil {
-		t.Fatal("DecodeBody() error = nil for a body containing a line break")
+	for _, newline := range []string{"\n", "\r", "\r\n"} {
+		for _, offset := range []int{0, 4, len(encoded)} {
+			malformed := append([]byte(nil), encoded[:offset]...)
+			malformed = append(malformed, newline...)
+			malformed = append(malformed, encoded[offset:]...)
+			if _, err := decodeBody(malformed); err == nil {
+				t.Fatalf("production decodeBody accepted %q at offset %d", newline, offset)
+			}
+		}
+	}
+	for _, malformed := range [][]byte{[]byte("+"), []byte("invalid-length"), []byte("$$$$")} {
+		if _, err := decodeBody(malformed); err == nil {
+			t.Fatalf("production decodeBody accepted malformed encoding %q", malformed)
+		}
 	}
 }
 
-// TestSignRequestSeparators pins the five-field, four-newline MD5 formula with
+// TestCOSYSignatureSeparators pins the five-field, four-newline MD5 formula with
 // no trailing separator. The trailing byte is the classic mistake here: a
 // trailing newline yields a signature that is 32 valid-looking hex characters
 // the gateway rejects.
-func TestSignRequestSeparators(t *testing.T) {
+func TestCOSYSignatureSeparators(t *testing.T) {
 	t.Parallel()
 
 	const (
@@ -91,22 +108,31 @@ func TestSignRequestSeparators(t *testing.T) {
 		body    = "encoded-body"
 		path    = "/api/v2/service/pro/sse/agent_chat_generation"
 	)
-	want := fmt.Sprintf("%x", md5.Sum([]byte(payload+"\n"+key+"\n"+seconds+"\n"+body+"\n"+path)))
-
-	if got := signRequest(payload, key, seconds, body, path); got != want {
-		t.Fatalf("signRequest() = %q, want %q", got, want)
+	want := md5.Sum([]byte(payload + "\n" + key + "\n" + seconds + "\n" + body + "\n" + path))
+	got := cosySignature([]byte(payload), key, seconds, []byte(body), path)
+	if got != want {
+		t.Fatalf("cosySignature() = %x, want %x", got, want)
 	}
-	if strings.HasSuffix(signRequest(payload, key, seconds, body, path), "\n") {
-		t.Fatal("signature carries a trailing separator")
+	if fmt.Sprintf("%x", got) != "fb256c9d505e6c4a4ae4c1525d583c9e" {
+		t.Fatalf("signature differs from fixed vector: %x", got)
+	}
+	if got == md5.Sum([]byte(payload+"\n"+key+"\n"+seconds+"\n"+body+"\n"+path+"\n")) {
+		t.Fatal("signature includes a trailing separator")
 	}
 }
 
-// TestComposeBearer pins the authorization prefix.
-func TestComposeBearer(t *testing.T) {
+// TestCOSYAuthorizationFixedVector pins the prefix, payload field order and
+// empty ideVersion, standard base64, and hexadecimal signature together.
+func TestCOSYAuthorizationFixedVector(t *testing.T) {
 	t.Parallel()
 
-	if got, want := composeBearer("payload", "sig"), "Bearer COSY.payload.sig"; got != want {
-		t.Fatalf("composeBearer() = %q, want %q", got, want)
+	const want = "Bearer COSY.eyJ2ZXJzaW9uIjoidjEiLCJyZXF1ZXN0SWQiOiJyZXF1ZXN0IiwiaW5mbyI6ImluZm8iLCJjb3N5VmVyc2lvbiI6InZlcnNpb24iLCJpZGVWZXJzaW9uIjoiIn0=.759d3ccbc63c510f16c3e66bd4c0b230"
+	got, err := buildCOSYAuthorization("request", "info", "version", "key", "123", []byte("encoded-body"), "/path")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("buildCOSYAuthorization() = %q, want %q", got, want)
 	}
 }
 

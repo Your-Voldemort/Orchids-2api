@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+
 	"orchids-api/internal/store"
 )
 
@@ -116,15 +118,48 @@ func TestPlanRefusedCredentialIsNotAFreeVerdict(t *testing.T) {
 
 // TestClineAccountCarriesThePlanTier pins the storage contract the console
 // reads: the tier lives in its own field so "never probed" and "probed and
-// free" stay distinguishable.
+// free" stay distinguishable, and a round trip through the store keeps it.
 func TestClineAccountCarriesThePlanTier(t *testing.T) {
-	acc := &store.Account{ID: 7, AccountType: "cline"}
+	mini := miniredis.RunT(t)
+	s, err := store.New(store.Options{RedisAddr: mini.Addr(), RedisPrefix: "cline-plan:"})
+	if err != nil {
+		t.Fatalf("store.New() error = %v", err)
+	}
+	defer func() {
+		_ = s.Close()
+		mini.Close()
+	}()
+
+	ctx := context.Background()
+	// A new account has never been probed: the field must stay empty rather
+	// than defaulting to a tier the console would then display as fact.
+	acc := &store.Account{AccountType: "cline", Enabled: true, Weight: 1}
+	if err := s.CreateAccount(ctx, acc); err != nil {
+		t.Fatalf("CreateAccount() error = %v", err)
+	}
 	if acc.ClinePlan != "" {
 		t.Errorf("ClinePlan = %q, want empty before a probe", acc.ClinePlan)
 	}
+	stored, err := s.GetAccount(ctx, acc.ID)
+	if err != nil {
+		t.Fatalf("GetAccount() error = %v", err)
+	}
+	if stored.ClinePlan != "" {
+		t.Errorf("stored ClinePlan = %q, want empty before a probe", stored.ClinePlan)
+	}
+
+	// A probed free tier survives a write and a reload, so "probed and free"
+	// is distinguishable from the empty value above.
 	acc.ClinePlan = "free"
-	if acc.ClinePlan != "free" {
-		t.Errorf("ClinePlan = %q, want free", acc.ClinePlan)
+	if err := s.UpdateAccount(ctx, acc); err != nil {
+		t.Fatalf("UpdateAccount() error = %v", err)
+	}
+	stored, err = s.GetAccount(ctx, acc.ID)
+	if err != nil {
+		t.Fatalf("GetAccount() error = %v", err)
+	}
+	if stored.ClinePlan != "free" {
+		t.Errorf("stored ClinePlan = %q, want free", stored.ClinePlan)
 	}
 }
 

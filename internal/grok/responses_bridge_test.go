@@ -2,7 +2,7 @@ package grok
 
 import (
 	"context"
-	"io"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,16 +64,12 @@ func responsesBridgeFixture(t *testing.T, upstreamStatus int, upstreamBody, mode
 	return NewHandler(&config.Config{GrokCLIBaseURL: upstream.URL}, loadbalancer.NewWithCacheTTL(s, 0))
 }
 
-// TestHandleResponses_PreservesInboundAuthHeaders guards the internal
-// Responses -> Chat bridge: rebuilding the header set used to drop the caller's
-// Authorization / x-api-key, which is the credential that authorized the request
-// and the identity downstream code expects to observe.
-// TestHandleResponses_RelaysUpstreamFailureStatus pins the observable contract:
-// an upstream failure must surface with the real status and body, not as a bare
-// 500 with no explanation.
+// TestHandleResponses_RelaysUpstreamFailureStatus pins the native Responses
+// error contract: an upstream credential failure is the operator-owned pool's
+// problem (503), with a stable error envelope and no upstream body disclosure.
 func TestHandleResponses_RelaysUpstreamFailureStatus(t *testing.T) {
-	h := responsesBridgeFixture(t, http.StatusUnauthorized,
-		`{"error":{"message":"Grok Build upstream says the OAuth token is invalid"}}`, "grok-4.6")
+	const sensitiveBody = `{"error":{"message":"OAuth token is invalid; team=bridge-private-team token=bridge-secret-token; https://x.ai/private-diagnostics"}}`
+	h := responsesBridgeFixture(t, http.StatusUnauthorized, sensitiveBody, "grok-4.6")
 
 	body := `{"model":"grok-4.6","input":"hello","stream":false}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
@@ -82,16 +78,33 @@ func TestHandleResponses_RelaysUpstreamFailureStatus(t *testing.T) {
 
 	h.HandleResponses(rec, req)
 
-	payload, _ := io.ReadAll(rec.Result().Body)
-	t.Logf("status=%d body=%s", rec.Code, strings.TrimSpace(string(payload)))
-	if rec.Code == http.StatusOK {
-		t.Fatal("an upstream 401 must not be reported as success")
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s, want 503 for an upstream credential failure", rec.Code, rec.Body.String())
 	}
-	if rec.Code == http.StatusInternalServerError {
-		t.Fatalf("upstream failure reported as a bare 500: %s", payload)
+	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", got)
 	}
-	if !strings.Contains(string(payload), "upstream") {
-		t.Fatalf("upstream failure body was not relayed: %s", payload)
+	var payload struct {
+		Error struct {
+			Message string `json:"message"`
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("error body is not JSON: %v (%s)", err, rec.Body.String())
+	}
+	if payload.Error.Code != "upstream_error" || payload.Error.Type != "server_error" {
+		t.Fatalf("error code/type = %q/%q, want upstream_error/server_error", payload.Error.Code, payload.Error.Type)
+	}
+	const wantMessage = "The upstream account session has expired. Re-authenticate the account and retry."
+	if payload.Error.Message != wantMessage {
+		t.Fatalf("message = %q, want %q", payload.Error.Message, wantMessage)
+	}
+	for _, leak := range []string{sensitiveBody, "OAuth token is invalid", "bridge-private-team", "bridge-secret-token", "x.ai/private-diagnostics", "status=", "body="} {
+		if strings.Contains(rec.Body.String(), leak) {
+			t.Errorf("upstream detail %q leaked to the client: %s", leak, rec.Body.String())
+		}
 	}
 }
 

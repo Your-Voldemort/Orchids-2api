@@ -118,7 +118,7 @@ func TestAppendJSONBytesMatchesEncodingJSONOnRandomInput(t *testing.T) {
 // behind.
 func TestAppendJSONBytesAppendsToExistingPrefix(t *testing.T) {
 	prefix := []byte("PREFIX")
-	for _, value := range []string{`ok`, `bad \xff`, `quote "` + strings.Repeat("x", 20)} {
+	for _, value := range []string{`ok`, "bad \xff", "escaped \" prefix then bad \xff", `quote "` + strings.Repeat("x", 20)} {
 		dst := append([]byte(nil), prefix...)
 		got, err := appendJSONBytes(dst, value)
 		if err != nil {

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"os"
 	"testing"
 	"time"
 
@@ -17,9 +18,13 @@ import (
 // pending until a browser completes it (which this test never does). The
 // bootstrap endpoint is unauthenticated and creates only a short-lived state, so
 // unlike the catalog/chat checks it needs no credential — only outbound network.
+// It requires both -tags live and WB_LIVE=1, and still skips in short mode.
 func TestLive_StartAuthLogin(t *testing.T) {
 	if testing.Short() {
 		t.Skip("live check skipped in short mode")
+	}
+	if os.Getenv("WB_LIVE") != "1" {
+		t.Skip("set WB_LIVE=1 to talk to the real Workbuddy authorization service")
 	}
 	client := workbuddy.NewFromAccount(nil, nil)
 	defer client.Close()

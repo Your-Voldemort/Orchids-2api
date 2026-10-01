@@ -32,22 +32,18 @@ func TestEnsureInstallSaltReadFailureNeverOverwrites(t *testing.T) {
 	previous := InstallSalt()
 	t.Cleanup(func() { SetInstallSalt(previous) })
 	SetInstallSalt("")
-	baseline := FingerprintFor("machine", "uid", "token")
 	s := &failingSaltSettings{stored: "persisted-identity", readErr: errors.New("store unavailable")}
 	for i := 0; i < 2; i++ {
 		if got := EnsureInstallSalt(context.Background(), s); got != "" || InstallSalt() != "" {
 			t.Fatalf("read failure activated salt %q", got)
-		}
-		if got := FingerprintFor("machine", "uid", "token"); got != baseline {
-			t.Fatalf("fallback fingerprint drifted: %+v", got)
 		}
 	}
 	if s.writes != 0 || s.stored != "persisted-identity" {
 		t.Fatalf("read failure overwrote persisted salt: %+v", s)
 	}
 	s.readErr = nil
-	if got := EnsureInstallSalt(context.Background(), s); got != "persisted-identity" {
-		t.Fatalf("recovery salt = %q", got)
+	if got := EnsureInstallSalt(context.Background(), s); got != "persisted-identity" || InstallSalt() != "persisted-identity" {
+		t.Fatalf("recovery salt = %q, active salt = %q", got, InstallSalt())
 	}
 	if s.writes != 0 {
 		t.Fatalf("recovery rewrote existing salt")
@@ -58,15 +54,11 @@ func TestEnsureInstallSaltWriteFailureDoesNotActivateEphemeralSalt(t *testing.T)
 	previous := InstallSalt()
 	t.Cleanup(func() { SetInstallSalt(previous) })
 	SetInstallSalt("")
-	baseline := FingerprintFor("machine", "uid", "token")
 	s := &failingSaltSettings{writeErr: errors.New("read-only store")}
 	for i := 0; i < 2; i++ {
 		SetInstallSalt("") // simulate a restart after the failed persistence
 		if got := EnsureInstallSalt(context.Background(), s); got != "" || InstallSalt() != "" {
 			t.Fatalf("write failure activated salt %q", got)
-		}
-		if got := FingerprintFor("machine", "uid", "token"); got != baseline {
-			t.Fatalf("failed-write restart drifted: %+v", got)
 		}
 	}
 	if s.saltDuringWrite != "" || s.stored != "" {
@@ -78,8 +70,8 @@ func TestEnsureInstallSaltWriteFailureDoesNotActivateEphemeralSalt(t *testing.T)
 		t.Fatalf("successful persistence not activated correctly: %+v", s)
 	}
 	SetInstallSalt("")
-	if got := EnsureInstallSalt(context.Background(), s); got != first {
-		t.Fatalf("durable salt changed after restart: %q != %q", got, first)
+	if got := EnsureInstallSalt(context.Background(), s); got != first || InstallSalt() != first {
+		t.Fatalf("durable salt changed after restart: returned %q, active %q, want %q", got, InstallSalt(), first)
 	}
 }
 
@@ -87,12 +79,11 @@ func TestEnsureInstallSaltKeepsLoadedIdentityDuringStoreFailure(t *testing.T) {
 	previous := InstallSalt()
 	t.Cleanup(func() { SetInstallSalt(previous) })
 	SetInstallSalt("already-loaded")
-	before := FingerprintFor("machine", "uid", "token")
 	s := &failingSaltSettings{readErr: errors.New("offline"), writeErr: errors.New("offline")}
 	if got := EnsureInstallSalt(context.Background(), s); got != "already-loaded" {
 		t.Fatalf("loaded salt lost: %q", got)
 	}
-	if s.reads != 0 || s.writes != 0 || FingerprintFor("machine", "uid", "token") != before {
+	if s.reads != 0 || s.writes != 0 || InstallSalt() != "already-loaded" {
 		t.Fatal("loaded identity should not consult a failing store or change")
 	}
 }

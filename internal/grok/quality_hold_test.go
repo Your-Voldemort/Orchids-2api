@@ -327,6 +327,7 @@ func TestServeNativeChatWithholdsDegradedTurnAndRetriesAnotherAccount(t *testing
 	degraded := degradedUpstream(t)
 	defer degraded.Close()
 	healthy := healthyUpstream(t)
+	defer healthy.Close()
 
 	var healthyCalls int
 	var degradedCalls int
@@ -433,6 +434,7 @@ func TestHandleChatCompletionsNeverDeliversDegradedDump(t *testing.T) {
 	degraded := degradedUpstream(t)
 	defer degraded.Close()
 	healthy := healthyUpstream(t)
+	defer healthy.Close()
 	routing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Authorization"), "jwt-user-healthy") {
 			healthy.Config.Handler.ServeHTTP(w, r)

@@ -226,8 +226,8 @@ func TestSharedRefusalWaitBudgetIsBounded(t *testing.T) {
 		{"nothing to wait for is not a wait", 0, 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := sharedRefusalWaitAllowed(tc.already, tc.next); got != tc.want {
-				t.Fatalf("sharedRefusalWaitAllowed(%v, %v) = %v, want %v", tc.already, tc.next, got, tc.want)
+			if got := sharedRefusalWaitAllowedWithin(tc.already, tc.next, sharedRefusalTotalWaitBudget); got != tc.want {
+				t.Fatalf("sharedRefusalWaitAllowedWithin(%v, %v, %v) = %v, want %v", tc.already, tc.next, sharedRefusalTotalWaitBudget, got, tc.want)
 			}
 		})
 	}

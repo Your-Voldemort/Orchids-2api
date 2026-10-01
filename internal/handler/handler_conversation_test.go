@@ -246,15 +246,12 @@ func TestOpenAIChatCompletionsToolFollowup_NormalizesToolMessages(t *testing.T) 
 func TestToolResultFollowup_PassesThroughUpstreamInsteadOfLocalFallback(t *testing.T) {
 	t.Parallel()
 
-	client := &fakePayloadClient{
-		eventsByOp: [][]upstream.SSEMessage{{
-			{Type: "model", Event: map[string]any{"type": "text-start"}},
-			{Type: "model", Event: map[string]any{"type": "text-delta", "delta": "Let me first understand the project structure and code."}},
-			{Type: "model", Event: map[string]any{"type": "finish", "finishReason": "stop"}},
-		}},
-	}
-	h := newTestHandler(client)
-	body := []byte(`{
+	cases := []struct {
+		name        string
+		body        []byte
+		fullHandler bool
+	}{
+		{name: "bash_directory_result", body: []byte(`{
 		"model":"claude-opus-5",
 		"stream":false,
 		"conversation_id":"workbuddy_followup_local_fallback",
@@ -271,29 +268,51 @@ func TestToolResultFollowup_PassesThroughUpstreamInsteadOfLocalFallback(t *testi
 			{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}},"required":["file_path"]}},
 			{"name":"Bash","input_schema":{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}}
 		]
-	}`)
-
-	req := httptest.NewRequest(http.MethodPost, "/workbuddy/v1/messages", bytes.NewReader(body))
-	rec := httptest.NewRecorder()
-
-	h.HandleMessages(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("request status = %d, want %d", rec.Code, http.StatusOK)
+	}`)},
+		{name: "read_result_with_text", fullHandler: true, body: []byte(`{
+			"model":"claude-3-5-sonnet","conversation_id":"read-followup","stream":false,"system":[],
+			"messages":[
+				{"role":"user","content":"这个项目使用了哪些技术架构"},
+				{"role":"assistant","content":[{"type":"tool_use","id":"tool_1","name":"Read","input":{"file_path":"/tmp/project/utils.py"}}]},
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"tool_1","content":"import json\nimport os\nALERTS_FILE='alerts.json'\ndef load_json(path):\n    return json.load(open(path))"},
+					{"type":"text","text":"请直接回答"}
+				]}
+			]
+		}`)},
 	}
-
-	calls := client.snapshotCalls()
-	if len(calls) != 1 {
-		t.Fatalf("expected upstream passthrough call, got %d", len(calls))
-	}
-
-	out := rec.Body.String()
-	if !strings.Contains(out, "Let me first understand the project structure and code.") {
-		t.Fatalf("expected upstream text to be preserved, got: %s", out)
-	}
-	for _, unwanted := range []string{"前端", "后端", "脚本层", "当前只拿到目录概览", "基于当前已读取内容"} {
-		if strings.Contains(out, unwanted) {
-			t.Fatalf("did not expect local fallback text %q in %s", unwanted, out)
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const answer = "Let me first understand the project structure and code."
+			client := &fakePayloadClient{eventsByOp: [][]upstream.SSEMessage{{
+				{Type: "model", Event: map[string]any{"type": "text-start"}},
+				{Type: "model", Event: map[string]any{"type": "text-delta", "delta": answer}},
+				{Type: "model", Event: map[string]any{"type": "finish", "finishReason": "stop"}},
+			}}}
+			h := newTestHandler(client)
+			if tc.fullHandler {
+				h = NewWithLoadBalancer(&config.Config{DebugEnabled: false, RequestTimeout: 10}, nil)
+				h.client = client
+			}
+			rec := httptest.NewRecorder()
+			h.HandleMessages(rec, httptest.NewRequest(http.MethodPost, "/workbuddy/v1/messages", bytes.NewReader(tc.body)))
+			if rec.Code != http.StatusOK {
+				t.Fatalf("request status = %d, body = %s", rec.Code, rec.Body.String())
+			}
+			if calls := client.snapshotCalls(); len(calls) != 1 {
+				t.Fatalf("expected one upstream passthrough call, got %d", len(calls))
+			}
+			out := rec.Body.String()
+			if !strings.Contains(out, answer) {
+				t.Fatalf("expected upstream text to be preserved, got: %s", out)
+			}
+			for _, unwanted := range []string{"Python", "JSON", "前端", "后端", "脚本层", "当前只拿到目录概览", "基于当前已读取内容"} {
+				if strings.Contains(out, unwanted) {
+					t.Fatalf("did not expect local fallback text %q in %s", unwanted, out)
+				}
+			}
+		})
 	}
 }
 

@@ -41,6 +41,9 @@ func exportedCredentialKeys(t *testing.T, acc *store.Account) []string {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode export: %v", err)
 	}
+	if len(payload.Accounts) != 1 {
+		t.Fatalf("export contains %d accounts, want the planted account", len(payload.Accounts))
+	}
 	keys := []string{}
 	for _, row := range payload.Accounts {
 		for key, value := range row {
@@ -67,21 +70,19 @@ func TestExportNeverCarriesAnotherChannelsCredential(t *testing.T) {
 	allowed := map[string]map[string]bool{
 		"grok":      setOf("client_cookie", "refresh_token", "token", "oauth_access_token", "oauth_refresh_token"),
 		"workbuddy": setOf("client_cookie", "refresh_token", "token", "workbuddy_access_token", "workbuddy_refresh_token"),
+		"cline":     setOf("client_cookie", "refresh_token", "token", "cline_access_token", "cline_refresh_token"),
 		"qoder": setOf("client_cookie", "refresh_token", "token", "qoder_access_token", "qoder_refresh_token",
 			"qoder_runtime_info", "qoder_runtime_key"),
 	}
-	for _, channel := range []string{"grok", "workbuddy", "qoder"} {
+	for _, channel := range accountChannels {
 		t.Run(channel, func(t *testing.T) {
-			acc := &store.Account{
-				ID: 1, Name: "guard", AccountType: channel, Enabled: true, Weight: 1,
-				Token: marker + "token", ClientCookie: marker + "client_cookie",
-				RefreshToken:     marker + "refresh_token",
-				OAuthAccessToken: marker + "oauth_access_token", OAuthRefreshToken: marker + "oauth_refresh_token",
-				WorkBuddyAccessToken: marker + "workbuddy_access_token", WorkBuddyRefreshToken: marker + "workbuddy_refresh_token",
-				QoderAccessToken: marker + "qoder_access_token", QoderRefreshToken: marker + "qoder_refresh_token",
-				QoderRuntimeInfo: marker + "qoder_runtime_info", QoderRuntimeKey: marker + "qoder_runtime_key",
+			acc := accountWithSecrets(channel)
+			acc.ID, acc.Weight = 1, 1
+			got := exportedCredentialKeys(t, acc)
+			if len(got) == 0 {
+				t.Fatal("export stripped every planted credential; cross-channel guard would be vacuous")
 			}
-			for _, key := range exportedCredentialKeys(t, acc) {
+			for _, key := range got {
 				if !allowed[channel][key] {
 					t.Errorf("export of a %s account carries %q, which belongs to another channel", channel, key)
 				}
@@ -151,6 +152,11 @@ func TestExportCarriesTheDurableCredentialForReimport(t *testing.T) {
 			acc: &store.Account{ID: 1, AccountType: "workbuddy", Enabled: true, Weight: 1,
 				WorkBuddyAccessToken: marker + "access", WorkBuddyRefreshToken: marker + "refresh"},
 			want: []string{"workbuddy_access_token", "workbuddy_refresh_token"},
+		},
+		"cline": {
+			acc: &store.Account{ID: 1, AccountType: "cline", Enabled: true, Weight: 1,
+				ClineAccessToken: marker + "access", ClineRefreshToken: marker + "refresh"},
+			want: []string{"cline_access_token", "cline_refresh_token"},
 		},
 		"qoder": {
 			acc: &store.Account{ID: 1, AccountType: "qoder", Enabled: true, Weight: 1,

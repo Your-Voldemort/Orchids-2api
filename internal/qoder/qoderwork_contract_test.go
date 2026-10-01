@@ -49,7 +49,7 @@ func TestQoderWorkBodyMatchesCapture(t *testing.T) {
 
 	model := modelEntry{Key: "qfmodel", DisplayName: "Qwen3.8-Flash", IsReasoning: true, IsVL: true, MaxInputTokens: 180000}
 	req := upstream.UpstreamRequest{Messages: []prompt.Message{{Role: "user", Content: prompt.MessageContent{Text: "hi"}}}}
-	encoded, err := buildChatBody(req, model, "session", "request", "request-set")
+	encoded, err := buildChatBodyProfile(req, model, "session", "request", "request-set", DefaultClientVersion, "", sceneBusinessProduct)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestQoderWorkStreamFramesParse(t *testing.T) {
 	stream := "data:" + frame + "\n\n" + "event:finish\n\n"
 
 	types := map[string]int{}
-	if _, err := consumeStreamWithTools(strings.NewReader(stream), false, func(m upstream.SSEMessage) { types[m.Type]++ }); err != nil {
+	if _, err := consumeStreamObserved(strings.NewReader(stream), false, func(m upstream.SSEMessage) { types[m.Type]++ }, nil); err != nil {
 		t.Fatalf("a captured frame failed to parse: %v", err)
 	}
 	if types["model.reasoning-delta"] != 1 {
@@ -170,7 +170,7 @@ func TestArrayShapedRefusalStaysDiagnosable(t *testing.T) {
 	frame := `{"headers":{},"body":"[{\"code\":\"10605\",\"message\":\"service not available\"}]","statusCodeValue":200,"statusCode":"OK"}`
 	stream := "data:" + frame + "\n\n"
 
-	_, err := consumeStreamWithTools(strings.NewReader(stream), false, func(upstream.SSEMessage) {})
+	_, err := consumeStreamObserved(strings.NewReader(stream), false, func(upstream.SSEMessage) {}, nil)
 	if err == nil {
 		t.Fatal("an array-shaped body was accepted as a chunk")
 	}
@@ -191,13 +191,13 @@ func TestNotificationsControlFrameDoesNotAbortTheStream(t *testing.T) {
 	stream := "data:" + notice + "\n\n" + "data:" + answer + "\n\n" + "event:finish\n\n"
 
 	var text strings.Builder
-	res, err := consumeStreamWithTools(strings.NewReader(stream), false, func(m upstream.SSEMessage) {
+	res, err := consumeStreamObserved(strings.NewReader(stream), false, func(m upstream.SSEMessage) {
 		if m.Type == "model.text-delta" {
 			if delta, ok := m.Event["delta"].(string); ok {
 				text.WriteString(delta)
 			}
 		}
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("a notifications control frame aborted the stream: %v", err)
 	}

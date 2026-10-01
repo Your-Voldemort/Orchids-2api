@@ -12,13 +12,13 @@ import (
 func TestCaptureUsageAndTimings(t *testing.T) {
 	body := envelope(`{"choices":[{"index":0,"delta":{"content":"测试123123"},"finish_reason":"stop"}],"usage":{"prompt_tokens":27260,"completion_tokens":48,"total_tokens":27308,"billable":false,"credits":0.4885985714285714,"prompt_tokens_details":{"cacheable_tokens":27254,"cached_tokens":0}}}`) + "event:finish\ndata:{\"firstTokenDuration\":1556,\"totalDuration\":2577,\"serverDuration\":89}\n\n"
 	var text strings.Builder
-	r, e := consumeStreamWithTools(strings.NewReader(body), true, func(m upstream.SSEMessage) {
+	r, e := consumeStreamObserved(strings.NewReader(body), true, func(m upstream.SSEMessage) {
 		if m.Type == "model.text-delta" {
 			if v, ok := m.Event["delta"].(string); ok {
 				text.WriteString(v)
 			}
 		}
-	})
+	}, nil)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -37,7 +37,7 @@ func TestReasoningItemSurvivesToolHistory(t *testing.T) {
 	if e := json.Unmarshal([]byte(`{"role":"assistant","content":"","reasoning_item":{"opaque":"signature"},"tool_calls":[{"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{}"}}]}`), &msg); e != nil {
 		t.Fatal(e)
 	}
-	b, e := buildChatBody(upstream.UpstreamRequest{Messages: []prompt.Message{msg}}, modelEntry{Key: "qfmodel"}, "s", "r", "set")
+	b, e := buildChatBodyProfile(upstream.UpstreamRequest{Messages: []prompt.Message{msg}}, modelEntry{Key: "qfmodel"}, "s", "r", "set", DefaultClientVersion, "", sceneBusinessProduct)
 	if e != nil {
 		t.Fatal(e)
 	}

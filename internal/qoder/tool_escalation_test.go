@@ -77,7 +77,7 @@ func TestTextToolFallbackRepairsOrphanEscalation(t *testing.T) {
 	content := `Tool calls: [{"id":"fallback-1","function":{"name":"run_command","arguments":{"command":"ls","justification":"reason"}}}]`
 	chunk, _ := json.Marshal(map[string]interface{}{"choices": []interface{}{map[string]interface{}{"delta": map[string]interface{}{"content": content}, "finish_reason": "stop"}}})
 	var events []upstream.SSEMessage
-	result, err := consumeStreamWithTools(strings.NewReader(envelope(string(chunk))+"event:finish\ndata: {}\n\n"), true, func(event upstream.SSEMessage) { events = append(events, event) })
+	result, err := consumeStreamObserved(strings.NewReader(envelope(string(chunk))+"event:finish\ndata: {}\n\n"), true, func(event upstream.SSEMessage) { events = append(events, event) }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

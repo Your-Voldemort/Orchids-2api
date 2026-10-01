@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ import (
 // planCooldownHandler builds the smallest live pool that can answer a Qoder
 // request: one enabled account carrying a cooldown for the requested model, and a
 // store that publishes that model.
-func planCooldownHandler(t *testing.T, model string, cool func(acc *store.Account)) (*Handler, int) {
+func planCooldownHandler(t *testing.T, model string, cool func(acc *store.Account)) (*Handler, func() int) {
 	t.Helper()
 	mini := miniredis.RunT(t)
 	s, err := store.New(store.Options{RedisAddr: mini.Addr(), RedisDB: 0, RedisPrefix: "plancooldown:"})
@@ -46,13 +47,16 @@ func planCooldownHandler(t *testing.T, model string, cool func(acc *store.Accoun
 	publishModel(t, s, &store.Model{Channel: "Qoder", ModelID: model, BillingTier: "free", BillingSource: "qoder_price_factor"})
 
 	h := NewWithLoadBalancer(&config.Config{DebugEnabled: false, RequestTimeout: 10, MaxRetries: 1}, loadbalancer.NewWithCacheTTL(s, 0))
-	calls := 0
+	// The count has to be read through a closure: returning the value once
+	// would freeze it at zero and make every "no upstream call" assertion pass
+	// whatever the selection did afterwards.
+	var calls atomic.Int64
 	h.SetClientFactory(func(*store.Account, *config.Config) UpstreamClient {
-		calls++
+		calls.Add(1)
 		return &errorUpstreamEdge{err: errors.New("the request should never reach the upstream")}
 	})
-	t.Cleanup(func() { _ = s.Close() })
-	return h, calls
+	t.Cleanup(h.Close)
+	return h, func() int { return int(calls.Load()) }
 }
 
 func requestModel(t *testing.T, h *Handler, model string) *httptest.ResponseRecorder {
@@ -90,8 +94,8 @@ func TestPlanCooldownAnswersModelUnavailable(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "not available on this channel's accounts") {
 		t.Fatalf("body = %q, want the model-unavailable answer", rec.Body.String())
 	}
-	if upstreamCalls != 0 {
-		t.Fatalf("upstreamCalls = %d, want 0: the request must be refused at selection", upstreamCalls)
+	if upstreamCalls() != 0 {
+		t.Fatalf("upstreamCalls = %d, want 0: the request must be refused at selection", upstreamCalls())
 	}
 }
 
@@ -109,8 +113,8 @@ func TestLegacyPlanCooldownIsReadFromItsDeadline(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
 	}
-	if upstreamCalls != 0 {
-		t.Fatalf("upstreamCalls = %d, want 0", upstreamCalls)
+	if upstreamCalls() != 0 {
+		t.Fatalf("upstreamCalls = %d, want 0", upstreamCalls())
 	}
 }
 
@@ -129,7 +133,7 @@ func TestThrottledModelCooldownStaysRetryable(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "cooling down") {
 		t.Fatalf("body = %q, want the cooling-down answer", rec.Body.String())
 	}
-	if upstreamCalls != 0 {
-		t.Fatalf("upstreamCalls = %d, want 0", upstreamCalls)
+	if upstreamCalls() != 0 {
+		t.Fatalf("upstreamCalls = %d, want 0", upstreamCalls())
 	}
 }

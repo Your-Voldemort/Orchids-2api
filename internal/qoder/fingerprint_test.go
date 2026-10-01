@@ -2,7 +2,6 @@ package qoder
 
 import (
 	"context"
-	"strings"
 	"testing"
 )
 
@@ -81,44 +80,6 @@ func TestDeriveInstallSalt(t *testing.T) {
 	SetInstallSalt("")
 	if DeriveMachineType(testFingerprintUID) != plainType || DeriveMachineToken(testFingerprintUID) != plainToken {
 		t.Error("clearing the salt must restore the reference fingerprint")
-	}
-}
-
-func TestFingerprintForKeepsTheBoundMachineID(t *testing.T) {
-	t.Cleanup(func() { SetInstallSalt("") })
-	SetInstallSalt("")
-
-	first := FingerprintFor("11111111-2222-4333-8444-555555555555", "uid-1", "access-1")
-	if first.MachineID != "11111111-2222-4333-8444-555555555555" {
-		t.Fatalf("MachineID = %q, want the recorded device id", first.MachineID)
-	}
-	if first.Token == first.MachineID {
-		t.Fatal("the device token must differ from the device id")
-	}
-	if first.Type == "" || first.Type == first.MachineID {
-		t.Fatalf("MachineType = %q, want a derived value", first.Type)
-	}
-
-	// Stable across calls and across a restart: the same account signs every
-	// request from the same virtual device.
-	again := FingerprintFor("11111111-2222-4333-8444-555555555555", "uid-1", "access-1")
-	if again != first {
-		t.Fatalf("fingerprint drifted: %+v then %+v", first, again)
-	}
-	// A different account is a different device.
-	other := FingerprintFor("99999999-2222-4333-8444-555555555555", "uid-2", "access-2")
-	if other.Token == first.Token || other.Type == first.Type {
-		t.Fatal("fingerprints are not isolated per account")
-	}
-	// Without any seed there is nothing to derive, and nothing is invented.
-	if got := (FingerprintFor("", "", "")); got.Token != "" || got.Type != "" {
-		t.Fatalf("empty seed derived a fingerprint: %+v", got)
-	}
-	if got := FingerprintFor("machine-only", "", ""); got.Token == "" || got.Type == "" {
-		t.Fatal("a recorded device id must still seed the derivation")
-	}
-	if !strings.HasPrefix(FingerprintSeed("", "machine-only"), "cred:") {
-		t.Fatal("the device id fallback should travel as a credential seed")
 	}
 }
 

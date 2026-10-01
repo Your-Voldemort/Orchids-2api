@@ -7,11 +7,9 @@ import (
 	"testing"
 )
 
-// The console renders the account channel strip from a hard-coded list. A channel
-// missing from that list has no tab, so its login group in the account modal can
-// never be selected — the channel is unreachable from the console no matter how
-// correct the server side is. These tests pin the console's own contract, which
-// lives in files a Go build never compiles.
+// These tests pin Cline-specific console contracts in assets a Go build does
+// not compile. Shared provider-registry contracts live in the frontend suite;
+// scripts/check-provider-registry.sh verifies the generated backend manifest.
 
 // readConsoleScript loads one file out of web/static/js.
 func readConsoleScript(name string) (string, error) {
@@ -23,22 +21,12 @@ func readConsoleScript(name string) (string, error) {
 	return string(raw), nil
 }
 
-// TestAccountsJSListClineInTheChannelStrip asserts both console pages consume
-// the shared registry and that the registry contains the Cline key and label.
-func TestAccountsJSListClineInTheChannelStrip(t *testing.T) {
+// TestAccountsJSPinsClineOfficialLoginLifecycle covers Cline-specific cleanup and
+// official-only account creation, not the shared registry contract.
+func TestAccountsJSPinsClineOfficialLoginLifecycle(t *testing.T) {
 	source, err := readConsoleScript("accounts.js")
 	if err != nil {
 		t.Fatalf("read accounts.js: %v", err)
-	}
-	registry, err := readConsoleScript("provider-registry.js")
-	if err != nil {
-		t.Fatalf("read provider-registry.js: %v", err)
-	}
-	if !strings.Contains(source, "OrchidsProviderRegistry?.keys") || !strings.Contains(source, "OrchidsProviderRegistry?.providers") {
-		t.Error("accounts.js does not consume the shared provider registry")
-	}
-	if !strings.Contains(registry, `Code generated from internal/channel definitions`) {
-		t.Error("the frontend registry is not generated from the backend provider registry")
 	}
 	if !strings.Contains(source, `OrchidsProviderRegistry?.get(key)`) {
 		t.Error("accounts.js does not resolve the cline account type")
@@ -77,15 +65,12 @@ func TestCommonJSPinsTheCredentialVerdictAndQuotaGuard(t *testing.T) {
 	}
 }
 
-// TestModelsJSListClineInTheChannelStrip pins the models page: without the
-// channel there, a refreshed Cline catalog has no tab to appear under.
-func TestModelsJSListClineInTheChannelStrip(t *testing.T) {
+// TestModelsJSLabelsClineCatalogSource protects the Cline-specific refresh source
+// label; provider tab membership is covered by the frontend registry suite.
+func TestModelsJSLabelsClineCatalogSource(t *testing.T) {
 	source, err := readConsoleScript("models.js")
 	if err != nil {
 		t.Fatalf("read models.js: %v", err)
-	}
-	if !strings.Contains(source, "OrchidsProviderRegistry?.channels") {
-		t.Error("models.js does not consume the shared provider registry")
 	}
 	if !strings.Contains(source, "cline_recommended_models") {
 		t.Error("models.js does not label the Cline catalog source")

@@ -158,35 +158,3 @@ func DeriveMachineToken(seed string) string {
 	sum := sha512.Sum512([]byte("machinetoken:" + saltedSeed(seed)))
 	return base64.RawURLEncoding.EncodeToString(sum[:])[:43]
 }
-
-// DeviceFingerprint is the trio of device headers derived for one account.
-type DeviceFingerprint struct {
-	// MachineID stays the identity the login was authorized under: it is bound
-	// to the credential, so it is carried through unchanged rather than
-	// re-derived. Deriving it would break the binding and every request would
-	// be signed by a device the token does not know.
-	MachineID string
-	// Token and Type are not part of that binding, and are what the upstream
-	// actually fingerprints — so they are derived, stable, and distinct from
-	// the id, the way a real CLI device presents them.
-	Token string
-	Type  string
-}
-
-// FingerprintFor derives the device trio for one account.
-//
-// MachineID is passed through as recorded; only the token and the type are
-// derived, from the same seed (UID, else the device id, else the credential).
-// A seed that cannot be built leaves the derived pair empty and the caller
-// falls back to the values the protocol already used.
-func FingerprintFor(machineID, uid, credential string) DeviceFingerprint {
-	seed := FingerprintSeed(uid, credential)
-	if seed == "" {
-		seed = FingerprintSeed("", machineID)
-	}
-	return DeviceFingerprint{
-		MachineID: strings.TrimSpace(machineID),
-		Token:     DeriveMachineToken(seed),
-		Type:      DeriveMachineType(seed),
-	}
-}

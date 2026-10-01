@@ -3,10 +3,14 @@ package qoder
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"orchids-api/internal/config"
@@ -111,12 +115,39 @@ func TestProtocolProfileChatBodyAndHeadersAgree(t *testing.T) {
 					t.Error("skill machine token not ID")
 				}
 				fields := c.runtimeSnapshot()
-				payload, err := buildCOSYPayload(body.RequestID, fields.EncryptUserInfo, c.clientVersion)
+				parts := strings.Split(r.Header.Get("Authorization"), ".")
+				if len(parts) != 3 || parts[0] != "Bearer COSY" {
+					t.Error("invalid COSY authorization framing")
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				payloadJSON, err := base64.StdEncoding.DecodeString(parts[1])
 				if err != nil {
 					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
 				}
-				sig := signRequest(payload, fields.Key, r.Header.Get("Cosy-Date"), string(encoded), signPath(r.URL.String()))
-				if r.Header.Get("Authorization") != composeBearer(payload, sig) {
+				var payload map[string]string
+				if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+					t.Error(err)
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				wantPayload := map[string]string{"version": "v1", "requestId": body.RequestID, "info": fields.EncryptUserInfo, "cosyVersion": c.clientVersion, "ideVersion": ""}
+				if len(payload) != len(wantPayload) {
+					t.Errorf("COSY payload field count = %d, want %d", len(payload), len(wantPayload))
+				}
+				for key, want := range wantPayload {
+					if got, ok := payload[key]; !ok || got != want {
+						t.Errorf("COSY payload %q = %q (present=%t), want %q", key, got, ok, want)
+					}
+				}
+				// Verify the actual payload and body bytes independently of both
+				// production authorization construction and signature generation.
+				path := strings.TrimPrefix(r.URL.Path, "/algo")
+				preimage := strings.Join([]string{parts[1], fields.Key, r.Header.Get("Cosy-Date"), string(encoded), path}, "\n")
+				wantSignature := fmt.Sprintf("%x", md5.Sum([]byte(preimage)))
+				if parts[2] != wantSignature {
 					t.Error("RSA ciphertext signing contract changed")
 				}
 				_, _ = io.WriteString(w, envelope(`{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`)+"event:finish\n\n")

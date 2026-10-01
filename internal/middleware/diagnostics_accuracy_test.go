@@ -111,17 +111,34 @@ func TestDiagnosticsStreamFailureSummaryMatchesJournal(t *testing.T) {
 	}))))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v1/responses", nil))
-	b, _ := store.Get(context.Background(), rec.Header().Get(DiagnosticRequestIDHeader))
+	requestID := rec.Header().Get(DiagnosticRequestIDHeader)
+	if requestID == "" {
+		t.Fatal("missing diagnostic request ID")
+	}
+	b, err := store.Get(context.Background(), requestID)
+	if err != nil || b == nil {
+		t.Fatalf("diagnostic bundle missing: %v", err)
+	}
 	if len(journal.events) != 1 || journal.events[0].Status != "stream_error" {
 		t.Fatal(journal.events)
 	}
+	found := false
 	for _, s := range b.Sections {
 		if s.Name == "6_http_summary.json" {
+			if found {
+				t.Fatal("duplicate HTTP summary section")
+			}
+			found = true
 			var v map[string]interface{}
-			json.Unmarshal([]byte(s.Payload), &v)
+			if err := json.Unmarshal([]byte(s.Payload), &v); err != nil {
+				t.Fatalf("invalid HTTP summary: %v", err)
+			}
 			if v["status"] != float64(200) || v["stream_failed"] != true {
 				t.Fatal(v)
 			}
 		}
+	}
+	if !found {
+		t.Fatal("diagnostic bundle is missing 6_http_summary.json")
 	}
 }
