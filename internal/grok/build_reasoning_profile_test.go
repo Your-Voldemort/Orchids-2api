@@ -22,7 +22,7 @@ func TestBuildChatAppliesSelectedAccountReasoningProfile(t *testing.T) {
 		name, requested, expected string
 		status                    int
 	}{
-		{"unsupported explicit none", "none", "", http.StatusBadRequest},
+		{"explicit none uses lowest supported effort", "none", "low", http.StatusOK},
 		{"unsupported effort", "ultra", "", http.StatusBadRequest},
 		{"safe default", "", "low", http.StatusOK},
 		{"explicit low", "low", "low", http.StatusOK},
@@ -89,10 +89,9 @@ func TestBuildPayloadForAccountUsesCatalogDefaultAndValidation(t *testing.T) {
 	if reasoning["effort"] != "low" {
 		t.Fatalf("effort=%v", reasoning["effort"])
 	}
-	_, err = buildPayloadForAccount(map[string]interface{}{"reasoning": map[string]interface{}{"effort": "none"}}, acc, "grok-4.7")
-	var noneErr *buildReasoningProfileError
-	if !errors.As(err, &noneErr) {
-		t.Fatalf("none err=%v", err)
+	payload, err = buildPayloadForAccount(map[string]interface{}{"reasoning": map[string]interface{}{"effort": "none"}}, acc, "grok-4.7")
+	if err != nil || payload["reasoning"].(map[string]interface{})["effort"] != "low" {
+		t.Fatalf("none compatibility payload=%v err=%v", payload, err)
 	}
 	_, err = buildPayloadForAccount(map[string]interface{}{"reasoning": map[string]interface{}{"effort": "ultra"}}, acc, "grok-4.7")
 	var profileErr *buildReasoningProfileError
@@ -119,15 +118,15 @@ func TestBuildPayloadForAccountDoesNotMutateImmutableSource(t *testing.T) {
 	}
 }
 
-func TestBuildExplicitNoneIsNeverSilentlyRewritten(t *testing.T) {
+func TestBuildExplicitNoneUsesLowestCompatibleEffort(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		profile *modelcatalog.Profile
-		wantErr bool
+		want    string
 	}{
-		{"catalog rejects unsupported none", &modelcatalog.Profile{ModelID: "grok-4.7", SupportsReasoningEffort: true, ReasoningEfforts: []string{"high", "low"}}, true},
-		{"missing catalog preserves explicit none", nil, false},
-		{"no effort capability rejects explicit none", &modelcatalog.Profile{ModelID: "grok-4.7"}, true},
+		{"catalog chooses supported low", &modelcatalog.Profile{ModelID: "grok-4.7", SupportsReasoningEffort: true, ReasoningEfforts: []string{"high", "low"}}, "low"},
+		{"missing catalog uses static low", nil, "low"},
+		{"no effort capability rejects explicit none", &modelcatalog.Profile{ModelID: "grok-4.7"}, "error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source := map[string]interface{}{"reasoning": map[string]interface{}{"effort": " NONE ", "summary": "auto"}}
@@ -136,7 +135,7 @@ func TestBuildExplicitNoneIsNeverSilentlyRewritten(t *testing.T) {
 				acc.GrokModelCatalog = []modelcatalog.Profile{*tc.profile}
 			}
 			payload, err := buildPayloadForAccount(source, acc, "grok-4.7")
-			if tc.wantErr {
+			if tc.want == "error" {
 				var profileErr *buildReasoningProfileError
 				if !errors.As(err, &profileErr) {
 					t.Fatalf("err=%v", err)
@@ -147,8 +146,8 @@ func TestBuildExplicitNoneIsNeverSilentlyRewritten(t *testing.T) {
 				t.Fatal(err)
 			}
 			reasoning := payload["reasoning"].(map[string]interface{})
-			if got := interfaceString(reasoning["effort"]); !strings.EqualFold(got, "none") {
-				t.Fatalf("effort=%q", got)
+			if got := interfaceString(reasoning["effort"]); !strings.EqualFold(got, tc.want) {
+				t.Fatalf("effort=%q want=%q", got, tc.want)
 			}
 			if reasoning["summary"] != "auto" || source["reasoning"].(map[string]interface{})["effort"] != " NONE " {
 				t.Fatal("summary or immutable source changed")

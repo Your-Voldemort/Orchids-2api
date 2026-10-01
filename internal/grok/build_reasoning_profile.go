@@ -66,6 +66,10 @@ func buildPayloadForAccount(immutable map[string]interface{}, acc *store.Account
 	if !found {
 		reasoning, _ := payload["reasoning"].(map[string]interface{})
 		explicit := reasoning != nil && strings.TrimSpace(interfaceString(reasoning["effort"])) != ""
+		if explicit && strings.EqualFold(strings.TrimSpace(interfaceString(reasoning["effort"])), "none") &&
+			!modelpolicy.SupportsReasoningEffort(upstreamModel, "none") && modelpolicy.SupportsReasoningEffort(upstreamModel, "low") {
+			reasoning["effort"] = "low"
+		}
 		if !explicit && modelpolicy.SupportsReasoningEffort(upstreamModel, "low") {
 			if reasoning == nil {
 				reasoning = map[string]interface{}{}
@@ -107,6 +111,13 @@ func buildPayloadForAccount(immutable map[string]interface{}, acc *store.Account
 	normalized := effort
 	if !accept(normalized) {
 		switch effort {
+		case "none":
+			for _, candidate := range []string{"low", "medium", "high", "xhigh"} {
+				if accept(candidate) {
+					normalized = candidate
+					break
+				}
+			}
 		case "minimal":
 			if accept("low") {
 				normalized = "low"
