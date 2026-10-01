@@ -1,9 +1,0 @@
-goos: windows
-goarch: amd64
-pkg: orchids-api/internal/loadbalancer
-cpu: Intel(R) Core(TM) Ultra 5 125H
-BenchmarkSelectAccountWithTracker_Pool16   	 1217384	      1044 ns/op	     664 B/op	       4 allocs/op
-BenchmarkSelectAccountWithTracker_Pool256  	  312264	      3865 ns/op	    2392 B/op	       4 allocs/op
-BenchmarkSelectAccountWithTracker_Pool4096 	  234842	      4371 ns/op	    2394 B/op	       4 allocs/op
-PASS
-ok  	orchids-api/internal/loadbalancer	4.728s

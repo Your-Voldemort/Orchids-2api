@@ -1,2 +1,0 @@
-ok  	orchids-api/internal/qoder	7.699s
-ok  	orchids-api/internal/grok	6.624s

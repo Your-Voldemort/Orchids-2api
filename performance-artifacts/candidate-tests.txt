@@ -1,5 +1,0 @@
-ok  	orchids-api/internal/cline	1.138s
-ok  	orchids-api/internal/workbuddy	1.153s
-ok  	orchids-api/internal/qoder	5.260s
-ok  	orchids-api/internal/grok	3.954s
-?   	orchids-api/internal/perfprobe	[no test files]

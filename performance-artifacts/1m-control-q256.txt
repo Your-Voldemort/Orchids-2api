@@ -1,8 +1,0 @@
-LOCAL_OPEN_LOOP {"TargetRPS":1000000,"Workers":256,"QueueCapacity":256,"Offered":5000000,"Accepted":4974579,"Completed":4974579,"Errors":0,"Dropped":25421,"OfferSeconds":5.0000745,"TotalSeconds":5.0000745,"CompletedRPS":994900.9759754579,"P50ms":0.3582,"P95ms":1.0142,"P99ms":1.3817,"GCPercent":"600","MemoryLimit":"512MiB","GCCycles":2,"Warmup":true,"GCPauseMs":0,"HeapInuseMiB":116.9140625,"HeapSysMiB":125.71875,"AllocBytesPerAccepted":34.049154310344655}
-goos: windows
-goarch: amd64
-pkg: orchids-api/internal/perfprobe
-cpu: Intel(R) Core(TM) Ultra 5 125H
-BenchmarkOpenLoopControl-18    	       1	5436570700 ns/op
-PASS
-ok  	orchids-api/internal/perfprobe	5.845s

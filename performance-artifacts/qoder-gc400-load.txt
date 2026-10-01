@@ -1,8 +1,0 @@
-LOCAL_OPEN_LOOP {"TargetRPS":100000,"Offered":500000,"Accepted":499262,"Completed":499262,"Errors":0,"Dropped":738,"OfferSeconds":5.0002185,"TotalSeconds":5.0002185,"CompletedRPS":99848.0366407988,"P50ms":0.3599,"P95ms":1.6905,"P99ms":2.8244}
-goos: windows
-goarch: amd64
-pkg: orchids-api/internal/qoder
-cpu: Intel(R) Core(TM) Ultra 5 125H
-BenchmarkProviderLocal-18    	       1	5050008400 ns/op
-PASS
-ok  	orchids-api/internal/qoder	5.167s

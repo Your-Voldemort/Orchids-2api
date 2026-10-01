@@ -1,7 +1,0 @@
-goos: windows
-goarch: amd64
-pkg: orchids-api/internal/qoder
-cpu: Intel(R) Core(TM) Ultra 5 125H
-BenchmarkProviderLocal-18    	   69710	     30424 ns/op	   21496 B/op	     179 allocs/op
-PASS
-ok  	orchids-api/internal/qoder	2.640s
