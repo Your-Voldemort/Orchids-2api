@@ -47,7 +47,7 @@ WorkBuddy、Cline 各两次携带 prompt_cache_key 的请求返回 200，但没�
 
 ## 可复核材料与边界
 
-- [脱敏真实调用记录](2026-10-02-coding-protocol-live.jsonl)：状态、耗时、用量、测试标记和协议事件，不含账号凭据。
+- 脱敏真实调用原始记录仅保留在本地，不随源码发布；本报告保留结果摘要与验证边界。
 - [验证脚本](../../scripts/verify-coding-protocols.py)：隔离快照、探测、复验和清理流程。
 - [协议实现与限制](../coding-protocol-capabilities.md)：字段映射与拒绝策略。
 
