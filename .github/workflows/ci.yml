@@ -20,6 +20,55 @@ env:
   GOVULNCHECK_VERSION: v1.8.0
 
 jobs:
+  lint:
+    name: Format and vet
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go (toolchain from go.mod)
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      # Only tracked files are formatted: a checkout can hold gitignored
+      # scratch directories (see .gitignore) whose contents are not part of
+      # the tree this job gates.
+      #
+      # Line endings are part of the check. gofmt expects LF and reports a
+      # CRLF file as unformatted with a whole-file diff, so this is what keeps
+      # .gitattributes (* text=auto eol=lf) honest across contributors whose
+      # git config would otherwise rewrite the checkout.
+      - name: Check gofmt
+        run: |
+          unformatted="$(git ls-files '*.go' | xargs -r gofmt -l)"
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted"
+            echo "::error::files are not gofmt-clean; run gofmt -w on the paths above"
+            exit 1
+          fi
+          echo "every tracked Go file is gofmt-clean"
+
+      # vet is cheap and catches the mistakes a compiler accepts: printf verbs
+      # against the wrong type, shadowed errors in a copy, unreachable branches
+      # after a return. Keeping it in its own job makes a vet failure readable
+      # in the checks list instead of buried in a 10-minute test run.
+      - name: Run go vet
+        run: go vet ./...
+
+      # A file nobody can hold in one screen is a file nobody reviews. The
+      # ceiling is a maintenance budget rather than a style rule, and the
+      # existing oversized files are exempted by name inside the script, so the
+      # exemption list can only shrink as files are split.
+      - name: Check file sizes
+        run: ./scripts/check-file-size.sh
+
   test:
     name: Go test
     runs-on: ubuntu-latest

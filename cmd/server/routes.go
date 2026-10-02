@@ -266,7 +266,7 @@ func registerRoutes(
 	mux.HandleFunc("/api/config/list", sessionAuth(apiHandler.HandleConfigList))
 	mux.HandleFunc("/api/config/save", sessionAuth(apiHandler.HandleConfigSave))
 	// Operations monitoring: the overview, the channel × model matrix and the
-	// alert set behind the 运维总览 page.
+	// alert set behind the operations overview page.
 	mux.HandleFunc("/api/ops/overview", sessionAuth(apiHandler.HandleOpsOverview))
 	mux.HandleFunc("/api/ops/alerts/rules", sessionAuth(apiHandler.HandleOpsAlertRules))
 	mux.HandleFunc("/api/ops/runtime", sessionAuth(apiHandler.HandleOpsRuntime))
