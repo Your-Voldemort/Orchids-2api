@@ -1,10 +1,5 @@
 // Gateway-side Responses compaction.
 //
-// Derived from chenyme/grok2api, commit 906b9493. MIT license:
-// ../../licenses/third-party-MIT.txt. Source files:
-// backend/internal/application/gateway/responses_compaction.go and
-// backend/internal/infra/provider/cli/responses_compaction.go (+ _forward.go).
-//
 // Why the gateway compacts at all: Codex's remote-v2 compaction asks for a
 // summary turn and expects back a portable `compaction` item. A pure relay has
 // to hand that turn to the upstream, which returns a blob only the upstream can
@@ -68,7 +63,7 @@ const (
 	responsesCompactionTUI
 )
 
-// Field names match grok2api's envelope. The blob is still only readable by the
+// Field names match the reference envelope. The blob is still only readable by the
 // deployment that sealed it (the key is derived from that deployment's
 // credential key), but the plaintext shape is the reference one, so tooling that
 // inspects a blob sees the same keys on both sides.
@@ -612,7 +607,10 @@ func buildGatewayCompactionResponse(response map[string]interface{}, blob, model
 		"encrypted_content": blob,
 	}
 	result["id"] = responseID
-	result["object"] = "response"
+	// The compact endpoint's answer is its own object type, not a plain
+	// response: a client that checks it (Codex does) reads `object` to decide
+	// whether the body is a compaction result or an ordinary response.
+	result["object"] = "response.compaction"
 	result["status"] = "completed"
 	result["model"] = model
 	result["output"] = []interface{}{item}

@@ -29,7 +29,7 @@ type ApiKey struct {
 	// counter. The Redis counter is authoritative; this field reports it.
 	BillingUsedUSDTicks int64 `json:"billing_used_usd_ticks,omitempty"`
 	// BillingPeriodDays rolls the settled usage over on a fixed period, the way
-	// grok2api resets a key at the end of its billing period. Zero means the
+	// Settled usage rolls over at the end of a billing period. Zero means the
 	// counter only ever moves when an operator resets it.
 	BillingPeriodDays int `json:"billing_period_days,omitempty"`
 	// BillingPeriodStartedAt is when the current period began. It is written by

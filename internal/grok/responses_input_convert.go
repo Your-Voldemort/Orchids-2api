@@ -87,7 +87,7 @@ func validateNativeChatContent(messages []ChatMessage) error {
 func responsesMessageParts(content interface{}, assistant bool) []interface{} {
 	// History parts always use input_text: the upstream `input` contract only
 	// guarantees input_text, and an assistant turn resent as output_text was
-	// rejected (grok2api rewrites all input-side text the same way).
+	// rejected (all input-side text is rewritten this way).
 	textType := "input_text"
 	_ = assistant
 	switch value := content.(type) {
@@ -116,7 +116,7 @@ func responsesMessageParts(content interface{}, assistant bool) []interface{} {
 					if detail == "" {
 						// The upstream treats an absent detail as its own default,
 						// which is not "auto"; stating it makes the request
-						// deterministic and matches what grok2api sends.
+						// deterministic instead of upstream-dependent.
 						detail = "auto"
 					}
 					part["detail"] = detail

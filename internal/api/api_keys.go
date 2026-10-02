@@ -284,7 +284,7 @@ func (a *API) HandleKeyByID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		// POST /api/keys/{id}/reset-usage: start a fresh billing period for this
-		// key. grok2api resets a key's usage when its period ends; the manual
+		// key. Usage settles when a billing period ends; the manual
 		// action has to exist too, because a misconfigured limit is otherwise
 		// unrecoverable until the period rolls over.
 		if action == "reset-usage" {

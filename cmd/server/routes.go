@@ -73,8 +73,8 @@ func registerRoutes(
 	})
 	inferenceAuth := func(next http.HandlerFunc) http.HandlerFunc {
 		authenticated := middleware.APIKeyAuthWithRequest(
-			// A key is required, exactly as grok2api mounts middleware.ClientAuth on
-			// its whole /v1 group; `inference_auth_enabled: false` used to open every
+			// A key is required on the whole /v1 group; `inference_auth_enabled: false`
+			// used to open every
 			// inference route to anonymous callers and is now advisory only. The one
 			// exception is an explicit anonymous_allow_ips source, which a deployment
 			// names when it cannot yet update that client.

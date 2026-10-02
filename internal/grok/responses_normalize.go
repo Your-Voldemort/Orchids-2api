@@ -128,7 +128,7 @@ func interfaceMaps(value interface{}) []map[string]interface{} {
 	}
 }
 
-// applyBuildResponseDefaults mirrors grok2api's applyBuildResponseDefaults:
+// applyBuildResponseDefaults applies two defaults to every Build request:
 // `store` defaults to false (ZDR) and `include` always asks for
 // reasoning.encrypted_content. An explicit `store` from the caller is kept, and
 // an existing include list keeps its other entries and its order.
@@ -175,7 +175,7 @@ func normalizeBuildResponsesPayload(payload map[string]interface{}) error {
 	if err := normalizeBuildInputHistory(payload, state); err != nil {
 		return err
 	}
-	// The two defaults grok2api applies to every Build request. They are the
+	// The two defaults applied to every Build request. They are the
 	// reason a Codex turn can build a reasoning-replay chain at all: without the
 	// include the upstream never returns encrypted_content, and `store:false` is
 	// the zero-data-retention default the reference implementation documents.
@@ -358,7 +358,7 @@ func hasNativeSearchTool(tools []map[string]interface{}) bool {
 }
 
 // webSearchCompatibilityFields are newer OpenAI/Codex controls that the Grok
-// Build wire contract rejects. grok2api drops them (keeping only the native
+// Build wire contract rejects. The gateway drops them (keeping only the native
 // minimal search tool) instead of letting the whole request fail; the
 // operator's intent — a web search — is preserved either way.
 var webSearchCompatibilityFields = []string{

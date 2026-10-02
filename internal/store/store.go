@@ -79,7 +79,7 @@ type Account struct {
 	// QualityFailures counts consecutive responses this credential returned
 	// without the reasoning the request asked for (an upstream quality dump).
 	// The first offence parks the credential for a cooldown; a repeat disables
-	// it, mirroring grok2api's quality guard.
+	// it, mirroring the Grok quality guard.
 	QualityFailures int `json:"quality_failures,omitempty"`
 	// QualityCooldownUntil parks a credential whose responses are degraded.
 	QualityCooldownUntil time.Time `json:"quality_cooldown_until,omitempty"`

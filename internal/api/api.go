@@ -6,7 +6,10 @@
 // holding the handlers and the helpers only that subject needs:
 //
 //	api.go                 the API struct, its wiring and constructor
-//	api_accounts.go        account list/read, output shaping, quota fields
+//	api_accounts.go        account create/read/update/delete handlers
+//	account_output.go      one account as the API renders it, credentials stripped
+//	account_identity.go    recognising an account the gateway already has
+//	account_verdict.go     what a refresh or a check concludes, and for how long
 //	api_keys.go            API key list/read/create/update/delete
 //	api_models.go          model list/read
 //	api_config.go          config read/save, login/logout, config patching

@@ -73,7 +73,7 @@ func (h *Handler) responsesPayloadFromChat(spec ModelSpec, req *ChatCompletionsR
 	tools = append(tools, buildToolsFromOpenAI(req.Tools)...)
 	// OpenAI's web_search_options has no function form: it means "run the
 	// hosted search tool". Lower it to the native tool the Responses planes
-	// understand (grok2api does the same) when the caller did not already
+	// understand when the caller did not already
 	// declare a search tool.
 	if len(req.WebSearchOptions) > 0 && !hasNativeSearchTool(tools) {
 		tools = append(tools, map[string]interface{}{"type": "web_search"})
@@ -84,7 +84,7 @@ func (h *Handler) responsesPayloadFromChat(spec ModelSpec, req *ChatCompletionsR
 			payload["tool_choice"] = choice
 		}
 	}
-	// These are forwarded unconditionally, exactly like grok2api: a caller that
+	// These are forwarded unconditionally: a caller that
 	// asks for a service tier or attaches metadata must not have it dropped
 	// just because the request declared no tools.
 	if req.ParallelToolCalls != nil {

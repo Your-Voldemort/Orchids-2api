@@ -543,6 +543,12 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		apperrors.New("invalid_request_error", err.Error(), http.StatusBadRequest).WriteResponse(w)
 		return
 	}
+	// A strict structured-output request on a passthrough channel carries a
+	// contract upstream only honors on some models. The schema is compiled
+	// here, before account selection, so one compiled schema can both instruct
+	// the model and check its answer; a non-strict request yields nil and every
+	// path below is unchanged.
+	structured := upstream.NewStructuredOutput(protocolControls)
 	preSelectWorkBuddyRequest := preSelectChannel == "workbuddy"
 	preSelectQoderRequest := preSelectChannel == "qoder"
 	preSelectClineRequest := preSelectChannel == "cline"
@@ -716,6 +722,9 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	sh.setDisallowToolCalls(gateNoTools)
 	sh.setEmptyOutputFallback(successfulFileMutationToolResultFallback(upstreamMessages))
+	// The compiled schema gates the finished answer; a request that declared no
+	// schema installs a nil check and behaves exactly as before.
+	sh.setStructuredOutput(structured.Validate)
 	sh.setUsageTokens(inputTokens, -1) // Correctly initialize input tokens
 	defer sh.release()
 
@@ -784,7 +793,10 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(middleware.WithRequestModel(r.Context(), mappedModel))
 
 		payloadMessages := upstreamMessages
-		payloadSystem := req.System
+		// The schema instruction is prepended rather than appended: a channel
+		// that truncates a long system array keeps the shape the answer must
+		// have, not the caller's prose behind it.
+		payloadSystem := upstream.PrependSystemHint(req.System, structured.SystemHint())
 
 		upstreamReq := upstream.UpstreamRequest{
 			ResponseFormat:    req.ResponseFormat,

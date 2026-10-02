@@ -157,7 +157,7 @@ func TestBuildGatewayCompactionResponseShape(t *testing.T) {
 	result := buildGatewayCompactionResponse(response, "g2a_compact_v1.xyz", "grok-4.5")
 
 	testutil.Equal(t, result["id"], "resp_abc")
-	testutil.Equal(t, result["object"], "response")
+	testutil.Equal(t, result["object"], "response.compaction")
 	testutil.Equal(t, result["status"], "completed")
 	testutil.Equal(t, result["model"], "grok-4.5")
 	_, present := result["output_text"]

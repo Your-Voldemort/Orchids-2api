@@ -63,7 +63,7 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 		return nil, nil
 	case "apply_patch":
 		// The emulated function mirrors the upstream-compatible contract used
-		// by grok2api: one structured V4A operation, so the response side can
+		// upstream: one structured V4A operation, so the response side can
 		// restore `operation` on the apply_patch_call without parsing a patch.
 		state.addWarning("apply_patch_emulated")
 		return []map[string]interface{}{{
@@ -99,7 +99,7 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 		return []map[string]interface{}{out}, nil
 	case "custom":
 		// A freeform/grammar tool has no upstream equivalent. Emulate it as a
-		// function that takes the raw input string (grok2api does the same) and
+		// function that takes the raw input string, and
 		// restore custom_tool_call on the way back.
 		name := strings.TrimSpace(fmt.Sprint(tool["name"]))
 		if name == "" || name == "<nil>" {

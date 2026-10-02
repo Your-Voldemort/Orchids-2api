@@ -187,6 +187,10 @@ type streamHandler struct {
 	allowedToolNames    map[string]struct{}
 	clientTools         []interface{}
 	emptyOutputFallback string
+	// structured validates the finished answer of a strict structured-output
+	// request. It is nil unless the caller sent `strict: true` with a schema
+	// this gateway could read, so an ordinary request pays nothing here.
+	structured structuredOutputCheck
 
 	// HTTP Response
 	w       http.ResponseWriter
@@ -338,6 +342,39 @@ func (h *streamHandler) setEmptyOutputFallback(text string) {
 	h.mu.Lock()
 	h.emptyOutputFallback = strings.TrimSpace(text)
 	h.mu.Unlock()
+}
+
+// setStructuredOutput installs the validator a strict structured-output request
+// carries. Nil is the ordinary case: a request that asked for no schema, or a
+// non-strict one, has nothing to enforce.
+func (h *streamHandler) setStructuredOutput(check structuredOutputCheck) {
+	h.mu.Lock()
+	h.structured = check
+	h.mu.Unlock()
+}
+
+// structuredOutputCheck validates one completed assistant answer against the
+// schema the caller declared. It is a function rather than an interface so the
+// handler keeps no reference to the request's schema object.
+type structuredOutputCheck func(text string) error
+
+// validateStructuredAnswer checks the answer accumulated so far against the
+// schema of a strict structured-output request. It returns nil when the request
+// declared no schema, and when the answer matches.
+//
+// Only the visible text is checked: reasoning is not part of the answer the
+// caller parses, and tool calls are validated by the tool pipeline already. An
+// empty answer is left to the empty-output fallback below rather than rejected
+// here, so a request that produced nothing still reports that.
+func (h *streamHandler) validateStructuredAnswer() error {
+	h.mu.Lock()
+	check := h.structured
+	text := h.responseText.String()
+	h.mu.Unlock()
+	if check == nil || strings.TrimSpace(text) == "" {
+		return nil
+	}
+	return check(text)
 }
 
 // growBuilderSlots extends a builder slice so idx is addressable. Content-block
@@ -1236,6 +1273,19 @@ func (h *streamHandler) finishResponse(stopReason string) {
 		if !hasToolCalls {
 			stopReason = "end_turn"
 		}
+	}
+
+	// A strict structured-output request is answered only when the answer
+	// matches the schema. The check happens before anything is committed: a
+	// stream that has not opened yet can still fail with a real status, and a
+	// non-stream response has committed nothing at all. Delivering an answer
+	// the caller's parser will reject, with a 200, is worse than an error it
+	// can retry or relax.
+	if err := h.validateStructuredAnswer(); err != nil {
+		slog.Warn("Structured output did not match the requested schema", "error", err)
+		h.reportRequestFailure("Reporting that the answer did not match the requested schema",
+			"schema_mismatch", err.Error(), 0)
+		return
 	}
 
 	if !h.hasVisibleOutput() {

@@ -20,7 +20,7 @@ func (a *API) HandleModels(w http.ResponseWriter, r *http.Request) {
 		}
 		// A bare array is the long-standing contract the bundled admin UI
 		// consumes. Asking for a page switches to the paged envelope that
-		// grok2api's admin client expects, without breaking the old shape.
+		// the newer admin client expects, without breaking the old shape.
 		page, pageSize, paged := adminModelPaging(r)
 		if !paged {
 			util.WriteJSON(w, models)
