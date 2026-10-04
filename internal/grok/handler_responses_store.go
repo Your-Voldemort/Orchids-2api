@@ -152,7 +152,7 @@ func (h *Handler) handleNativeCLIResponsesAt(w http.ResponseWriter, r *http.Requ
 		responseBody = rewritten
 	}
 	responseID, captured, result := copyNativeCLIResponseAndCaptureModel(w, responseBody, resp.Header.Get("Content-Type"), modelID)
-	h.auditChatOutcome(r.Context(), sess.acc, &ChatCompletionsRequest{Model: modelID, startedAt: started}, result)
+	h.auditChatOutcome(r.Context(), sess.acc, &ChatCompletionsRequest{Model: modelID, StartedAt: started}, result)
 	if session := sessionFromContext(r.Context()); session.Replay && len(captured) > 0 && result.Err == nil {
 		h.captureReasoningReplay(r.Context(), modelID, session.Key, captured)
 	}

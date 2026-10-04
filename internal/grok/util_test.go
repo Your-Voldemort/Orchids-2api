@@ -1,6 +1,7 @@
 package grok
 
 import (
+	"orchids-api/internal/chatwire"
 	"testing"
 	"time"
 
@@ -23,7 +24,7 @@ func TestValidateChatMessages_AcceptsCaseInsensitiveRoleAndType(t *testing.T) {
 		},
 	}
 
-	testutil.NoError(t, validateChatMessages(messages), "validateChatMessages() error = %v")
+	testutil.NoError(t, chatwire.ValidateMessages(messages), "chatwire.ValidateMessages() error = %v")
 }
 
 func TestApplyQuotaInfo_InfersLiteSubscription(t *testing.T) {

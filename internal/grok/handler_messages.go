@@ -238,7 +238,7 @@ func anthropicRequestToChat(req anthropicMessagesRequest) (ChatCompletionsReques
 		reasoningSummary = &summary
 	}
 	return ChatCompletionsRequest{
-		sourceOperation:   "messages",
+		SourceOperation:   "messages",
 		Model:             req.Model,
 		Messages:          messages,
 		Stream:            req.Stream,

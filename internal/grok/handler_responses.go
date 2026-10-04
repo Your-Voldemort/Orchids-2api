@@ -213,7 +213,7 @@ func chatRequestFromResponses(req ResponsesCreateRequest) (ChatCompletionsReques
 	// plain text turn, and the model then answered that it had no web access.
 	tools, hostedTools := responsesToolsToChatTools(req.Tools)
 	out := ChatCompletionsRequest{
-		sourceOperation:   "responses",
+		SourceOperation:   "responses",
 		Model:             model,
 		Messages:          messages,
 		Stream:            req.Stream,
