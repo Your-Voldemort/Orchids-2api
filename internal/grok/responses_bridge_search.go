@@ -93,7 +93,9 @@ func prepareBridgeSearch(w http.ResponseWriter, r *http.Request, req *ResponsesC
 	if forced {
 		plannerReq.Instructions += "\nA public lookup is explicitly required; generate at least one query."
 	}
-	limit := 256
+	// Reasoning tokens share the output budget with the JSON query plan.
+	// A 256-token cap exhausted WorkBuddy's reasoning before any plan was emitted.
+	limit := 2048
 	plannerReq.MaxOutputTokens = &limit
 	planner, err := chatRequestFromResponses(plannerReq)
 	if err != nil {

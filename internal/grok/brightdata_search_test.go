@@ -91,6 +91,9 @@ func TestResponsesBrightDataBridge(t *testing.T) {
 					t.Fatal("hosted tools reached chat upstream")
 				}
 				if calls == 1 {
+					if req.MaxTokens == nil || *req.MaxTokens != 2048 {
+						t.Fatalf("planner output budget = %v, want 2048", req.MaxTokens)
+					}
 					io.WriteString(w, `{"choices":[{"message":{"content":"{\"queries\":[\"Go documentation\"]}"},"finish_reason":"stop"}]}`)
 					return
 				}
