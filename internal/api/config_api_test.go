@@ -67,46 +67,6 @@ func TestBuildConfigFromPatchRejectsAdminToken(t *testing.T) {
 	testutil.Falsef(t, err == nil || !strings.Contains(err.Error(), "deployment-managed"), "buildConfigFromPatch() error=%v, want deployment-managed rejection", err)
 }
 
-func TestBrightDataConfigSecretAndPersistence(t *testing.T) {
-	a, s, _ := setupConfigAPI(t)
-	var adopted *config.Config
-	a.SetConfigChangeHook(func(cfg *config.Config) { adopted = cfg })
-	for _, body := range []string{
-		`{"brightdata_enabled":true,"brightdata_zone":"serp_api1","brightdata_api_key":"new-search-secret"}`,
-		`{"brightdata_enabled":true,"brightdata_zone":"serp_api2","brightdata_api_key":""}`,
-	} {
-		rec := httptest.NewRecorder()
-		a.HandleConfigSave(rec, httptest.NewRequest("POST", "/api/config/save", strings.NewReader(body)))
-		if !strings.Contains(rec.Body.String(), `"code":0`) {
-			t.Fatalf("save failed: %s", rec.Body.String())
-		}
-	}
-	if adopted == nil || adopted.BrightDataAPIKey != "new-search-secret" || adopted.BrightDataZone != "serp_api2" {
-		t.Fatal("blank patch lost secret or runtime hook did not adopt settings")
-	}
-	list := httptest.NewRecorder()
-	a.HandleConfigList(list, httptest.NewRequest("GET", "/api/config/list", nil))
-	if strings.Contains(list.Body.String(), "new-search-secret") || strings.Contains(list.Body.String(), `"brightdata_api_key"`) || !strings.Contains(list.Body.String(), `"brightdata_has_api_key":true`) {
-		t.Fatalf("unsafe list: %s", list.Body.String())
-	}
-	raw, err := s.GetSetting(context.Background(), "config")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var saved config.Config
-	if json.Unmarshal([]byte(raw), &saved) != nil || saved.BrightDataAPIKey != "new-search-secret" {
-		t.Fatal("settings not retained for restart")
-	}
-	_, err = buildConfigFromPatch(httptest.NewRequest("POST", "/api/config/save", strings.NewReader(`{"brightdata_enabled":true}`)), &config.Config{})
-	if err == nil {
-		t.Fatal("enabled search without credentials accepted")
-	}
-	patched, err := buildConfigFromPatch(httptest.NewRequest("POST", "/api/config/save", strings.NewReader(`{"brightdata_enabled":false}`)), adopted)
-	if err != nil || patched.BrightDataAPIKey != adopted.BrightDataAPIKey || *patched.BrightDataEnabled {
-		t.Fatal("disable did not preserve credentials")
-	}
-}
-
 func TestHandleConfigSaveRejectsRetiredLocalCacheFields(t *testing.T) {
 	api, s, _ := setupConfigAPI(t)
 	for _, field := range []string{"enable_token_cache", "token_cache_ttl", "token_cache_strategy", "cache_token_count", "cache_ttl"} {

@@ -1214,10 +1214,11 @@ function openModal(account = null) {
   const title = document.getElementById("modalTitle");
   const form = document.getElementById("accountForm");
   const typeEl = document.getElementById("accountType");
-  stopGrokDeviceLogin();
+  stopGrokDeviceLogin(true);
   resetGrokDeviceLoginStatus();
 
   const finalizeModal = () => {
+    applyTokenLabels(typeEl ? typeEl.value : getActiveAccountType());
     ConsoleUI.modal("accountModal", true);
   };
 
@@ -1246,6 +1247,7 @@ function openModal(account = null) {
     // The switch above is assigned, not clicked: without this its paint would depend on
     // the stylesheet's :has() fallback, which browsers without :has() ignore.
     if (typeof window.syncToggleStates === "function") window.syncToggleStates();
+    applyCredentialModeUI(modalType || normalizeAccountType({ account_type: typeEl?.value || getActiveAccountType() }));
   };
 
   applyValues();
@@ -1276,7 +1278,7 @@ function stopClineLogin() { stopOfficialLogin("ClineLogin", "clineLoginStatus", 
 
 // Close modal
 function closeModal() {
-  stopGrokDeviceLogin();
+  stopGrokDeviceLogin(true);
   resetGrokDeviceLoginStatus();
   stopWorkBuddyLogin();
   stopQoderLogin();

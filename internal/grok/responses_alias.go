@@ -210,10 +210,6 @@ func rewriteBuildToolAliasValue(value interface{}, aliases map[string]buildToolA
 			// the client sees the custom_tool_call it declared.
 			typed["type"] = "custom_tool_call"
 			typed["name"] = identity.Name
-			if identity.Namespace != "" {
-				typed["namespace"] = identity.Namespace
-			}
-			typed["input"] = ""
 			if input, ok := decodeCustomToolInputValue(typed["arguments"]); ok {
 				typed["input"] = input
 			}

@@ -72,9 +72,6 @@ const CONFIG_TRACKED_FIELDS = [
   "cfg_anonymous_allow_ips",
   "cfg_proxy_url",
   "cfg_proxy_bypass",
-	"cfg_brightdata_enabled",
-	"cfg_brightdata_zone",
-	"cfg_brightdata_api_key",
 ];
 let configBaseline = null;
 let configSaving = false;
@@ -251,12 +248,6 @@ function applyConfigurationPayload(cfg) {
   setConfigControlValue("cfg_anonymous_allow_ips", Array.isArray(cfg.anonymous_allow_ips) ? cfg.anonymous_allow_ips.join("\n") : "");
   setConfigControlValue("cfg_proxy_url", cfg.proxy_url || "");
   setConfigControlValue("cfg_proxy_bypass", normalizeProxyBypass(cfg.proxy_bypass).join("\n"));
-	const searchToggle = document.getElementById("cfg_brightdata_enabled");
-	if (searchToggle) searchToggle.checked = cfg.brightdata_enabled === true;
-	setConfigControlValue("cfg_brightdata_zone", cfg.brightdata_zone || "");
-	setConfigControlValue("cfg_brightdata_api_key", "");
-	const searchKey = document.getElementById("cfg_brightdata_api_key");
-	if (searchKey) searchKey.placeholder = cfg.brightdata_has_api_key ? "已配置，留空保留原密钥" : "填写 Bright Data API Key";
 }
 
 async function loadConfiguration() {
@@ -287,11 +278,7 @@ async function saveConfiguration() {
     anonymous_allow_ips: parseAnonymousAllowIPs(),
     proxy_url: document.getElementById("cfg_proxy_url").value.trim(),
     proxy_bypass: parseProxyBypass(proxyBypassRaw),
-		brightdata_enabled: document.getElementById("cfg_brightdata_enabled").checked,
-		brightdata_zone: document.getElementById("cfg_brightdata_zone").value.trim(),
   };
-	const searchKey = document.getElementById("cfg_brightdata_api_key").value.trim();
-	if (searchKey) data.brightdata_api_key = searchKey;
 
   const saveBtn = document.getElementById("cfgSaveBtn");
   configSaving = true;
@@ -311,8 +298,6 @@ async function saveConfiguration() {
     if (payload.code !== 0) { throw new Error(payload.message || payload.msg || "保存失败"); }
     setConfigSaveError("");
     showToast("配置保存成功");
-		setConfigControlValue("cfg_brightdata_api_key", "");
-		if (searchKey) document.getElementById("cfg_brightdata_api_key").placeholder = "已配置，留空保留原密钥";
     // What was just saved becomes the new comparison baseline: the bar goes
     // clean because the fields now match the server.
     captureConfigBaseline();

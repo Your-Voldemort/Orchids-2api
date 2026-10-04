@@ -30,7 +30,7 @@ func normalizeBridgedTools(req *ResponsesCreateRequest) (map[string]buildToolAli
 	// non-namespace declaration is one the chat layer cannot serve at all.
 	for index, tool := range req.Tools {
 		kind := strings.ToLower(parseLooseStringAny(tool["type"]))
-		if kind == "function" || kind == "namespace" || kind == "custom" || kind == "apply_patch" || kind == "" {
+		if kind == "function" || kind == "namespace" || kind == "" {
 			continue
 		}
 		if _, hosted := nativeToolTypes[kind]; hosted {
@@ -50,7 +50,7 @@ func normalizeBridgedTools(req *ResponsesCreateRequest) (map[string]buildToolAli
 	// The alias walk needs the declarations the caller sent: the rewritten list
 	// has already had the namespace folded into each name, so walking it would
 	// record the flat name as if it were the declared one.
-	aliases := collectBuildToolAliases(map[string]interface{}{"tools": req.Tools})
+	aliases := bridgeToolAliases(req.Tools, state)
 	req.Tools = normalized
 	req.ToolChoice = normalizeBridgeToolChoice(req.ToolChoice, state)
 	lowerBridgedInputToolNames(req.Input, state)
@@ -102,21 +102,15 @@ func lowerBridgedInputToolNames(input interface{}, state *buildToolNormalization
 		if !ok {
 			continue
 		}
-		name := parseLooseStringAny(item["name"])
-		namespace := parseLooseStringAny(item["namespace"])
-		switch strings.ToLower(parseLooseStringAny(item["type"])) {
-		case "custom_tool_call", "apply_patch_call":
-			lowerEmulatedCallItem(item)
-		case "custom_tool_call_output", "apply_patch_call_output":
-			item["type"] = "function_call_output"
-		}
 		if !strings.EqualFold(parseLooseStringAny(item["type"]), "function_call") {
 			continue
 		}
+		name := parseLooseStringAny(item["name"])
 		if name == "" {
 			continue
 		}
-		if alias := state.lookup(namespace, name); alias != "" {
+		namespace := parseLooseStringAny(item["namespace"])
+		if alias := state.lookup(namespace, name); alias != "" && alias != name {
 			item["name"] = alias
 			delete(item, "namespace")
 		}
@@ -186,7 +180,6 @@ func restoreBridgeToolIdentity(response map[string]interface{}, aliases map[stri
 		return
 	}
 	restoreBridgeToolItems(response["output"], aliases)
-	rewriteBuildToolAliasValue(response["output"], aliases)
 }
 
 func restoreBridgeToolItems(value interface{}, aliases map[string]buildToolAliasIdentity) {

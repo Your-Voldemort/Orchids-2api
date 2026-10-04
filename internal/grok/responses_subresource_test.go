@@ -249,7 +249,7 @@ func TestResponsesBridgeForwardsTextFormatAndInclude(t *testing.T) {
 	bridge := ResponsesBridgeHandler(recordingChat(t, &calls, &mu), ResponsesBridgeOptions{})
 
 	body := `{"model":"gpt-5.6-luna","input":"hi","stream":true,` +
-		`"include":["message.output_text.logprobs"],` +
+		`"include":["reasoning.encrypted_content"],` +
 		`"text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object"}}}}`
 	req := httptest.NewRequest(http.MethodPost, "/qoder/v1/responses", strings.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -266,7 +266,7 @@ func TestResponsesBridgeForwardsTextFormatAndInclude(t *testing.T) {
 	}
 	include, _ := inner["include"].([]interface{})
 	testutil.Equal(t, len(include), 1)
-	testutil.Equal(t, include[0], "message.output_text.logprobs")
+	testutil.Equal(t, include[0], "reasoning.encrypted_content")
 	text, _ := inner["text"].(map[string]interface{})
 	testutil.Falsef(t, text == nil, "text controls were dropped: %#v", inner)
 }

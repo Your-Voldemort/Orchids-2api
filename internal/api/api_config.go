@@ -146,9 +146,6 @@ func configPayload(cfg *config.Config) (map[string]interface{}, error) {
 	// but it is intentionally absent from configuration management. Browser
 	// operators use sessions; inference callers use managed API keys.
 	delete(payload, "admin_token")
-	delete(payload, "brightdata_api_key")
-	payload["brightdata_has_api_key"] = strings.TrimSpace(cfg.BrightDataAPIKey) != ""
-	payload["brightdata_enabled"] = cfg.BrightDataEnabled != nil && *cfg.BrightDataEnabled
 	if rawProxyURL, ok := payload["proxy_url"].(string); !ok || strings.TrimSpace(rawProxyURL) == "" {
 		if proxyURL := util.ProxyURLFromConfig(cfg); proxyURL != nil {
 			payload["proxy_url"] = proxyURL.String()
@@ -170,9 +167,6 @@ func buildConfigFromPatch(r *http.Request, current *config.Config) (*config.Conf
 	if err != nil {
 		return nil, err
 	}
-	// Public projections never contain the saved search credential.
-	baseMap["brightdata_api_key"] = base.BrightDataAPIKey
-	delete(baseMap, "brightdata_has_api_key")
 
 	patch := map[string]interface{}{}
 	if err := json.NewDecoder(r.Body).Decode(&patch); err != nil {
@@ -192,28 +186,6 @@ func buildConfigFromPatch(r *http.Request, current *config.Config) (*config.Conf
 	}
 
 	for key, value := range patch {
-		if key == "brightdata_enabled" {
-			if _, ok := parseBoolish(value); !ok {
-				return nil, fmt.Errorf("brightdata_enabled must be a boolean")
-			}
-		}
-		if key == "brightdata_has_api_key" {
-			continue
-		}
-		if key == "brightdata_api_key" {
-			secret, ok := value.(string)
-			if !ok {
-				return nil, fmt.Errorf("brightdata_api_key must be a string")
-			}
-			secret = strings.TrimSpace(secret)
-			if strings.ContainsAny(secret, "\r\n") {
-				return nil, fmt.Errorf("Bright Data API Key contains invalid characters")
-			}
-			if secret == "" {
-				continue
-			}
-			value = secret
-		}
 		baseMap[key] = normalizeConfigPatchValue(key, value)
 	}
 	if _, ok := patch["proxy_url"]; ok {
@@ -231,10 +203,6 @@ func buildConfigFromPatch(r *http.Request, current *config.Config) (*config.Conf
 	if err := json.Unmarshal(raw, &newCfg); err != nil {
 		return nil, err
 	}
-	newCfg.BrightDataZone = strings.TrimSpace(newCfg.BrightDataZone)
-	if newCfg.BrightDataEnabled != nil && *newCfg.BrightDataEnabled && (newCfg.BrightDataZone == "" || newCfg.BrightDataAPIKey == "") {
-		return nil, fmt.Errorf("启用 Bright Data 搜索需要填写 API Key 和 Zone 名称")
-	}
 	return &newCfg, nil
 }
 
@@ -247,7 +215,7 @@ func normalizeConfigPatchValue(key string, value interface{}) interface{} {
 	case "enable_token_refresh", "enable_usage_refresh", "enable_token_count",
 		"auto_refresh_token", "kiro_use_builtin_proxy",
 		"antigravity_use_builtin_proxy",
-		"enable_context_compress", "debug_enabled", "qoder_http2_enabled", "cline_http2_enabled", "workbuddy_http2_enabled", "brightdata_enabled":
+		"enable_context_compress", "debug_enabled", "qoder_http2_enabled", "cline_http2_enabled", "workbuddy_http2_enabled":
 		if b, ok := parseBoolish(value); ok {
 			return b
 		}

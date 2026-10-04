@@ -558,7 +558,7 @@ test('Grok device login keeps its provider URL allowlist isolated', async () => 
 
 test('the shared device login lifecycle preserves cancellation and ignores stale poll results', async () => {
   for (const scenario of [
-    { start: 'startGrokDeviceLogin()', stop: 'stopGrokDeviceLogin()', endpoint: '/api/grok/device-auth', url: 'https://auth.x.ai/device' },
+    { start: 'startGrokDeviceLogin()', stop: 'stopGrokDeviceLogin(true)', endpoint: '/api/grok/device-auth', url: 'https://auth.x.ai/device' },
   ]) {
     const { context } = loadUI();
     const requests = [];

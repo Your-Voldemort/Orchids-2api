@@ -29,11 +29,6 @@ const RequestIDHeader = "X-Request-ID"
 type traceIDKey struct{}
 type requestIDKey struct{}
 
-// WithRequestID isolates an internal inference's journal and billing identity.
-func WithRequestID(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, requestIDKey{}, id)
-}
-
 const DiagnosticRequestIDHeader = "X-Orchids-Request-ID"
 
 // GenerateTraceID generates a new trace ID.

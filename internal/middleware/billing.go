@@ -74,12 +74,6 @@ func (r *BillingReservation) claim(result pricing.Result) (pricing.Result, bool)
 
 type apiKeyBillingReservationContextKey struct{}
 
-// WithoutBillingReservation lets an internal inference reserve and settle its
-// own budget instead of prematurely settling the parent request's hold.
-func WithoutBillingReservation(ctx context.Context) context.Context {
-	return context.WithValue(ctx, apiKeyBillingReservationContextKey{}, (*BillingReservation)(nil))
-}
-
 // WithBillingReservation attaches a hold to the request context so the handler
 // that finishes the request can settle it.
 func WithBillingReservation(ctx context.Context, reservation *BillingReservation) context.Context {

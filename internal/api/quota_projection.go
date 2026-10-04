@@ -109,6 +109,7 @@ func projectQoderQuota(fields map[string]interface{}, acc *store.Account, limit,
 		return
 	}
 	applyQuotaProvenance(fields, "upstreamQuota", "upstreamUsage", "", "", true, true)
+	return
 }
 
 // The meter reports the remaining credits of the current cycle; the

@@ -30,7 +30,6 @@
           <a class="config-nav-link active" href="#groupOverview" data-nav-group="groupOverview">概览</a>
           <a class="config-nav-link" href="#groupAuth" data-nav-group="groupAuth">认证与密钥</a>
           <a class="config-nav-link" href="#groupProxy" data-nav-group="groupProxy">代理</a>
-			<a class="config-nav-link" href="#groupSearch" data-nav-group="groupSearch">联网搜索</a>
         </nav>
 
         <div class="config-cards">
@@ -41,7 +40,7 @@
               <span class="mini-badge">只读</span>
             </div>
             <p class="settings-card-note">
-				配置包括认证与密钥、代理、联网搜索；密钥类字段带「密钥」标记。
+              这一页把配置拆成认证与密钥、代理两组；密钥类字段带「密钥」标记。
               改动任意字段后，底部保存栏显示未保存数量，保存成功才成为新的对比基准。
             </p>
             <div class="settings-card-body">
@@ -94,16 +93,6 @@
             </div>
           </section>
 
-
-			<section class="settings-card" id="groupSearch">
-				<div class="settings-card-head"><h2 class="settings-card-title">Bright Data 联网搜索</h2><span class="mini-badge">保存后生效</span></div>
-				<p class="settings-card-note">为 WorkBuddy、Qoder 和 Cline 提供 Responses 联网搜索。启用后，搜索关键词会发送到 Bright Data；完整对话和文件内容不会发送给搜索服务。</p>
-				<div class="settings-card-body">
-					<div class="form-row"><div class="form-row-label"><label class="form-label" for="cfg_brightdata_enabled">启用联网搜索</label><span class="helper-text">关闭后不调用 Bright Data，已有密钥和 Zone 会保留。</span></div><div class="form-row-control"><input type="checkbox" id="cfg_brightdata_enabled" aria-label="启用 Bright Data 联网搜索"></div></div>
-					<div class="form-row"><div class="form-row-label"><label class="form-label" for="cfg_brightdata_zone">SERP Zone 名称</label><span class="helper-text">从 Bright Data 控制台的 SERP API Overview 页面获取。</span></div><div class="form-row-control"><input type="text" id="cfg_brightdata_zone" class="form-input" placeholder="例如 serp_api1" autocomplete="off"></div></div>
-					<div class="form-row"><div class="form-row-label"><label class="form-label" for="cfg_brightdata_api_key">API Key <span class="secret-badge">密钥</span></label><span class="helper-text">留空保留原密钥，输入新值可替换。保存后不会回显密钥。</span></div><div class="form-row-control"><input type="password" id="cfg_brightdata_api_key" class="form-input secret-field" autocomplete="new-password" placeholder="填写 Bright Data API Key"></div></div>
-				</div>
-			</section>
 
           <section class="settings-card" id="groupProxy">
             <div class="settings-card-head">

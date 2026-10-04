@@ -41,19 +41,6 @@ function loadConfig(fetchImpl){
 // would fail on the prototype rather than on the value.
 const plain=v=>Array.from(v);
 
-test('Bright Data loads without exposing a key and replaces it only when entered',async()=>{
-	const sent=[];
-	const {api,node}=loadConfig(async(url,options)=>{sent.push(JSON.parse(options.body));return {ok:true,json:async()=>({code:0})};});
-	api.applyConfigurationPayload({brightdata_enabled:true,brightdata_zone:'serp_api1',brightdata_has_api_key:true});
-	assert.equal(node('cfg_brightdata_enabled').checked,true);
-	assert.equal(node('cfg_brightdata_zone').value,'serp_api1');
-	assert.equal(node('cfg_brightdata_api_key').value,'');
-	assert.match(node('cfg_brightdata_api_key').placeholder,/已配置/);
-	await api.saveConfiguration();assert.equal('brightdata_api_key' in sent[0],false);
-	node('cfg_brightdata_api_key').value='new-search-secret';node('cfg_brightdata_zone').value='serp_api2';
-	await api.saveConfiguration();assert.equal(sent[1].brightdata_api_key,'new-search-secret');assert.equal(sent[1].brightdata_zone,'serp_api2');assert.equal(node('cfg_brightdata_api_key').value,'');
-});
-
 test('API key actions delegate equally for desktop and mobile, without exposing masked keys',()=>{
  const {api,context}=loadConfig();
  const calls=[];
@@ -122,7 +109,7 @@ test('save sends security and proxy settings but no local cache settings',async(
  node('cfg_anonymous_allow_ips').value='203.0.113.1';
  node('cfg_proxy_bypass').value='example.com';
  await api.saveConfiguration();
- same(saved,{admin_password:'changed',anonymous_allow_ips:['203.0.113.1'],proxy_url:'http://proxy.example:8080',proxy_bypass:['example.com'],brightdata_enabled:false,brightdata_zone:''});
+ same(saved,{admin_password:'changed',anonymous_allow_ips:['203.0.113.1'],proxy_url:'http://proxy.example:8080',proxy_bypass:['example.com']});
 });
 
 test('configuration page omits simulated cache section, stats and clear actions',()=>{

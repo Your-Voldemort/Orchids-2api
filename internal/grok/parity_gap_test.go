@@ -43,7 +43,7 @@ func TestResponsesStreamTranslationIsIncremental(t *testing.T) {
 	recorder := newObservedStreamWriter("response.output_text.delta")
 	done := make(chan struct{})
 	go func() {
-		writeResponsesStreamFromChatReaderRequest(recorder, ResponsesCreateRequest{Model: "grok-4.6"}, reader, chatStreamOptions{})
+		writeResponsesStreamFromChatReaderRequestWithHook(recorder, ResponsesCreateRequest{Model: "grok-4.6"}, reader, nil)
 		close(done)
 	}()
 
@@ -66,7 +66,7 @@ func TestResponsesStreamAggregatesFragmentedToolArguments(t *testing.T) {
 		"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"1}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n" +
 		"data: [DONE]\n\n"
 	recorder := httptest.NewRecorder()
-	writeResponsesStreamFromChatReaderRequest(recorder, ResponsesCreateRequest{Model: "grok-4.6"}, strings.NewReader(raw), chatStreamOptions{})
+	writeResponsesStreamFromChatReaderRequestWithHook(recorder, ResponsesCreateRequest{Model: "grok-4.6"}, strings.NewReader(raw), nil)
 	body := recorder.Body.String()
 	testutil.Equal(t, strings.Count(body, "event: response.output_item.added"), 1)
 	testutil.MustContain(t, body, `"arguments":"{\"x\":1}"`)
