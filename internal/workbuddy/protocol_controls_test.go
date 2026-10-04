@@ -18,8 +18,13 @@ func TestProtocolControlsInWireBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	schema := body["response_format"].(map[string]interface{})["json_schema"].(map[string]interface{})
-	if schema["name"] != "answer" || schema["strict"] != true || body["prompt_cache_key"] != "cache" || body["max_tokens"] != float64(17) || body["temperature"] != float64(0) || body["parallel_tool_calls"] != false {
+	if schema["name"] != "answer" || schema["strict"] != true || body["max_tokens"] != float64(17) || body["temperature"] != float64(0) {
 		t.Fatalf("controls lost: %s", raw)
+	}
+	for _, key := range []string{"parallel_tool_calls", "prompt_cache_key"} {
+		if _, exists := body[key]; exists {
+			t.Fatalf("unsupported compatibility control %s leaked: %s", key, raw)
+		}
 	}
 	req.Include = []string{"reasoning.encrypted_content"}
 	if _, err := (&Client{}).buildBody(req); err == nil {
