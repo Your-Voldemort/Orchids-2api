@@ -33,6 +33,53 @@ func TestResponsesChatPathMapsTheChannelPrefix(t *testing.T) {
 	}
 }
 
+func TestResponsesBridgeEncryptedReasoningInclude(t *testing.T) {
+	for _, channel := range []string{"workbuddy", "qoder", "cline"} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%v", channel, stream), func(t *testing.T) {
+				chat := func(w http.ResponseWriter, r *http.Request) {
+					var req ChatCompletionsRequest
+					if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+						t.Fatal(err)
+					}
+					if len(req.Include) != 0 {
+						t.Fatalf("projection reached chat: %v", req.Include)
+					}
+					if stream {
+						io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"thinking\",\"content\":\"answer\"}}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+					} else {
+						io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"answer","reasoning_content":"thinking"},"finish_reason":"stop"}]}`)
+					}
+				}
+				body := fmt.Sprintf(`{"model":"test","input":"hello","store":false,"stream":%v,"include":["reasoning.encrypted_content"]}`, stream)
+				rec := httptest.NewRecorder()
+				ResponsesBridgeHandler(chat, ResponsesBridgeOptions{})(rec, httptest.NewRequest("POST", "/"+channel+"/v1/responses", strings.NewReader(body)))
+				if rec.Code != 200 || !strings.Contains(rec.Body.String(), "thinking") || !strings.Contains(rec.Body.String(), "answer") || strings.Contains(rec.Body.String(), `"encrypted_content"`) {
+					t.Fatalf("unexpected response: %d %s", rec.Code, rec.Body.String())
+				}
+			})
+		}
+	}
+}
+
+func TestResponsesBridgePreservesOtherIncludes(t *testing.T) {
+	called := false
+	chat := func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		var req ChatCompletionsRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		if len(req.Include) != 1 || req.Include[0] != "message.output_text.logprobs" {
+			t.Fatalf("other includes lost: %v", req.Include)
+		}
+		w.WriteHeader(400)
+	}
+	rec := httptest.NewRecorder()
+	ResponsesBridgeHandler(chat, ResponsesBridgeOptions{})(rec, httptest.NewRequest("POST", "/workbuddy/v1/responses", strings.NewReader(`{"model":"test","input":"hello","include":["reasoning.encrypted_content","message.output_text.logprobs"]}`)))
+	if !called || rec.Code != 400 {
+		t.Fatal("unsupported projection silently accepted")
+	}
+}
+
 type recordedChatCall struct {
 	path string
 	body map[string]interface{}

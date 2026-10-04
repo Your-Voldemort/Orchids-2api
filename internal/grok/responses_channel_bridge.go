@@ -139,6 +139,16 @@ func ResponsesBridgeHandler(chat http.HandlerFunc, opts ResponsesBridgeOptions) 
 			writeBridgeCompactionError(w, err)
 			return
 		}
+		// This is an output projection request, not encrypted input history.
+		// Chat providers may expose a reasoning signature or only a summary;
+		// conversion preserves whichever exists and never fabricates ciphertext.
+		includes := make([]string, 0, len(req.Include))
+		for _, include := range req.Include {
+			if include != "reasoning.encrypted_content" {
+				includes = append(includes, include)
+			}
+		}
+		req.Include = includes
 		// Grouped and emulated tool declarations (namespace, custom, apply_patch)
 		// are flattened here instead of being rejected: a chat upstream only
 		// understands flat function names, and rejecting them outright is what
