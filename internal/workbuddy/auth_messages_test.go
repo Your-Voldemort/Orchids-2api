@@ -178,7 +178,7 @@ func TestBuildMessages_DefaultSystemPromptOnly(t *testing.T) {
 
 func TestBuildMessagesFiltersClientIdentityAcrossSystemForms(t *testing.T) {
 	t.Parallel()
-	const instructions = "You are Codex, based on GPT-5. You are a coding agent running in the Codex CLI.\r\n" +
+	const instructions = "You are Codex, based on GPT-5.\r\n" +
 		"Keep the user's changes.\r\n" +
 		"x-anthropic-billing-header: cc_version=test\r\n" +
 		"You are Claude Code, Anthropic's official CLI for Claude.\r\n" +
@@ -207,6 +207,22 @@ func TestBuildMessagesFiltersClientIdentityAcrossSystemForms(t *testing.T) {
 			testutil.Equal(t, messages[1].Content, "hello")
 		})
 	}
+}
+
+func TestFilterClientSystemTextPreservesRulesAfterCodexIdentity(t *testing.T) {
+	t.Parallel()
+	for _, identity := range []string{
+		"You are Codex, based on GPT-5.1. ",
+		"You are a coding agent running in the Codex CLI, a terminal-based coding assistant. Codex CLI is an open source project led by OpenAI. ",
+	} {
+		const rule = "You are expected to be precise, safe, and helpful. Keep the user's changes."
+		testutil.Equal(t, filterClientSystemText(identity+rule), rule)
+	}
+	const context = "<app-context>\n# Codex desktop context\n- You are running inside the Codex (desktop) app, which allows some additional features not available in the CLI alone:\nUse mcp__codex_app__open_in_codex and codex://review.\nRead C:/Users/example/.codex/skills/SKILL.md.\n</app-context>"
+	const want = "<app-context>\n# Desktop context\n- The desktop app provides the following additional features:\nUse mcp__codex_app__open_in_codex and codex://review.\nRead C:/Users/example/.codex/skills/SKILL.md.\n</app-context>"
+	testutil.Equal(t, filterClientSystemText(context), want)
+	const explanation = "Within this context, Codex refers to the open-source agentic coding interface (not the old Codex language model built by OpenAI).\nFollow project rules."
+	testutil.Equal(t, filterClientSystemText(explanation), "Follow project rules.")
 }
 
 func TestBuildMessagesCodexMarkerFallbackAndHistoryPreservation(t *testing.T) {

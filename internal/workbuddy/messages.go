@@ -40,7 +40,19 @@ type ToolCallFunction struct {
 var (
 	anthropicBillingHeaderPattern = regexp.MustCompile(`(?i)^x-[a-z0-9-]*billing-header\s*:`)
 	anthropicCLIIdentityPattern   = regexp.MustCompile(`(?i)^you are claude code\b`)
-	codexCLIIdentityPattern       = regexp.MustCompile(`(?i)^you are codex\b`)
+	codexCLIIdentityPattern       = regexp.MustCompile(`(?i)^[ \t]*you are codex\b(?:[^.!?\r\n]|\.[0-9])*(?:[.!?][ \t]*|$)`)
+	codexCLIRuntimePattern        = regexp.MustCompile(`(?i)^[ \t]*you are a coding agent running in the codex cli\b[^.!?\r\n]*(?:[.!?][ \t]*|$)`)
+)
+
+// These are literal client boilerplate, not a general replacement of product
+// names. Paths, tool names, links, skills and project instructions keep their
+// original meaning and spelling.
+var codexSystemBoilerplate = strings.NewReplacer(
+	"Codex CLI is an open source project led by OpenAI. ", "",
+	"Codex CLI is an open source project led by OpenAI.", "",
+	"Within this context, Codex refers to the open-source agentic coding interface (not the old Codex language model built by OpenAI).", "",
+	"# Codex desktop context", "# Desktop context",
+	"You are running inside the Codex (desktop) app, which allows some additional features not available in the CLI alone:", "The desktop app provides the following additional features:",
 )
 
 // isAnthropicClientMarker reports whether a system block is first-party client
@@ -54,7 +66,7 @@ func isAnthropicClientMarker(text string) bool {
 		anthropicCLIIdentityPattern.MatchString(trimmed)
 }
 
-// filterClientSystemText removes client identity/metadata lines, not the whole
+// filterClientSystemText removes known client identity sentences, not the whole
 // instruction block. Responses instructions can contain the Codex identity and
 // all of the task's working rules in a single string. Preserve non-marker lines
 // byte-for-byte, including their line endings, and never apply this to history
@@ -63,11 +75,21 @@ func filterClientSystemText(text string) string {
 	var out strings.Builder
 	changed := false
 	for _, line := range strings.SplitAfter(text, "\n") {
-		if isAnthropicClientMarker(line) || codexCLIIdentityPattern.MatchString(strings.TrimSpace(line)) {
+		if isAnthropicClientMarker(line) {
 			changed = true
 			continue
 		}
-		out.WriteString(line)
+		cleaned := codexCLIIdentityPattern.ReplaceAllString(line, "")
+		cleaned = codexCLIRuntimePattern.ReplaceAllString(cleaned, "")
+		cleaned = codexSystemBoilerplate.Replace(cleaned)
+		if cleaned != line {
+			changed = true
+			// A removed marker-only line must not create an empty system block.
+			if strings.TrimSpace(cleaned) == "" {
+				continue
+			}
+		}
+		out.WriteString(cleaned)
 	}
 	if !changed {
 		return text
