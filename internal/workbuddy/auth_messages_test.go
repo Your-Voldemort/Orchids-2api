@@ -175,3 +175,65 @@ func TestBuildMessages_DefaultSystemPromptOnly(t *testing.T) {
 	testutil.Equal(t, messages[0].Content, defaultSystem)
 	testutil.Equal(t, messages[1].Role, "user")
 }
+
+func TestBuildMessagesFiltersClientIdentityAcrossSystemForms(t *testing.T) {
+	t.Parallel()
+	const instructions = "You are Codex, based on GPT-5. You are a coding agent running in the Codex CLI.\r\n" +
+		"Keep the user's changes.\r\n" +
+		"x-anthropic-billing-header: cc_version=test\r\n" +
+		"You are Claude Code, Anthropic's official CLI for Claude.\r\n" +
+		"Run the relevant tests."
+	const want = "Keep the user's changes.\r\nRun the relevant tests."
+	for _, form := range []string{"system_items", "system_string", "developer_string", "system_blocks", "developer_blocks"} {
+		t.Run(form, func(t *testing.T) {
+			req := upstream.UpstreamRequest{Messages: []prompt.Message{userMessage(t, "hello")}}
+			switch form {
+			case "system_items":
+				req.System = []prompt.SystemItem{{Type: "text", Text: instructions}}
+			case "system_string", "developer_string":
+				role := strings.TrimSuffix(form, "_string")
+				req.Messages = append([]prompt.Message{roleMessage(t, role, instructions)}, req.Messages...)
+			default:
+				role := strings.TrimSuffix(form, "_blocks")
+				req.Messages = append([]prompt.Message{{Role: role, Content: prompt.MessageContent{Blocks: []prompt.ContentBlock{
+					{Type: "text", Text: "  yOu ArE cOdEx.  "},
+					{Type: "text", Text: instructions},
+				}}}}, req.Messages...)
+			}
+			messages := buildMessages(req)
+			testutil.Equal(t, len(messages), 2)
+			testutil.Equal(t, messages[0].Role, "system")
+			testutil.Equal(t, messages[0].Content, want)
+			testutil.Equal(t, messages[1].Content, "hello")
+		})
+	}
+}
+
+func TestBuildMessagesCodexMarkerFallbackAndHistoryPreservation(t *testing.T) {
+	t.Parallel()
+	const marker = "You are Codex."
+	messages := buildMessages(upstream.UpstreamRequest{
+		System: []prompt.SystemItem{{Type: "text", Text: marker}},
+		Messages: []prompt.Message{
+			userMessage(t, marker),
+			{Role: "assistant", Content: prompt.MessageContent{Blocks: []prompt.ContentBlock{
+				{Type: "text", Text: marker},
+				{Type: "tool_use", ID: "call-codex", Name: "read_file", Input: map[string]interface{}{"path": "README.md"}},
+			}}},
+			{Role: "user", Content: prompt.MessageContent{Blocks: []prompt.ContentBlock{
+				{Type: "tool_result", ToolUseID: "call-codex", Content: marker},
+				{Type: "text", Text: marker},
+			}}},
+		},
+	})
+	testutil.Equal(t, len(messages), 5)
+	testutil.Equal(t, messages[0].Content, defaultSystem)
+	for _, message := range messages[1:] {
+		testutil.Equal(t, message.Content, marker)
+	}
+	testutil.Equal(t, messages[2].ToolCalls[0].ID, messages[3].ToolCallID)
+	for _, ordinary := range []string{"Use Codex conventions.\r\nKeep this spacing.  ", "You are Codexify, a helper.", "Explain why `You are Codex` appears in requests."} {
+		got := buildMessages(upstream.UpstreamRequest{System: []prompt.SystemItem{{Type: "text", Text: ordinary}}})
+		testutil.Equal(t, got[0].Content, ordinary)
+	}
+}

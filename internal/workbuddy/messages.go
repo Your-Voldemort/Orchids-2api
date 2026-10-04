@@ -40,6 +40,7 @@ type ToolCallFunction struct {
 var (
 	anthropicBillingHeaderPattern = regexp.MustCompile(`(?i)^x-[a-z0-9-]*billing-header\s*:`)
 	anthropicCLIIdentityPattern   = regexp.MustCompile(`(?i)^you are claude code\b`)
+	codexCLIIdentityPattern       = regexp.MustCompile(`(?i)^you are codex\b`)
 )
 
 // isAnthropicClientMarker reports whether a system block is first-party client
@@ -53,6 +54,27 @@ func isAnthropicClientMarker(text string) bool {
 		anthropicCLIIdentityPattern.MatchString(trimmed)
 }
 
+// filterClientSystemText removes client identity/metadata lines, not the whole
+// instruction block. Responses instructions can contain the Codex identity and
+// all of the task's working rules in a single string. Preserve non-marker lines
+// byte-for-byte, including their line endings, and never apply this to history
+// from users, assistants or tools.
+func filterClientSystemText(text string) string {
+	var out strings.Builder
+	changed := false
+	for _, line := range strings.SplitAfter(text, "\n") {
+		if isAnthropicClientMarker(line) || codexCLIIdentityPattern.MatchString(strings.TrimSpace(line)) {
+			changed = true
+			continue
+		}
+		out.WriteString(line)
+	}
+	if !changed {
+		return text
+	}
+	return out.String()
+}
+
 // buildMessages renders the request history. WorkBuddy validates roles against
 // a whitelist and requires messages[0] to be a system message, so system items
 // are emitted first, tool results become `tool` messages, and a minimal system
@@ -63,11 +85,11 @@ func buildMessages(req upstream.UpstreamRequest) []ChatMessage {
 	pendingToolCalls := make(map[string]bool)
 
 	for _, item := range req.System {
-		text := strings.TrimSpace(item.Text)
-		if text == "" || isAnthropicClientMarker(text) {
+		text := filterClientSystemText(item.Text)
+		if strings.TrimSpace(text) == "" {
 			continue
 		}
-		out = append(out, ChatMessage{Role: "system", Content: item.Text})
+		out = append(out, ChatMessage{Role: "system", Content: text})
 	}
 
 	for _, msg := range req.Messages {
@@ -83,12 +105,12 @@ func buildMessages(req upstream.UpstreamRequest) []ChatMessage {
 
 		if msg.Content.IsString() {
 			text := msg.Content.GetText()
+			if role == "system" {
+				text = filterClientSystemText(text)
+			}
 			if strings.TrimSpace(text) == "" {
 				// An empty text message carries nothing for the upstream and
 				// trips its role/content validation.
-				continue
-			}
-			if role == "system" && isAnthropicClientMarker(text) {
 				continue
 			}
 			out = append(out, ChatMessage{Role: role, Content: text, ReasoningContent: reasoningForReplay(msg)})
@@ -197,8 +219,12 @@ func convertBlockMessage(role string, msg prompt.Message, pendingToolCalls map[s
 	for _, block := range blocks {
 		switch block.Type {
 		case "text":
-			if strings.TrimSpace(block.Text) != "" {
-				pending = append(pending, block.Text)
+			text := block.Text
+			if role == "system" {
+				text = filterClientSystemText(text)
+			}
+			if strings.TrimSpace(text) != "" {
+				pending = append(pending, text)
 			}
 		case "tool_result":
 			flush()
