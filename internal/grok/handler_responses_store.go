@@ -433,7 +433,7 @@ func copyNativeCLIResponseAndCaptureModel(w http.ResponseWriter, body io.Reader,
 	}
 
 	flusher, _ := w.(http.Flusher)
-	target := io.MultiWriter(deadlineResponseWriter{w}, fullCapture)
+	target := io.MultiWriter(deadlineResponseWriter{ResponseWriter: w}, fullCapture)
 	terminal, done := false, false
 	failureCode, failureMessage := "", ""
 	tracker := &streamRepeatTracker{}
