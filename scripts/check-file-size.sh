@@ -24,7 +24,6 @@ internal/workbuddy/auth.go
 internal/handler/handler_helpers.go
 internal/qoder/stream.go
 internal/loadbalancer/loadbalancer.go
-internal/grok/handler_responses.go
 internal/grok/handler.go
 internal/api/api_ops.go
 internal/grok/quality_hold.go
