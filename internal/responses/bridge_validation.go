@@ -1,11 +1,11 @@
-package grok
+package responses
 
 import (
 	"fmt"
 	"strings"
 )
 
-// normalizeBridgedTools rewrites the tool declarations of a bridged Responses
+// NormalizeBridgedTools rewrites the tool declarations of a bridged Responses
 // request in place and returns the request-scoped identities the response side
 // needs to undo the rewrite.
 //
@@ -22,14 +22,14 @@ import (
 // the same message as before: forwarding the rest silently would answer a caller
 // who asked for an MCP server, a shell or a code interpreter with a model that
 // has none of them.
-func normalizeBridgedTools(req *ResponsesCreateRequest) (map[string]buildToolAliasIdentity, error) {
+func NormalizeBridgedTools(req *CreateRequest) (map[string]ToolAliasIdentity, error) {
 	if len(req.Tools) == 0 {
 		return nil, nil
 	}
 	// Hosted search tools are forwarded verbatim; every other non-function,
 	// non-namespace declaration is one the chat layer cannot serve at all.
 	for index, tool := range req.Tools {
-		kind := strings.ToLower(parseLooseStringAny(tool["type"]))
+		kind := strings.ToLower(ParseLooseStringAny(tool["type"]))
 		if kind == "function" || kind == "namespace" || kind == "" {
 			continue
 		}
@@ -38,10 +38,10 @@ func normalizeBridgedTools(req *ResponsesCreateRequest) (map[string]buildToolAli
 		}
 		return nil, fmt.Errorf("tools[%d]: tool type %q requires a native Responses provider", index, kind)
 	}
-	state := newBuildToolNormalizationState()
+	state := NewToolNormalizationState()
 	normalized := make([]map[string]interface{}, 0, len(req.Tools))
 	for index, tool := range req.Tools {
-		items, err := normalizeBuildTool(tool, "", false, false, fmt.Sprintf("tools[%d]", index), state)
+		items, err := NormalizeTool(tool, "", false, false, fmt.Sprintf("tools[%d]", index), state)
 		if err != nil {
 			return nil, err
 		}
@@ -60,28 +60,28 @@ func normalizeBridgedTools(req *ResponsesCreateRequest) (map[string]buildToolAli
 // bridgeToolAliases records the identity behind every flattened name. It walks
 // the original declarations: a namespace's children were flattened in the order
 // they appear, and state.lookup returns the name each one was actually given.
-func bridgeToolAliases(tools []map[string]interface{}, state *buildToolNormalizationState) map[string]buildToolAliasIdentity {
-	aliases := map[string]buildToolAliasIdentity{}
+func bridgeToolAliases(tools []map[string]interface{}, state *ToolNormalizationState) map[string]ToolAliasIdentity {
+	aliases := map[string]ToolAliasIdentity{}
 	var walk func([]map[string]interface{}, string)
 	walk = func(items []map[string]interface{}, namespace string) {
 		for _, tool := range items {
-			kind := strings.ToLower(parseLooseStringAny(tool["type"]))
+			kind := strings.ToLower(ParseLooseStringAny(tool["type"]))
 			if kind == "namespace" {
-				walk(interfaceMaps(tool["tools"]), parseLooseStringAny(tool["name"]))
+				walk(InterfaceMaps(tool["tools"]), ParseLooseStringAny(tool["name"]))
 				continue
 			}
 			if kind != "function" {
 				continue
 			}
-			name := parseLooseStringAny(tool["name"])
+			name := ParseLooseStringAny(tool["name"])
 			if nested, ok := tool["function"].(map[string]interface{}); ok {
-				name = parseLooseStringAny(nested["name"])
+				name = ParseLooseStringAny(nested["name"])
 			}
 			if name == "" || name == "<nil>" {
 				continue
 			}
-			aliases[state.lookup(namespace, name)] = buildToolAliasIdentity{
-				Kind: "function", Namespace: namespace, Name: name, Declaration: cloneStringInterfaceMap(tool),
+			aliases[state.Lookup(namespace, name)] = ToolAliasIdentity{
+				Kind: "function", Namespace: namespace, Name: name, Declaration: CloneStringInterfaceMap(tool),
 			}
 		}
 	}
@@ -92,7 +92,7 @@ func bridgeToolAliases(tools []map[string]interface{}, state *buildToolNormaliza
 // lowerBridgedInputToolNames maps the calls a client echoes back onto the flat
 // names the chat layer declared: a namespaced history item that kept its short
 // name would reach the upstream as a call to a tool it never saw.
-func lowerBridgedInputToolNames(input interface{}, state *buildToolNormalizationState) {
+func lowerBridgedInputToolNames(input interface{}, state *ToolNormalizationState) {
 	items, ok := input.([]interface{})
 	if !ok {
 		return
@@ -102,15 +102,15 @@ func lowerBridgedInputToolNames(input interface{}, state *buildToolNormalization
 		if !ok {
 			continue
 		}
-		if !strings.EqualFold(parseLooseStringAny(item["type"]), "function_call") {
+		if !strings.EqualFold(ParseLooseStringAny(item["type"]), "function_call") {
 			continue
 		}
-		name := parseLooseStringAny(item["name"])
+		name := ParseLooseStringAny(item["name"])
 		if name == "" {
 			continue
 		}
-		namespace := parseLooseStringAny(item["namespace"])
-		if alias := state.lookup(namespace, name); alias != "" && alias != name {
+		namespace := ParseLooseStringAny(item["namespace"])
+		if alias := state.Lookup(namespace, name); alias != "" && alias != name {
 			item["name"] = alias
 			delete(item, "namespace")
 		}
@@ -119,29 +119,29 @@ func lowerBridgedInputToolNames(input interface{}, state *buildToolNormalization
 
 // normalizeBridgeToolChoice points a `tool_choice` at the flattened name of the
 // function it names, so forcing a namespaced function still reaches the upstream.
-func normalizeBridgeToolChoice(choice interface{}, state *buildToolNormalizationState) interface{} {
+func normalizeBridgeToolChoice(choice interface{}, state *ToolNormalizationState) interface{} {
 	typed, ok := choice.(map[string]interface{})
 	if !ok {
 		return choice
 	}
-	name := parseLooseStringAny(typed["name"])
-	namespace := parseLooseStringAny(typed["namespace"])
+	name := ParseLooseStringAny(typed["name"])
+	namespace := ParseLooseStringAny(typed["namespace"])
 	if nested, ok := typed["function"].(map[string]interface{}); ok {
-		name = parseLooseStringAny(nested["name"])
-		namespace = parseLooseStringAny(nested["namespace"])
+		name = ParseLooseStringAny(nested["name"])
+		namespace = ParseLooseStringAny(nested["namespace"])
 	}
-	if !strings.EqualFold(parseLooseStringAny(typed["type"]), "function") {
+	if !strings.EqualFold(ParseLooseStringAny(typed["type"]), "function") {
 		return choice
 	}
-	if alias := state.lookup(namespace, name); alias != "" {
+	if alias := state.Lookup(namespace, name); alias != "" {
 		return map[string]interface{}{"type": "function", "name": alias}
 	}
 	return choice
 }
 
-// restoreBridgeToolName is the restore for a name on its own: the short name a
+// RestoreBridgeToolName is the restore for a name on its own: the short name a
 // flat name stands for, or the name itself when the bridge never aliased it.
-func restoreBridgeToolName(name string, aliases map[string]buildToolAliasIdentity) string {
+func RestoreBridgeToolName(name string, aliases map[string]ToolAliasIdentity) string {
 	identity, ok := aliases[strings.TrimSpace(name)]
 	if !ok || identity.Kind != "function" {
 		return name
@@ -149,11 +149,11 @@ func restoreBridgeToolName(name string, aliases map[string]buildToolAliasIdentit
 	return identity.Name
 }
 
-// restoreBridgeToolCall puts the identity the caller declared back on one tool
+// RestoreBridgeToolCall puts the identity the caller declared back on one tool
 // call: the short name, the namespace it belongs to, and — for a strict client
 // decoder — integer arguments the model returned as floats. flatName is the
 // name the chat layer used; item is mutated in place.
-func restoreBridgeToolCall(item map[string]interface{}, flatName string, aliases map[string]buildToolAliasIdentity) {
+func RestoreBridgeToolCall(item map[string]interface{}, flatName string, aliases map[string]ToolAliasIdentity) {
 	if item == nil {
 		return
 	}
@@ -166,23 +166,23 @@ func restoreBridgeToolCall(item map[string]interface{}, flatName string, aliases
 		item["namespace"] = identity.Namespace
 	}
 	if arguments, ok := item["arguments"].(string); ok {
-		if normalized, changed := normalizeFunctionArguments(arguments, aliasParameterSchema(identity)); changed {
+		if normalized, changed := NormalizeFunctionArguments(arguments, AliasParameterSchema(identity)); changed {
 			item["arguments"] = normalized
 		}
 	}
 }
 
-// restoreBridgeToolIdentity undoes the flattening on a whole response object,
+// RestoreBridgeToolIdentity undoes the flattening on a whole response object,
 // so every call in it carries the name the client declared. A caller that
 // declared no grouped tool gets the response untouched.
-func restoreBridgeToolIdentity(response map[string]interface{}, aliases map[string]buildToolAliasIdentity) {
+func RestoreBridgeToolIdentity(response map[string]interface{}, aliases map[string]ToolAliasIdentity) {
 	if len(aliases) == 0 {
 		return
 	}
 	restoreBridgeToolItems(response["output"], aliases)
 }
 
-func restoreBridgeToolItems(value interface{}, aliases map[string]buildToolAliasIdentity) {
+func restoreBridgeToolItems(value interface{}, aliases map[string]ToolAliasIdentity) {
 	switch typed := value.(type) {
 	case map[string]interface{}:
 		for key, child := range typed {
@@ -191,13 +191,24 @@ func restoreBridgeToolItems(value interface{}, aliases map[string]buildToolAlias
 			}
 			restoreBridgeToolItems(child, aliases)
 		}
-		if !strings.Contains(strings.ToLower(parseLooseStringAny(typed["type"])), "function_call") {
+		if !strings.Contains(strings.ToLower(ParseLooseStringAny(typed["type"])), "function_call") {
 			return
 		}
-		restoreBridgeToolCall(typed, parseLooseStringAny(typed["name"]), aliases)
+		RestoreBridgeToolCall(typed, ParseLooseStringAny(typed["name"]), aliases)
 	case []interface{}:
 		for _, child := range typed {
 			restoreBridgeToolItems(child, aliases)
 		}
 	}
+}
+
+// NativeToolTypes are the hosted (server-side) tools an OpenAI-compatible
+// client may declare in `tools`. They have no `function` object; they are
+// forwarded to the upstream Responses plane as native tools.
+var nativeToolTypes = map[string]string{
+	"web_search":                    "web_search",
+	"web_search_preview":            "web_search",
+	"web_search_preview_2025_03_11": "web_search",
+	"web_search_2025_08_26":         "web_search",
+	"x_search":                      "x_search",
 }

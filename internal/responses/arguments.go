@@ -1,4 +1,4 @@
-package grok
+package responses
 
 import (
 	"io"
@@ -17,10 +17,10 @@ import (
 // schema the caller supplied keeps the model's answer usable.
 const maxNormalizedNumberBytes = 256
 
-// normalizeFunctionArguments rewrites integral-but-float JSON numbers in
+// NormalizeFunctionArguments rewrites integral-but-float JSON numbers in
 // arguments to integer literals, guided by the tool's parameter schema. It
 // reports whether anything changed; the original string is returned otherwise.
-func normalizeFunctionArguments(arguments string, schema interface{}) (string, bool) {
+func NormalizeFunctionArguments(arguments string, schema interface{}) (string, bool) {
 	if strings.TrimSpace(arguments) == "" {
 		return arguments, false
 	}
@@ -191,10 +191,10 @@ func resolveLocalSchemaRef(root map[string]interface{}, ref string) (map[string]
 	return target, true
 }
 
-// aliasParameterSchema finds the JSON schema of an emulated/aliased tool. The
+// AliasParameterSchema finds the JSON schema of an emulated/aliased tool. The
 // client may have declared it in the flat Responses form or in the nested
 // Chat Completions form, under either spelling of the schema field.
-func aliasParameterSchema(identity buildToolAliasIdentity) map[string]interface{} {
+func AliasParameterSchema(identity ToolAliasIdentity) map[string]interface{} {
 	declaration := identity.Declaration
 	if declaration == nil {
 		return nil
@@ -214,14 +214,14 @@ func aliasParameterSchema(identity buildToolAliasIdentity) map[string]interface{
 	return nil
 }
 
-// normalizeAliasedFunctionArguments is the response-side entry point: it looks
+// NormalizeAliasedFunctionArguments is the response-side entry point: it looks
 // the tool up by the name the model called and normalizes its arguments.
-func normalizeAliasedFunctionArguments(name, arguments string, aliases map[string]buildToolAliasIdentity) (string, bool) {
+func NormalizeAliasedFunctionArguments(name, arguments string, aliases map[string]ToolAliasIdentity) (string, bool) {
 	identity, ok := aliases[strings.TrimSpace(name)]
 	if !ok || identity.Kind != "function" {
 		return arguments, false
 	}
-	schema := aliasParameterSchema(identity)
+	schema := AliasParameterSchema(identity)
 	if schema == nil {
 		return arguments, false
 	}
@@ -253,5 +253,5 @@ func normalizeAliasedFunctionArguments(name, arguments string, aliases map[strin
 		copySchema["properties"] = copyProperties
 		schema = copySchema
 	}
-	return normalizeFunctionArguments(arguments, schema)
+	return NormalizeFunctionArguments(arguments, schema)
 }

@@ -1,19 +1,17 @@
-package grok
+package responses
 
 import (
 	"fmt"
 	"strings"
 
 	"encoding/json"
-
-	"orchids-api/internal/util"
 )
 
-func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSearch, serverSearch bool, param string, state *buildToolNormalizationState) ([]map[string]interface{}, error) {
+func NormalizeTool(tool map[string]interface{}, namespace string, clientSearch, serverSearch bool, param string, state *ToolNormalizationState) ([]map[string]interface{}, error) {
 	kind := strings.ToLower(strings.TrimSpace(fmt.Sprint(tool["type"])))
 	if kind == "function" {
 		if nested, ok := tool["function"].(map[string]interface{}); ok {
-			flattened := cloneStringInterfaceMap(nested)
+			flattened := CloneStringInterfaceMap(nested)
 			flattened["type"] = "function"
 			tool = flattened
 		}
@@ -25,15 +23,15 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 			return nil, nil
 		}
 		if deferred, _ := tool["defer_loading"].(bool); deferred && !clientSearch && !serverSearch {
-			state.addWarning("orphan_deferred_tool_loaded")
+			state.AddWarning("orphan_deferred_tool_loaded")
 		}
-		out := cloneStringInterfaceMap(tool)
+		out := CloneStringInterfaceMap(tool)
 		delete(out, "defer_loading")
-		out["name"] = state.alias(namespace, name)
+		out["name"] = state.Alias(namespace, name)
 		if schema, ok := out["parameters"].(map[string]interface{}); ok {
-			normalized := normalizeBuildFunctionRoot(schema)
+			normalized := normalizeFunctionRoot(schema)
 			if !mapsEqualJSON(schema, normalized) {
-				state.addWarning("function_parameters_nullable_root_normalized")
+				state.AddWarning("function_parameters_nullable_root_normalized")
 			}
 			out["parameters"] = normalized
 		}
@@ -41,7 +39,7 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 	}
 	if kind == "namespace" {
 		name := strings.TrimSpace(fmt.Sprint(tool["name"]))
-		children := interfaceMaps(tool["tools"])
+		children := InterfaceMaps(tool["tools"])
 		if name == "" || name == "<nil>" || len(children) == 0 {
 			return nil, fmt.Errorf("%s namespace requires name and function tools", param)
 		}
@@ -50,7 +48,7 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 			if !strings.EqualFold(strings.TrimSpace(fmt.Sprint(child["type"])), "function") {
 				return nil, fmt.Errorf("%s.tools.%d must be a function", param, index)
 			}
-			items, err := normalizeBuildTool(child, name, clientSearch, serverSearch, fmt.Sprintf("%s.tools.%d", param, index), state)
+			items, err := NormalizeTool(child, name, clientSearch, serverSearch, fmt.Sprintf("%s.tools.%d", param, index), state)
 			if err != nil {
 				return nil, err
 			}
@@ -65,7 +63,7 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 		// The emulated function mirrors the upstream-compatible contract used
 		// upstream: one structured V4A operation, so the response side can
 		// restore `operation` on the apply_patch_call without parsing a patch.
-		state.addWarning("apply_patch_emulated")
+		state.AddWarning("apply_patch_emulated")
 		return []map[string]interface{}{{
 			"type": "function", "name": "apply_patch",
 			"description": "Create, update, or delete one file using a structured V4A patch operation. " +
@@ -88,13 +86,13 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 			"strict": true,
 		}}, nil
 	case "local_shell":
-		state.addWarning("local_shell_normalized")
-		out := cloneStringInterfaceMap(tool)
+		state.AddWarning("local_shell_normalized")
+		out := CloneStringInterfaceMap(tool)
 		out["type"] = "shell"
 		return []map[string]interface{}{out}, nil
 	case "web_search_preview", "web_search_preview_2025_03_11", "web_search_2025_08_26":
-		state.addWarning("web_search_controls_downgraded")
-		out := cloneStringInterfaceMap(tool)
+		state.AddWarning("web_search_controls_downgraded")
+		out := CloneStringInterfaceMap(tool)
 		out["type"] = "web_search"
 		return []map[string]interface{}{out}, nil
 	case "custom":
@@ -106,16 +104,16 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 			return nil, fmt.Errorf("%s.name is required", param)
 		}
 		if _, exists := tool["format"]; exists {
-			state.addWarning("custom_tool_format_downgraded")
+			state.AddWarning("custom_tool_format_downgraded")
 		}
-		state.addWarning("custom_tool_emulated")
-		description := strings.TrimSpace(parseLooseStringAny(tool["description"]))
+		state.AddWarning("custom_tool_emulated")
+		description := strings.TrimSpace(ParseLooseStringAny(tool["description"]))
 		if description != "" {
 			description += "\n"
 		}
 		description += "Provide the custom tool input in the input string field."
 		return []map[string]interface{}{{
-			"type": "function", "name": buildToolAlias(namespace, name), "description": description,
+			"type": "function", "name": BuildToolAlias(namespace, name), "description": description,
 			"parameters": map[string]interface{}{
 				"type":                 "object",
 				"properties":           map[string]interface{}{"input": map[string]interface{}{"type": "string"}},
@@ -124,13 +122,13 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 			},
 		}}, nil
 	case "x_search", "web_search":
-		out := cloneStringInterfaceMap(tool)
-		if stripWebSearchControlFields(out) {
-			state.addWarning("web_search_controls_downgraded")
+		out := CloneStringInterfaceMap(tool)
+		if StripWebSearchControlFields(out) {
+			state.AddWarning("web_search_controls_downgraded")
 		}
 		return []map[string]interface{}{out}, nil
 	case "mcp", "shell", "image_generation", "collections_search", "file_search", "code_execution", "code_interpreter":
-		return []map[string]interface{}{cloneStringInterfaceMap(tool)}, nil
+		return []map[string]interface{}{CloneStringInterfaceMap(tool)}, nil
 	case "computer_use_preview":
 		return nil, fmt.Errorf("%s.type computer_use_preview is not supported by Grok Build", param)
 	default:
@@ -138,8 +136,8 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 	}
 }
 
-func normalizeBuildFunctionRoot(schema map[string]interface{}) map[string]interface{} {
-	out := cloneStringInterfaceMap(schema)
+func normalizeFunctionRoot(schema map[string]interface{}) map[string]interface{} {
+	out := CloneStringInterfaceMap(schema)
 	if types, ok := out["type"].([]interface{}); ok {
 		filtered := make([]interface{}, 0, len(types))
 		for _, value := range types {
@@ -195,20 +193,7 @@ func normalizeBuildFunctionRoot(schema map[string]interface{}) map[string]interf
 	return out
 }
 
-func buildToolAlias(namespace, name string) string {
-	value := name
-	if strings.TrimSpace(namespace) != "" {
-		value = namespace + "__" + name
-	}
-	value = strings.Trim(buildToolAliasInvalid.ReplaceAllString(value, "_"), "_")
-	value = util.FirstNonEmptyUntrimmed(value, "tool")
-	if len(value) > 128 {
-		value = value[:128]
-	}
-	return value
-}
-
-func normalizeBuildToolChoice(payload map[string]interface{}, state *buildToolNormalizationState) {
+func NormalizeToolChoice(payload map[string]interface{}, state *ToolNormalizationState) {
 	choice, ok := payload["tool_choice"].(map[string]interface{})
 	if !ok {
 		return
@@ -216,7 +201,7 @@ func normalizeBuildToolChoice(payload map[string]interface{}, state *buildToolNo
 	kind := strings.ToLower(strings.TrimSpace(fmt.Sprint(choice["type"])))
 	if kind == "tool_search" {
 		payload["tool_choice"] = map[string]interface{}{"type": "function", "name": "tool_search"}
-		state.addWarning("server_tool_search_choice_downgraded")
+		state.AddWarning("server_tool_search_choice_downgraded")
 		return
 	}
 	if kind != "function" && kind != "apply_patch" {
@@ -226,14 +211,14 @@ func normalizeBuildToolChoice(payload map[string]interface{}, state *buildToolNo
 		payload["tool_choice"] = map[string]interface{}{"type": "function", "name": "apply_patch"}
 		return
 	}
-	name := strings.TrimSpace(parseLooseStringAny(choice["name"]))
-	namespace := strings.TrimSpace(parseLooseStringAny(choice["namespace"]))
+	name := strings.TrimSpace(ParseLooseStringAny(choice["name"]))
+	namespace := strings.TrimSpace(ParseLooseStringAny(choice["namespace"]))
 	if nested, ok := choice["function"].(map[string]interface{}); ok {
 		name = strings.TrimSpace(fmt.Sprint(nested["name"]))
-		namespace = strings.TrimSpace(parseLooseStringAny(nested["namespace"]))
+		namespace = strings.TrimSpace(ParseLooseStringAny(nested["namespace"]))
 	}
 	if name != "" && name != "<nil>" {
-		payload["tool_choice"] = map[string]interface{}{"type": "function", "name": state.alias(namespace, name)}
+		payload["tool_choice"] = map[string]interface{}{"type": "function", "name": state.Alias(namespace, name)}
 	}
 }
 

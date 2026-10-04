@@ -1,4 +1,4 @@
-package grok
+package responses
 
 import (
 	"fmt"
@@ -7,11 +7,11 @@ import (
 
 // The response object's status takes
 // precedence over the event label. A terminal label cannot finish queued work.
-func responseTerminalFinish(kind string, response map[string]interface{}) (string, error) {
+func TerminalFinish(kind string, response map[string]interface{}) (string, error) {
 	if kind == "response.failed" || kind == "error" || response["error"] != nil {
-		return "error", responseFailure(response)
+		return "error", Failure(response)
 	}
-	status := interfaceString(response["status"])
+	status := ParseLooseStringAny(response["status"])
 	if status == "" {
 		status = "completed"
 		if kind == "response.incomplete" {
@@ -24,7 +24,7 @@ func responseTerminalFinish(kind string, response map[string]interface{}) (strin
 	case "incomplete":
 		return "length", nil
 	case "failed", "cancelled":
-		return "error", fmt.Errorf("upstream response %s: %w", status, responseFailure(response))
+		return "error", fmt.Errorf("upstream response %s: %w", status, Failure(response))
 	case "queued", "in_progress":
 		if kind == "" {
 			return status, nil
@@ -33,24 +33,24 @@ func responseTerminalFinish(kind string, response map[string]interface{}) (strin
 	return "error", fmt.Errorf("upstream terminal response has invalid status %q", status)
 }
 
-func consoleExtractRefusal(response map[string]interface{}) string {
+func ExtractRefusal(response map[string]interface{}) string {
 	var result strings.Builder
-	for _, raw := range interfaceSlice(response["output"]) {
+	for _, raw := range InterfaceSlice(response["output"]) {
 		item, _ := raw.(map[string]interface{})
-		if streamString(item["type"]) != "message" {
+		if StreamString(item["type"]) != "message" {
 			continue
 		}
-		for _, raw := range interfaceSlice(item["content"]) {
+		for _, raw := range InterfaceSlice(item["content"]) {
 			part, _ := raw.(map[string]interface{})
-			if streamString(part["type"]) == "refusal" {
-				result.WriteString(streamString(part["refusal"]))
+			if StreamString(part["type"]) == "refusal" {
+				result.WriteString(StreamString(part["refusal"]))
 			}
 		}
 	}
 	return result.String()
 }
 
-func responseStatusFromFinish(finish string) (string, interface{}) {
+func StatusFromFinish(finish string) (string, interface{}) {
 	switch finish {
 	case "length":
 		return "incomplete", map[string]interface{}{"reason": "max_output_tokens"}
@@ -61,15 +61,15 @@ func responseStatusFromFinish(finish string) (string, interface{}) {
 	}
 }
 
-func responseAnnotations(raw interface{}) []interface{} {
+func Annotations(raw interface{}) []interface{} {
 	out := []interface{}{}
-	for _, raw := range interfaceSlice(raw) {
+	for _, raw := range InterfaceSlice(raw) {
 		item, ok := raw.(map[string]interface{})
 		if !ok {
 			continue
 		}
 		if nested, ok := item["url_citation"].(map[string]interface{}); ok {
-			item = cloneStringInterfaceMap(nested)
+			item = CloneStringInterfaceMap(nested)
 			item["type"] = "url_citation"
 		}
 		out = append(out, item)

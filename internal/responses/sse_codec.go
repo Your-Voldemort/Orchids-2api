@@ -1,5 +1,4 @@
-// Responses SSE codec: read the upstream byte stream without disturbing it.
-package grok
+package responses
 
 import (
 	"bufio"
@@ -11,9 +10,9 @@ import (
 	"orchids-api/internal/util"
 )
 
-const upstreamMaxEventBytes = 8 << 20
+const maxEventBytes = 8 << 20
 
-type compatibleSSEEvent struct {
+type SSEEvent struct {
 	Event    string
 	ID       string
 	Retry    string
@@ -28,7 +27,7 @@ type compatibleSSEEvent struct {
 	raw []byte
 }
 
-func (e compatibleSSEEvent) Data() []byte {
+func (e SSEEvent) Data() []byte {
 	if len(e.data) == 0 {
 		return nil
 	}
@@ -48,9 +47,9 @@ func (e compatibleSSEEvent) Data() []byte {
 	return joined
 }
 
-func (e compatibleSSEEvent) HasData() bool { return len(e.data) > 0 }
+func (e SSEEvent) HasData() bool { return len(e.data) > 0 }
 
-func (e compatibleSSEEvent) writeTo(writer io.Writer) error {
+func (e SSEEvent) writeTo(writer io.Writer) error {
 	if len(e.raw) > 0 {
 		_, err := writer.Write(e.raw)
 		return err
@@ -89,10 +88,10 @@ func (e compatibleSSEEvent) writeTo(writer io.Writer) error {
 	return err
 }
 
-// splitSSELinesKeepingEnd is bufio.ScanLines without the line-ending rewrite: the
+// splitLinesKeepingEnd is bufio.ScanLines without the line-ending rewrite: the
 // token keeps its own "\n" or "\r\n" so a relayed frame reproduces the upstream
 // bytes exactly. The blank line that ends a frame is a token of its own.
-func splitSSELinesKeepingEnd(data []byte, atEOF bool) (advance int, token []byte, err error) {
+func splitLinesKeepingEnd(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	if i := bytes.IndexByte(data, '\n'); i >= 0 {
 		return i + 1, data[:i+1], nil
 	}
@@ -102,13 +101,13 @@ func splitSSELinesKeepingEnd(data []byte, atEOF bool) (advance int, token []byte
 	return 0, nil, nil
 }
 
-func consumeCompatibleSSE(source io.Reader, handle func(compatibleSSEEvent) error) error {
+func ConsumeSSE(source io.Reader, handle func(SSEEvent) error) error {
 	scanner := bufio.NewScanner(source)
 	buffer := util.AcquireStreamBuffer()
 	defer util.ReleaseStreamBuffer(buffer)
-	scanner.Buffer(buffer[:], upstreamMaxEventBytes)
-	scanner.Split(splitSSELinesKeepingEnd)
-	event := compatibleSSEEvent{}
+	scanner.Buffer(buffer[:], maxEventBytes)
+	scanner.Split(splitLinesKeepingEnd)
+	event := SSEEvent{}
 	eventBytes := 0
 	firstLine := true
 	var rawFrame []byte
@@ -119,7 +118,7 @@ func consumeCompatibleSSE(source io.Reader, handle func(compatibleSSEEvent) erro
 		}
 		current := event
 		current.raw = append([]byte(nil), rawFrame...)
-		event = compatibleSSEEvent{}
+		event = SSEEvent{}
 		eventBytes = 0
 		rawFrame = rawFrame[:0]
 		return handle(current)
@@ -139,8 +138,8 @@ func consumeCompatibleSSE(source io.Reader, handle func(compatibleSSEEvent) erro
 			continue
 		}
 		eventBytes += len(line)
-		if eventBytes > upstreamMaxEventBytes {
-			return fmt.Errorf("Grok Build Responses SSE 单事件超过 %d MiB", upstreamMaxEventBytes>>20)
+		if eventBytes > maxEventBytes {
+			return fmt.Errorf("Grok Build Responses SSE 单事件超过 %d MiB", maxEventBytes>>20)
 		}
 		field, value, found := strings.Cut(line, ":")
 		if found && strings.HasPrefix(value, " ") {
@@ -167,12 +166,4 @@ func consumeCompatibleSSE(source io.Reader, handle func(compatibleSSEEvent) erro
 		return err
 	}
 	return flush()
-}
-
-// isPrivateBuildControlEvent reports whether an event is Grok Build's private
-// control traffic rather than part of the public Responses stream. It matches
-// both the SSE event name and the payload `type`, because the upstream emits
-// the marker in either place, so both spellings are matched.
-func isPrivateBuildControlEvent(kind string) bool {
-	return strings.TrimSpace(kind) == "response.doom_loop_check"
 }

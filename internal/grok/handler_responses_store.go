@@ -473,12 +473,11 @@ func copyNativeCLIResponseAndCaptureModel(w http.ResponseWriter, body io.Reader,
 		}
 		if supplementResponsesEvent(event, compat) || redactResponseError(event) {
 			raw, _ := json.Marshal(event)
-			frame.data = []string{string(raw)}
 			// The compat layer changed the payload, so the frame cannot be relayed
 			// as the upstream sent it.
-			frame.raw = nil
+			frame.SetData(string(raw))
 		}
-		if err := frame.writeTo(target); err != nil {
+		if err := frame.WriteFrame(target); err != nil {
 			result.Err = err
 			return err
 		}
@@ -537,8 +536,9 @@ func copyNativeCLIResponseAndCaptureModel(w http.ResponseWriter, body io.Reader,
 				"error":  map[string]interface{}{"code": failureCode, "message": failureMessage},
 			},
 		})
-		frame := compatibleSSEEvent{Event: "response.failed", data: []string{string(failure)}}
-		if err := frame.writeTo(target); err != nil {
+		frame := compatibleSSEEvent{Event: "response.failed"}
+		frame.SetData(string(failure))
+		if err := frame.WriteFrame(target); err != nil {
 			result.Err = err
 			return
 		}
