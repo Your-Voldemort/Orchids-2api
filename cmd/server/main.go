@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
+	"orchids-api/internal/modelrefresh"
+	"orchids-api/internal/refresh"
 	"os"
 	"os/signal"
 	"syscall"
@@ -203,7 +205,7 @@ func main() {
 		middleware.SetDetailedOutcomeRecorder(opsAggregator.Observe)
 		wiredOps = opsAggregator
 		apiHandler.SetOpsAggregator(opsAggregator)
-		apiHandler.SetRefreshConcurrencyReporter(grokRefreshHub.Len)
+		apiHandler.SetRefreshConcurrencyReporter(refresh.Hub.Len)
 		// Alert transitions are journalled as system events, which is what makes a
 		// failure and its recovery one traceable pair.
 		alertRules := alerting.DefaultRules()
@@ -224,7 +226,7 @@ func main() {
 		defer accountBus.Close()
 		accountBus.Subscribe(lb)
 		accountBus.Subscribe(h)
-		accountBus.Subscribe(refreshKick)
+		accountBus.Subscribe(refresh.Kick)
 		wiredStore = s
 		s.SetChangeEmitter(accountChangeEmitter{bus: accountBus})
 		slog.Info("Operations aggregation wired",
@@ -310,8 +312,8 @@ func main() {
 	defer cancelBackground()
 	updater.StartBackground(ctx)
 
-	startTokenRefreshLoop(ctx, apiHandler.ConfigSnapshot, s, lb)
-	startModelCatalogRefreshLoop(ctx, apiHandler.ConfigSnapshot, s)
+	refresh.StartTokenRefreshLoop(ctx, apiHandler.ConfigSnapshot, s, lb)
+	modelrefresh.StartCatalogRefreshLoop(ctx, apiHandler.ConfigSnapshot, s)
 	// Alert evaluation runs beside the refresh loop: it reads the same metric
 	// buckets the overview shows, so an alert and the page never disagree.
 	alerting.StartLoop(ctx, wiredOps, s, alertEngine, wiredAuditLogger)

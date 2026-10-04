@@ -9,7 +9,6 @@ $exempt = @(
   'internal/handler/handler.go',
   'internal/qoder/request.go',
   'internal/qoder/client.go',
-  'cmd/server/model_refresh.go',
   'internal/grok/native_chat.go',
   'internal/workbuddy/auth.go',
   'internal/handler/handler_helpers.go',

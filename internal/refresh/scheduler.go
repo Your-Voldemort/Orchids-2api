@@ -1,8 +1,9 @@
-package main
+package refresh
 
 import (
 	"context"
 	"log/slog"
+	"orchids-api/internal/modelrefresh"
 	"strings"
 	"time"
 
@@ -18,10 +19,12 @@ import (
 	"orchids-api/internal/workbuddy"
 )
 
-const providerHealthRefreshInterval = 30 * time.Minute
+// ProviderHealthRefreshInterval is how often a channel catalog is re-read.
+const ProviderHealthRefreshInterval = 30 * time.Minute
 
-// grokRefreshHub is shared by the admin check path and the refresh scheduler.
-var grokRefreshHub = refreshqueue.Default()
+// Hub is shared by the admin check path and the refresh scheduler.
+// Hub is shared by the admin check path and the refresh scheduler.
+var Hub = refreshqueue.Default()
 
 // refreshCLIAccount refreshes a Build CLI OAuth account access token before it
 // expires. The CLIClient oauth layer handles the refresh_token grant and
@@ -95,21 +98,21 @@ func grokCLIBillingNeedsSync(acc *store.Account, now time.Time) bool {
 	if acc == nil || acc.GrokBilling.SyncedAt.IsZero() {
 		return true
 	}
-	return now.Sub(acc.GrokBilling.SyncedAt) >= providerHealthRefreshInterval
+	return now.Sub(acc.GrokBilling.SyncedAt) >= ProviderHealthRefreshInterval
 }
 
 func qoderQuotaRefreshDue(acc *store.Account, now time.Time) bool {
 	if acc == nil || acc.QoderQuota.SyncedAt.IsZero() {
 		return true
 	}
-	return now.Sub(acc.QoderQuota.SyncedAt) >= providerHealthRefreshInterval
+	return now.Sub(acc.QoderQuota.SyncedAt) >= ProviderHealthRefreshInterval
 }
 
 func qoderCatalogRefreshDue(acc *store.Account, now time.Time) bool {
 	if acc == nil || len(acc.QoderModelIDs) == 0 || acc.QoderModelsSyncedAt.IsZero() {
 		return true
 	}
-	return now.Sub(acc.QoderModelsSyncedAt) >= providerHealthRefreshInterval
+	return now.Sub(acc.QoderModelsSyncedAt) >= ProviderHealthRefreshInterval
 }
 
 func refreshQoderCatalog(ctx context.Context, cfg *config.Config, s *store.Store, acc *store.Account) {
@@ -126,7 +129,7 @@ func refreshQoderCatalog(ctx context.Context, cfg *config.Config, s *store.Store
 		slog.Warn("Auto refresh qoder catalog failed; keeping the last snapshot", "account_id", acc.ID, "error", err)
 		return
 	}
-	persistAccountCatalogSnapshot(ctx, s, acc, "qoder", qoder.CatalogSnapshot(catalog), "Auto refresh qoder catalog: update account failed")
+	modelrefresh.PersistAccountCatalogSnapshot(ctx, s, acc, "qoder", qoder.CatalogSnapshot(catalog), "Auto refresh qoder catalog: update account failed")
 }
 
 // refreshQoderQuota reads the same authoritative allowance endpoint used by a
@@ -173,7 +176,7 @@ func workBuddyCatalogRefreshDue(acc *store.Account, now time.Time) bool {
 	if len(acc.WorkBuddyModelIDs) == 0 || acc.WorkBuddyModelsSyncedAt.IsZero() {
 		return true
 	}
-	return now.Sub(acc.WorkBuddyModelsSyncedAt) >= providerHealthRefreshInterval
+	return now.Sub(acc.WorkBuddyModelsSyncedAt) >= ProviderHealthRefreshInterval
 }
 
 // refreshWorkBuddyCatalog keeps the account-scoped CLI whitelist current without
@@ -193,7 +196,7 @@ func refreshWorkBuddyCatalog(ctx context.Context, cfg *config.Config, s *store.S
 			slog.Warn("Auto refresh workbuddy catalog failed; keeping the last snapshot", "account_id", acc.ID, "error", err)
 			return
 		}
-		persistAccountCatalogSnapshot(ctx, s, acc, "workbuddy", workbuddy.CatalogSnapshot(models), "Auto refresh workbuddy catalog: update account failed")
+		modelrefresh.PersistAccountCatalogSnapshot(ctx, s, acc, "workbuddy", workbuddy.CatalogSnapshot(models), "Auto refresh workbuddy catalog: update account failed")
 	}) {
 		slog.Debug("Auto refresh workbuddy catalog: account already refreshing", "account_id", acc.ID)
 	}
@@ -208,7 +211,7 @@ func workBuddyQuotaRefreshDue(acc *store.Account, now time.Time) bool {
 	if acc.WorkBuddyQuota.SyncedAt.IsZero() {
 		return true
 	}
-	return now.Sub(acc.WorkBuddyQuota.SyncedAt) >= providerHealthRefreshInterval
+	return now.Sub(acc.WorkBuddyQuota.SyncedAt) >= ProviderHealthRefreshInterval
 }
 
 // refreshWorkBuddyQuota re-reads the credit meter the account table, the
@@ -272,7 +275,7 @@ func clineCatalogRefreshDue(acc *store.Account, now time.Time) bool {
 	if len(acc.ClineModelIDs) == 0 || acc.ClineModelsSyncedAt.IsZero() {
 		return true
 	}
-	return now.Sub(acc.ClineModelsSyncedAt) >= providerHealthRefreshInterval
+	return now.Sub(acc.ClineModelsSyncedAt) >= ProviderHealthRefreshInterval
 }
 
 // refreshClineCatalog re-reads the account's model feed.
@@ -295,13 +298,14 @@ func refreshClineCatalog(ctx context.Context, cfg *config.Config, s *store.Store
 			slog.Warn("Auto refresh cline catalog failed; keeping the last snapshot", "account_id", acc.ID, "error", err)
 			return
 		}
-		persistAccountCatalogSnapshot(ctx, s, acc, "cline", cline.CatalogSnapshot(models), "Auto refresh cline catalog: update account failed")
+		modelrefresh.PersistAccountCatalogSnapshot(ctx, s, acc, "cline", cline.CatalogSnapshot(models), "Auto refresh cline catalog: update account failed")
 	}) {
 		slog.Debug("Auto refresh cline catalog: account already refreshing", "account_id", acc.ID)
 	}
 }
 
-func startTokenRefreshLoop(ctx context.Context, configSnapshot func() *config.Config, s *store.Store, lb *loadbalancer.LoadBalancer) {
+// StartTokenRefreshLoop refreshes account credentials on their own schedule.
+func StartTokenRefreshLoop(ctx context.Context, configSnapshot func() *config.Config, s *store.Store, lb *loadbalancer.LoadBalancer) {
 	cfg := configSnapshot()
 	if cfg == nil || !cfg.AutoRefreshToken {
 		return
@@ -380,7 +384,7 @@ func startTokenRefreshLoop(ctx context.Context, configSnapshot func() *config.Co
 				return
 			case <-ticker.C:
 				refreshAccounts()
-			case <-refreshKick.Channel():
+			case <-Kick.Channel():
 				// An account was created, edited, deleted or rotated: the due set
 				// changed, so waiting out the rest of the tick would be wrong. The
 				// subscriber coalesces bursts, so a multi-field update wakes the
@@ -392,9 +396,11 @@ func startTokenRefreshLoop(ctx context.Context, configSnapshot func() *config.Co
 	}()
 }
 
-// refreshKick wakes the refresh loop when an account changes, so a new account is
+// Kick wakes the refresh loop when an account changes, so a new account is
 // picked up immediately instead of after up to one full interval.
-var refreshKick = accountevents.NewFilteredKick(
+// Kick wakes the refresh loop when an account changes, so a new account is
+// picked up without waiting for the next tick.
+var Kick = accountevents.NewFilteredKick(
 	[]accountevents.Kind{accountevents.KindCreated, accountevents.KindCredential},
 	store.AccountChangeOriginScheduler,
 )

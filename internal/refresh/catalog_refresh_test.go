@@ -1,4 +1,4 @@
-package main
+package refresh
 
 import (
 	"context"
@@ -18,8 +18,8 @@ import (
 
 func TestCatalogRefreshDueUsesProviderSyncTimestamp(t *testing.T) {
 	now := time.Now()
-	fresh := now.Add(-providerHealthRefreshInterval + time.Minute)
-	stale := now.Add(-providerHealthRefreshInterval - time.Minute)
+	fresh := now.Add(-ProviderHealthRefreshInterval + time.Minute)
+	stale := now.Add(-ProviderHealthRefreshInterval - time.Minute)
 
 	testutil.False(t, clineCatalogRefreshDue(nil, now) || workBuddyCatalogRefreshDue(nil, now), "nil accounts must not be due")
 	testutil.False(t, !clineCatalogRefreshDue(&store.Account{}, now) || !workBuddyCatalogRefreshDue(&store.Account{}, now), "empty snapshots must be due")
@@ -82,8 +82,8 @@ func TestRefreshWorkBuddyCatalogPersistsSuccessAndKeepsLKGOnFailure(t *testing.T
 // 36-hour-old allowance for an account whose balance had already moved.
 func TestWorkBuddyQuotaRefreshDueUsesMeterTimestamp(t *testing.T) {
 	now := time.Now()
-	fresh := now.Add(-providerHealthRefreshInterval + time.Minute)
-	stale := now.Add(-providerHealthRefreshInterval - time.Minute)
+	fresh := now.Add(-ProviderHealthRefreshInterval + time.Minute)
+	stale := now.Add(-ProviderHealthRefreshInterval - time.Minute)
 
 	testutil.False(t, workBuddyQuotaRefreshDue(nil, now), "a nil account must not be due")
 	testutil.False(t, !workBuddyQuotaRefreshDue(&store.Account{}, now), "an account with no meter reading must be due")

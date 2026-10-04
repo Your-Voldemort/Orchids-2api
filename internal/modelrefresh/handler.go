@@ -17,8 +17,15 @@ type refreshRequest struct {
 // NewRefreshHandler serves POST /api/models/refresh. A refresh is serialized
 // per channel: a second request for a channel that is already refreshing is
 // rejected instead of racing it.
+// NewRefreshHandler serves POST /api/models/refresh with its own coordinator.
 func NewRefreshHandler(configSnapshot func() *config.Config, s *store.Store) http.HandlerFunc {
-	coordinator := NewCoordinator()
+	return NewRefreshHandlerWithCoordinator(configSnapshot, s, NewCoordinator())
+}
+
+// NewRefreshHandlerWithCoordinator serves the same endpoint against a caller
+// owned coordinator, so one process can share a single serialization point
+// across handlers and tests.
+func NewRefreshHandlerWithCoordinator(configSnapshot func() *config.Config, s *store.Store, coordinator *Coordinator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

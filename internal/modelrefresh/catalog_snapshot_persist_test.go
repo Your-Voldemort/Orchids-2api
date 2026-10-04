@@ -1,4 +1,4 @@
-package main
+package modelrefresh
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func TestPersistAccountCatalogSnapshotChannels(t *testing.T) {
 			testutil.NoError(t, s.CreateAccount(ctx, acc))
 			before := time.Now()
 			want := []string{"model-a", "model-b"}
-			persistAccountCatalogSnapshot(ctx, s, acc, tt.channel, want, "test update failure")
+			PersistAccountCatalogSnapshot(ctx, s, acc, tt.channel, want, "test update failure")
 			got, err := s.GetAccount(ctx, acc.ID)
 			testutil.NoError(t, err)
 			testutil.Falsef(t, !reflect.DeepEqual(tt.ids(got), want), "persisted ids = %v; want %v", tt.ids(got), want)
@@ -37,7 +37,7 @@ func TestPersistAccountCatalogSnapshotChannels(t *testing.T) {
 			testutil.Falsef(t, stamp.Before(before) || stamp.After(time.Now()), "persisted timestamp = %v, not within refresh interval", stamp)
 			// An empty observation must preserve the in-memory and stored last-known-good snapshot and timestamp.
 			for _, empty := range [][]string{nil, {}} {
-				persistAccountCatalogSnapshot(ctx, s, acc, tt.channel, empty, "test update failure")
+				PersistAccountCatalogSnapshot(ctx, s, acc, tt.channel, empty, "test update failure")
 				after, err := s.GetAccount(ctx, acc.ID)
 				testutil.NoError(t, err)
 				if !reflect.DeepEqual(tt.ids(after), want) || !tt.synced(after).Equal(stamp) ||
@@ -55,7 +55,7 @@ func TestPersistAccountCatalogSnapshotZeroIDPreservesAutoBehavior(t *testing.T) 
 	s, cleanup := setupModelRefreshStore(t)
 	defer cleanup()
 	acc := &store.Account{}
-	persistAccountCatalogSnapshot(context.Background(), s, acc, "cline", []string{"m"}, "test update failure")
+	PersistAccountCatalogSnapshot(context.Background(), s, acc, "cline", []string{"m"}, "test update failure")
 	testutil.Falsef(t, !reflect.DeepEqual(acc.ClineModelIDs, []string{"m"}) || acc.ClineModelsSyncedAt.IsZero(), "zero-ID automatic snapshot was not mutated: %+v", acc)
 	// Manual discovery keeps its pre-existing zero-ID guard.
 	manual := &store.Account{}

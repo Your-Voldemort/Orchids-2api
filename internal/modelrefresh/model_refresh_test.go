@@ -1,4 +1,4 @@
-package main
+package modelrefresh
 
 import (
 	"context"
@@ -22,11 +22,11 @@ func TestMakeModelRefreshHandler_UsesBodyChannel(t *testing.T) {
 	prev := runModelRefresh
 	defer func() { runModelRefresh = prev }()
 
-	runModelRefresh = func(ctx context.Context, cfg *config.Config, s *store.Store, channel string, concurrency int) (*modelRefreshResult, error) {
-		return &modelRefreshResult{Channel: channel, Source: "stub", Concurrency: concurrency, Discovered: 3, Verified: 2}, nil
+	runModelRefresh = func(ctx context.Context, cfg *config.Config, s *store.Store, channel string, concurrency int) (*Result, error) {
+		return &Result{Channel: channel, Source: "stub", Concurrency: concurrency, Discovered: 3, Verified: 2}, nil
 	}
 
-	handler := makeCoordinatedModelRefreshHandler(func() *config.Config { return &config.Config{} }, nil, newModelRefreshCoordinator())
+	handler := NewRefreshHandler(func() *config.Config { return &config.Config{} }, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/models/refresh?channel=cline&concurrency=99", strings.NewReader(`{"channel":"workbuddy","concurrency":8}`))
 	rec := httptest.NewRecorder()
 
@@ -34,7 +34,7 @@ func TestMakeModelRefreshHandler_UsesBodyChannel(t *testing.T) {
 
 	testutil.Equal(t, rec.Code, http.StatusOK)
 
-	var resp modelRefreshResult
+	var resp Result
 	testutil.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp), "decode response: %v")
 	testutil.Equal(t, resp.Channel, "workbuddy")
 	testutil.Equal(t, resp.Verified, 2)
@@ -46,13 +46,12 @@ func TestModelRefreshCoordinatorRejectsDuplicateChannel(t *testing.T) {
 	defer func() { runModelRefresh = prev }()
 	started := make(chan struct{})
 	release := make(chan struct{})
-	runModelRefresh = func(ctx context.Context, cfg *config.Config, s *store.Store, channel string, concurrency int) (*modelRefreshResult, error) {
+	runModelRefresh = func(ctx context.Context, cfg *config.Config, s *store.Store, channel string, concurrency int) (*Result, error) {
 		close(started)
 		<-release
-		return &modelRefreshResult{Channel: channel}, nil
+		return &Result{Channel: channel}, nil
 	}
-	coordinator := newModelRefreshCoordinator()
-	handler := makeCoordinatedModelRefreshHandler(func() *config.Config { return &config.Config{} }, nil, coordinator)
+	handler := NewRefreshHandlerWithCoordinator(func() *config.Config { return &config.Config{} }, nil, NewCoordinator())
 	firstDone := make(chan struct{})
 	go func() {
 		handler(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/models/refresh?channel=workbuddy", nil))
@@ -273,7 +272,7 @@ func TestSyncAccountCatalogAggregatesAllAccountsAndProtectsPartialPrune(t *testi
 			}
 
 			done := make(chan struct{})
-			var result *modelRefreshResult
+			var result *Result
 			var refreshErr error
 			go func() {
 				result, refreshErr = syncModelsForChannelConcurrent(ctx, cfg, s, tc.name, 2)
