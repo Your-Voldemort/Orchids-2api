@@ -44,7 +44,7 @@ type chatStreamOptions struct {
 func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request ResponsesCreateRequest, reader io.Reader, opts chatStreamOptions) {
 	aliases := opts.toolAliases
 	streamResponseHeaders(w)
-	writer := &checkedStreamWriter{target: w}
+	writer := &checkedStreamWriter{Target: w}
 	id := "resp_" + randomHex(12)
 	created := time.Now().Unix()
 	items := []*chatResponseItem{}
@@ -72,7 +72,7 @@ func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request Re
 		sequence++
 		data, err := json.Marshal(payload)
 		if err != nil {
-			writer.err = err
+			writer.Err = err
 			return
 		}
 		_, _ = fmt.Fprintf(writer, "event: %s\ndata: %s\n\n", kind, data)
@@ -107,12 +107,12 @@ func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request Re
 		}
 	}
 	emit("response.created", map[string]interface{}{"response": response("in_progress")})
-	if writer.err != nil {
+	if writer.Err != nil {
 		return
 	}
 	err := readResponseSSEBytes(reader, func(event string, data []byte) error {
-		if writer.err != nil {
-			return writer.err
+		if writer.Err != nil {
+			return writer.Err
 		}
 		if bytes.Equal(data, []byte("[DONE]")) {
 			sawDone = true
@@ -294,7 +294,7 @@ func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request Re
 				}
 			}
 		}
-		return writer.err
+		return writer.Err
 	})
 	if err == io.EOF {
 		err = nil
@@ -318,7 +318,7 @@ func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request Re
 			item.value["arguments"] = args
 		}
 	}
-	if writer.err != nil {
+	if writer.Err != nil {
 		return
 	}
 	if err != nil {
