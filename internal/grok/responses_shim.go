@@ -73,3 +73,9 @@ func readResponseSSE(reader io.Reader, consume func(string, string) error) error
 func normalizeBridgedToolsLocal(req *ResponsesCreateRequest) (map[string]buildToolAliasIdentity, error) {
 	return responses.NormalizeBridgedTools((*responses.CreateRequest)(req))
 }
+
+// Aliases for the stored-response helpers that moved to internal/responses.
+var (
+	responsesOwnerHash      = responses.OwnerHash
+	responsesInputItemsJSON = responses.InputItemsJSON
+)
