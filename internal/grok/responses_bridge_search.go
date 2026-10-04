@@ -39,9 +39,22 @@ func prepareBridgeSearch(w http.ResponseWriter, r *http.Request, req *ResponsesC
 		return nil, false
 	}
 	for key := range searchTool {
-		if key != "type" && key != "search_context_size" {
+		if key != "type" && key != "search_context_size" && key != "external_web_access" {
 			writeGrokError(w, 400, "web search option is not supported by this backend: "+key)
 			return nil, false
+		}
+	}
+	liveAccess := true
+	if value, exists := searchTool["external_web_access"]; exists {
+		var valid bool
+		liveAccess, valid = value.(bool)
+		if !valid {
+			writeGrokError(w, 400, "external_web_access must be a boolean")
+			return nil, false
+		}
+		// OpenAI preview tools always use live access, including explicit false.
+		if interfaceString(searchTool["type"]) != "web_search" {
+			liveAccess = true
 		}
 	}
 	choiceText, _ := req.ToolChoice.(string)
@@ -133,7 +146,13 @@ func prepareBridgeSearch(w http.ResponseWriter, r *http.Request, req *ResponsesC
 			writeGrokError(w, 502, "search planner returned invalid keywords")
 			return nil, false
 		}
-		results, err := opts.Search.Search(r.Context(), query)
+		var results []SearchResult
+		var err error
+		if liveAccess {
+			results, err = opts.Search.Search(r.Context(), query)
+		} else if cached, ok := opts.Search.(interface{ SearchCached(string) []SearchResult }); ok {
+			results = cached.SearchCached(query)
+		}
 		if err != nil {
 			writeGrokError(w, 502, err.Error())
 			return nil, false
@@ -143,7 +162,7 @@ func prepareBridgeSearch(w http.ResponseWriter, r *http.Request, req *ResponsesC
 			sources = append(sources, map[string]interface{}{"type": "url", "url": result.URL})
 		}
 		items = append(items, map[string]interface{}{"id": "ws_" + randomHex(12), "type": "web_search_call", "status": "completed", "action": map[string]interface{}{"type": "search", "query": query, "sources": sources}})
-		evidence = append(evidence, map[string]interface{}{"query": query, "results": results})
+		evidence = append(evidence, map[string]interface{}{"query": query, "results": results, "external_web_access": liveAccess})
 	}
 	if len(evidence) > 0 {
 		encoded, _ := json.Marshal(evidence)

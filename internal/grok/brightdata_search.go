@@ -3,6 +3,7 @@ package grok
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"orchids-api/internal/config"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +24,52 @@ type SearchResult struct {
 
 type BridgeSearch interface {
 	Search(context.Context, string) ([]SearchResult, error)
+}
+
+// Shared by immutable runtime snapshots; keys isolate credentials and zones.
+// Offline searches never populate the cache or issue network requests.
+var brightDataCache = struct {
+	sync.Mutex
+	entries map[[32]byte]searchCacheEntry
+}{entries: make(map[[32]byte]searchCacheEntry)}
+
+type searchCacheEntry struct {
+	results []SearchResult
+	expires time.Time
+}
+
+func (b *BrightDataSearch) cacheKey(query string) [32]byte {
+	return sha256.Sum256([]byte(b.key + "\x00" + b.zone + "\x00" + strings.TrimSpace(query)))
+}
+
+func (b *BrightDataSearch) SearchCached(query string) []SearchResult {
+	brightDataCache.Lock()
+	defer brightDataCache.Unlock()
+	key := b.cacheKey(query)
+	entry, ok := brightDataCache.entries[key]
+	if !ok || !time.Now().Before(entry.expires) {
+		delete(brightDataCache.entries, key)
+		return []SearchResult{}
+	}
+	return append([]SearchResult{}, entry.results...)
+}
+
+func (b *BrightDataSearch) cacheResults(query string, results []SearchResult) {
+	brightDataCache.Lock()
+	defer brightDataCache.Unlock()
+	now := time.Now()
+	for key, entry := range brightDataCache.entries {
+		if !now.Before(entry.expires) {
+			delete(brightDataCache.entries, key)
+		}
+	}
+	if len(brightDataCache.entries) >= 256 {
+		for key := range brightDataCache.entries {
+			delete(brightDataCache.entries, key)
+			break
+		}
+	}
+	brightDataCache.entries[b.cacheKey(query)] = searchCacheEntry{append([]SearchResult{}, results...), now.Add(time.Hour)}
 }
 
 // Credentials stay outside public runtime configuration and diagnostic payloads.
@@ -145,6 +193,7 @@ func (b *BrightDataSearch) Search(ctx context.Context, query string) ([]SearchRe
 			break
 		}
 	}
+	b.cacheResults(query, results)
 	return results, nil
 }
 

@@ -18,4 +18,6 @@ WorkBuddy、Qoder 和 Cline 的 Responses 桥接可使用 Bright Data SERP API�
 
 免费额度目前为每月 5,000 credits，与其他符合条件的 Bright Data 产品共享，以其账户套餐为准。
 
+`web_search.external_web_access` 省略或为 `true` 时执行实时搜索；为 `false` 时只读取本进程已有结果缓存，不请求 Bright Data，缓存未命中返回空来源。缓存保留一小时、最多 256 条，按密钥与 Zone 隔离，重启后清空；这是网关缓存，不是 OpenAI 的离线索引。Preview 工具按 OpenAI 语义忽略该布尔开关，始终允许实时搜索。非布尔值拒绝。
+
 默认测试使用本地模拟。真实接口测试需显式设置 `BRIGHTDATA_LIVE_TEST=1` 和私有配置路径后运行 `go test ./internal/grok -run TestBrightDataLiveSearch -v`，会消耗一次真实搜索请求。

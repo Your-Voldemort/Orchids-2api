@@ -106,7 +106,7 @@ func TestResponsesBrightDataBridge(t *testing.T) {
 			}
 			var stored map[string]interface{}
 			_ = stored
-			body, _ := json.Marshal(map[string]interface{}{"model": "test", "stream": stream, "input": "find Go docs", "tool_choice": map[string]interface{}{"type": "web_search"}, "tools": []interface{}{map[string]interface{}{"type": "web_search"}}})
+			body, _ := json.Marshal(map[string]interface{}{"model": "test", "stream": stream, "input": "find Go docs", "tool_choice": map[string]interface{}{"type": "web_search"}, "tools": []interface{}{map[string]interface{}{"type": "web_search", "external_web_access": true}}})
 			rec := httptest.NewRecorder()
 			ResponsesBridgeHandler(chat, ResponsesBridgeOptions{Search: search})(rec, httptest.NewRequest("POST", "/workbuddy/v1/responses", strings.NewReader(string(body))))
 			if rec.Code != 200 || calls != 2 || len(search.calls) != 1 {
@@ -119,6 +119,55 @@ func TestResponsesBrightDataBridge(t *testing.T) {
 				t.Fatalf("duplicate or missing completion: %s", rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestResponsesExternalWebAccess(t *testing.T) {
+	for _, path := range []string{"/workbuddy/v1/responses", "/qoder/v1/responses"} {
+		for _, tc := range []struct {
+			kind             string
+			value            interface{}
+			status, searches int
+		}{
+			{"web_search", false, 200, 0},
+			{"web_search", true, 200, 1},
+			{"web_search_preview", false, 200, 1},
+			{"web_search", "false", 400, 0},
+			{"web_search", nil, 400, 0},
+		} {
+			search := &fakeBridgeSearch{}
+			chat := func(w http.ResponseWriter, r *http.Request) {
+				var request ChatCompletionsRequest
+				json.NewDecoder(r.Body).Decode(&request)
+				io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"{\"queries\":[\"Go documentation\"]}"},"finish_reason":"stop"}]}`)
+			}
+			body, _ := json.Marshal(map[string]interface{}{"model": "test", "input": "find docs", "tool_choice": "required", "tools": []interface{}{map[string]interface{}{"type": tc.kind, "external_web_access": tc.value}}})
+			rec := httptest.NewRecorder()
+			ResponsesBridgeHandler(chat, ResponsesBridgeOptions{Search: search})(rec, httptest.NewRequest("POST", path, strings.NewReader(string(body))))
+			if rec.Code != tc.status || len(search.calls) != tc.searches {
+				t.Fatalf("%s %s %v: status=%d searches=%d body=%s", path, tc.kind, tc.value, rec.Code, len(search.calls), rec.Body.String())
+			}
+		}
+	}
+}
+
+func TestBrightDataOfflineCache(t *testing.T) {
+	b := &BrightDataSearch{key: "offline-cache-test", zone: "one"}
+	if len(b.SearchCached("docs")) != 0 {
+		t.Fatal("cold cache fabricated results")
+	}
+	b.cacheResults("docs", []SearchResult{{URL: "https://go.dev/"}})
+	copy := &BrightDataSearch{key: b.key, zone: b.zone}
+	results := copy.SearchCached("docs")
+	if len(results) != 1 {
+		t.Fatal("runtime snapshot lost cache")
+	}
+	results[0].URL = "mutated"
+	if b.SearchCached("docs")[0].URL != "https://go.dev/" {
+		t.Fatal("cache aliased caller")
+	}
+	if len((&BrightDataSearch{key: b.key, zone: "two"}).SearchCached("docs")) != 0 {
+		t.Fatal("cache crossed zone")
 	}
 }
 
