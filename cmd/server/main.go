@@ -213,7 +213,7 @@ func main() {
 				alertRules = saved
 			}
 		}
-		alertEngine = alerting.NewEngine(alertRules, newAuditAlertRecorder(auditLogger))
+		alertEngine = alerting.NewEngine(alertRules, alerting.AuditRecorder(auditLogger))
 		apiHandler.SetAlertEngine(alertEngine)
 		wiredAuditLogger = auditLogger
 		// One account change, three caches: the pool snapshot, the cached upstream
@@ -314,7 +314,7 @@ func main() {
 	startModelCatalogRefreshLoop(ctx, apiHandler.ConfigSnapshot, s)
 	// Alert evaluation runs beside the refresh loop: it reads the same metric
 	// buckets the overview shows, so an alert and the page never disagree.
-	startAlertLoop(ctx, wiredOps, s, alertEngine, wiredAuditLogger)
+	alerting.StartLoop(ctx, wiredOps, s, alertEngine, wiredAuditLogger)
 	logReachability("WorkBuddy backend", "workbuddy", workbuddy.DefaultBaseURL,
 		func() reachableClient { return workbuddy.NewFromAccount(nil, cfg) })
 	logReachability("Qoder control plane", "qoder", qoder.DefaultOpenAPIBaseURL,

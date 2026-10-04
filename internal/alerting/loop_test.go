@@ -1,4 +1,4 @@
-package main
+package alerting
 
 import (
 	"context"
@@ -21,16 +21,16 @@ func TestAlertSnapshotRejectsPartialEvidence(t *testing.T) {
 	now := time.Now()
 	agg.Observe(context.Background(), opsagg.Outcome{Channel: "grok", OK: true, At: now})
 	mini.Set(s.RedisPrefix()+"accounts:ids", "invalid")
-	_, err = buildAlertSnapshot(context.Background(), agg, s)
+	_, err = BuildSnapshot(context.Background(), agg, s)
 	testutil.Error(t, err)
 	mini.Del(s.RedisPrefix() + "accounts:ids")
 	mini.Del(aggKeyForAlertTest(s.RedisPrefix(), now) + ":dur")
 	mini.Set(aggKeyForAlertTest(s.RedisPrefix(), now)+":dur", "invalid")
-	_, err = buildAlertSnapshot(context.Background(), agg, s)
+	_, err = BuildSnapshot(context.Background(), agg, s)
 	testutil.Error(t, err)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = buildAlertSnapshot(ctx, agg, s)
+	_, err = BuildSnapshot(ctx, agg, s)
 	testutil.Error(t, err)
 }
 

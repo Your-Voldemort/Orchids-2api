@@ -1,4 +1,4 @@
-package main
+package alerting
 
 import (
 	"context"
@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"orchids-api/internal/accountpolicy"
-	"orchids-api/internal/alerting"
 	"orchids-api/internal/audit"
 	"orchids-api/internal/opsagg"
+	"orchids-api/internal/poolstate"
 	"orchids-api/internal/store"
 )
 
@@ -23,7 +23,10 @@ const alertEvery = 60 * time.Second
 
 // startAlertLoop evaluates the alert rules and journals every firing and
 // recovery, so a failure has a start, an owner and an end in one place.
-func startAlertLoop(ctx context.Context, agg *opsagg.Aggregator, s *store.Store, engine *alerting.Engine, logger audit.Logger) {
+// StartLoop evaluates the alert rules and journals every firing and recovery.
+// It returns immediately: evaluation runs on its own goroutine until ctx is
+// cancelled.
+func StartLoop(ctx context.Context, agg *opsagg.Aggregator, s *store.Store, engine *Engine, logger audit.Logger) {
 	if agg == nil || !agg.Enabled() || engine == nil {
 		slog.Debug("Alert evaluation disabled (no metric aggregation)")
 		return
@@ -31,7 +34,7 @@ func startAlertLoop(ctx context.Context, agg *opsagg.Aggregator, s *store.Store,
 	evaluate := func() {
 		evaluationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		snapshot, err := buildAlertSnapshot(evaluationCtx, agg, s)
+		snapshot, err := BuildSnapshot(evaluationCtx, agg, s)
 		if err != nil {
 			slog.Warn("Alert evaluation failed", "error", err)
 			return
@@ -67,10 +70,10 @@ func startAlertLoop(ctx context.Context, agg *opsagg.Aggregator, s *store.Store,
 
 // buildAlertSnapshot assembles the evidence one evaluation pass needs: per
 // channel request outcomes, pool availability and credential state.
-func buildAlertSnapshot(ctx context.Context, agg *opsagg.Aggregator, s *store.Store) (alerting.Snapshot, error) {
+func BuildSnapshot(ctx context.Context, agg *opsagg.Aggregator, s *store.Store) (Snapshot, error) {
 	now := time.Now()
 	since := now.Add(-time.Duration(alertWindowMinutes) * time.Minute)
-	snapshot := alerting.Snapshot{At: now}
+	snapshot := Snapshot{At: now}
 
 	channels, err := agg.Channels(ctx, since, now)
 	if err != nil {
@@ -82,9 +85,9 @@ func buildAlertSnapshot(ctx context.Context, agg *opsagg.Aggregator, s *store.St
 	}
 
 	seen := map[string]bool{}
-	add := func(channel string) (alerting.ChannelSnapshot, error) {
+	add := func(channel string) (ChannelSnapshot, error) {
 		buckets, rangeErr := agg.Range(ctx, channel, since, now)
-		entry := alerting.ChannelSnapshot{Channel: channel}
+		entry := ChannelSnapshot{Channel: channel}
 		if rangeErr != nil {
 			return entry, rangeErr
 		}
@@ -98,7 +101,11 @@ func buildAlertSnapshot(ctx context.Context, agg *opsagg.Aggregator, s *store.St
 		entry.Failed = summary.Failed
 		entry.Samples = summary.Samples
 		entry.SuccessRate = summary.SuccessRate
-		entry.AccountsEnabled, entry.AccountsAvailable, entry.AccountsNeedingLogin, entry.ModelCooldowns = alertPoolCounts(accounts, channel, now)
+		pool := poolstate.Counts(accounts, channel, now, poolstate.NeedingLoginReverify)
+		entry.AccountsEnabled = pool.Enabled
+		entry.AccountsAvailable = pool.Available
+		entry.AccountsNeedingLogin = pool.NeedingLogin
+		entry.ModelCooldowns = pool.ModelCooldowns
 		return entry, ctx.Err()
 	}
 
@@ -112,7 +119,7 @@ func buildAlertSnapshot(ctx context.Context, agg *opsagg.Aggregator, s *store.St
 	}
 	// A channel with accounts but no traffic still matters: an exhausted pool must
 	// alert even when no request has been served yet.
-	for _, channel := range alertChannels(accounts) {
+	for _, channel := range ChannelsForAccounts(accounts) {
 		if seen[channel] {
 			continue
 		}
@@ -125,7 +132,7 @@ func buildAlertSnapshot(ctx context.Context, agg *opsagg.Aggregator, s *store.St
 	return snapshot, nil
 }
 
-func alertChannels(accounts []*store.Account) []string {
+func ChannelsForAccounts(accounts []*store.Account) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, 8)
 	for _, acc := range accounts {
@@ -166,8 +173,8 @@ func alertPoolCounts(accounts []*store.Account, channel string, now time.Time) (
 	return enabled, available, needingLogin, modelCooldowns
 }
 
-func newAuditAlertRecorder(logger audit.Logger) func(alerting.Alert, bool) {
-	return func(alert alerting.Alert, firing bool) {
+func AuditRecorder(logger audit.Logger) func(Alert, bool) {
+	return func(alert Alert, firing bool) {
 		if logger == nil {
 			return
 		}
