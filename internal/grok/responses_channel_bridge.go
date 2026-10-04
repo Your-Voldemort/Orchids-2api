@@ -167,8 +167,8 @@ func ResponsesBridgeHandler(chat http.HandlerFunc, opts ResponsesBridgeOptions) 
 					return
 				}
 				writeResponsesStreamFromChatReaderRequest(w, req, reader, chatStreamOptions{
-					toolAliases: aliases,
-					onComplete:  bridgedResponseRecorder(r, req, opts),
+					ToolAliases: aliases,
+					OnComplete:  bridgedResponseRecorder(r, req, opts),
 				})
 			})
 			return
