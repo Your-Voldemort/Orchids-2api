@@ -8,7 +8,7 @@
 // the summary turn itself, keeps the plain text in a blob only this gateway can
 // open (`g2a_compact_v1.<sealed>`), and expands it back into an ordinary user
 // message whenever the client replays it.
-package grok
+package responses
 
 import (
 	"bytes"
@@ -52,7 +52,7 @@ const (
 // empty. The Grok Build source appends this text as the final user item of every
 // compaction attempt, so the summary is only reproducible with the same prompt.
 //
-//go:embed responses_compaction_prompt.txt
+//go:embed compaction_prompt.txt
 var gatewayCompactionPrompt string
 
 type gatewayCompactionKind uint8
@@ -141,11 +141,11 @@ func classifyResponsesCompactionPayload(payload map[string]interface{}) gatewayC
 	if payload == nil {
 		return responsesCompactionNone
 	}
-	input := interfaceSlice(payload["input"])
+	input := InterfaceSlice(payload["input"])
 	if hasCompactionTrigger(input) {
 		return responsesCompactionTrigger
 	}
-	if lastItemLooksLikeCompactionPrompt(input) || lastItemLooksLikeCompactionPrompt(interfaceSlice(payload["messages"])) {
+	if lastItemLooksLikeCompactionPrompt(input) || lastItemLooksLikeCompactionPrompt(InterfaceSlice(payload["messages"])) {
 		return responsesCompactionTUI
 	}
 	return responsesCompactionNone
@@ -157,7 +157,7 @@ func hasCompactionTrigger(items []interface{}) bool {
 		if !ok {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(parseLooseStringAny(item["type"])), "compaction_trigger") {
+		if strings.EqualFold(strings.TrimSpace(ParseLooseStringAny(item["type"])), "compaction_trigger") {
 			return true
 		}
 	}
@@ -169,7 +169,7 @@ func lastItemLooksLikeCompactionPrompt(items []interface{}) bool {
 		return false
 	}
 	item, ok := items[len(items)-1].(map[string]interface{})
-	if !ok || !strings.EqualFold(strings.TrimSpace(parseLooseStringAny(item["role"])), "user") {
+	if !ok || !strings.EqualFold(strings.TrimSpace(ParseLooseStringAny(item["role"])), "user") {
 		return false
 	}
 	return looksLikeCompactionPrompt(compactionContentText(item["content"]))
@@ -192,11 +192,11 @@ func compactionContentText(content interface{}) string {
 			if !ok {
 				continue
 			}
-			builder.WriteString(parseLooseStringAny(part["text"]))
+			builder.WriteString(ParseLooseStringAny(part["text"]))
 		}
 		return builder.String()
 	case map[string]interface{}:
-		return parseLooseStringAny(typed["text"])
+		return ParseLooseStringAny(typed["text"])
 	default:
 		return ""
 	}
@@ -218,10 +218,10 @@ func expandGatewayCompactionHistory(payload map[string]interface{}, codec *gatew
 	changed := false
 	for index, raw := range items {
 		item, ok := raw.(map[string]interface{})
-		if !ok || parseLooseStringAny(item["type"]) != "compaction" {
+		if !ok || ParseLooseStringAny(item["type"]) != "compaction" {
 			continue
 		}
-		blob := parseLooseStringAny(item["encrypted_content"])
+		blob := ParseLooseStringAny(item["encrypted_content"])
 		summary, owned, sessionDrifted, decodeErr := codec.decode(session, blob)
 		if decodeErr != nil {
 			return drifted, &compactionBlobError{index: index, cause: decodeErr}
@@ -394,8 +394,8 @@ func gatewayCompactionSummaryMessage(text string) map[string]interface{} {
 }
 
 type gatewayCompactionSample struct {
-	response map[string]interface{}
-	summary  string
+	Response map[string]interface{}
+	Summary  string
 }
 
 type gatewayCompactionStreamError struct {
@@ -416,7 +416,7 @@ var (
 func parseGatewayCompactionStream(data []byte) (gatewayCompactionSample, error) {
 	var completed map[string]interface{}
 	var streamedParts []string
-	err := consumeCompatibleSSE(bytes.NewReader(data), func(event compatibleSSEEvent) error {
+	err := ConsumeSSE(bytes.NewReader(data), func(event SSEEvent) error {
 		if !event.HasData() || bytes.Equal(bytes.TrimSpace(event.Data()), []byte("[DONE]")) {
 			return nil
 		}
@@ -424,7 +424,7 @@ func parseGatewayCompactionStream(data []byte) (gatewayCompactionSample, error) 
 		if json.Unmarshal(event.Data(), &payload) != nil {
 			return nil
 		}
-		kind := strings.TrimSpace(parseLooseStringAny(payload["type"]))
+		kind := strings.TrimSpace(ParseLooseStringAny(payload["type"]))
 		if kind == "" {
 			kind = strings.TrimSpace(event.Event)
 		}
@@ -441,8 +441,8 @@ func parseGatewayCompactionStream(data []byte) (gatewayCompactionSample, error) 
 			response, _ := payload["response"].(map[string]interface{})
 			errorValue, _ := response["error"].(map[string]interface{})
 			return newGatewayCompactionStreamError(
-				strings.TrimSpace(parseLooseStringAny(errorValue["code"])),
-				strings.TrimSpace(parseLooseStringAny(errorValue["message"])),
+				strings.TrimSpace(ParseLooseStringAny(errorValue["code"])),
+				strings.TrimSpace(ParseLooseStringAny(errorValue["message"])),
 			)
 		case "error", "response.error":
 			errorValue, _ := payload["error"].(map[string]interface{})
@@ -450,8 +450,8 @@ func parseGatewayCompactionStream(data []byte) (gatewayCompactionSample, error) 
 				errorValue = payload
 			}
 			return newGatewayCompactionStreamError(
-				strings.TrimSpace(parseLooseStringAny(errorValue["code"])),
-				strings.TrimSpace(parseLooseStringAny(errorValue["message"])),
+				strings.TrimSpace(ParseLooseStringAny(errorValue["code"])),
+				strings.TrimSpace(ParseLooseStringAny(errorValue["message"])),
 			)
 		}
 		return nil
@@ -466,7 +466,7 @@ func parseGatewayCompactionStream(data []byte) (gatewayCompactionSample, error) 
 	if summary == "" {
 		summary = strings.Join(streamedParts, "\n")
 	}
-	return gatewayCompactionSample{response: completed, summary: summary}, nil
+	return gatewayCompactionSample{Response: completed, Summary: summary}, nil
 }
 
 func newGatewayCompactionStreamError(code, message string) error {
@@ -510,7 +510,7 @@ func gatewayCompactionErrorIsTransient(err error) bool {
 }
 
 func gatewayCompactionItemText(item map[string]interface{}) []string {
-	if parseLooseStringAny(item["type"]) != "message" {
+	if ParseLooseStringAny(item["type"]) != "message" {
 		return nil
 	}
 	content, _ := item["content"].([]interface{})
@@ -520,9 +520,9 @@ func gatewayCompactionItemText(item map[string]interface{}) []string {
 		if !ok {
 			continue
 		}
-		switch parseLooseStringAny(value["type"]) {
+		switch ParseLooseStringAny(value["type"]) {
 		case "output_text", "text":
-			if text := strings.TrimSpace(parseLooseStringAny(value["text"])); text != "" {
+			if text := strings.TrimSpace(ParseLooseStringAny(value["text"])); text != "" {
 				parts = append(parts, text)
 			}
 		}
@@ -531,7 +531,7 @@ func gatewayCompactionItemText(item map[string]interface{}) []string {
 }
 
 func extractCompactionSummary(response map[string]interface{}) string {
-	if text := strings.TrimSpace(parseLooseStringAny(response["output_text"])); text != "" {
+	if text := strings.TrimSpace(ParseLooseStringAny(response["output_text"])); text != "" {
 		return text
 	}
 	var parts []string
@@ -597,7 +597,7 @@ func nonNegativeJSONIntegerOK(value interface{}) (int64, bool) {
 func buildGatewayCompactionResponse(response map[string]interface{}, blob, model string) map[string]interface{} {
 	result := clonePayload(response)
 	normalizeGatewayCompactionUsage(result)
-	responseID := strings.TrimSpace(parseLooseStringAny(result["id"]))
+	responseID := strings.TrimSpace(ParseLooseStringAny(result["id"]))
 	if responseID == "" {
 		responseID = "resp_" + compactionRandomHex(16)
 	}
@@ -682,3 +682,161 @@ func compactionHTTPErrorIsTransient(status int, body string) bool {
 // gatewayCompactionRetryPause is a variable so a test can drive the retry
 // without sleeping for the production pause.
 var gatewayCompactionRetryPause = gatewayCompactionRetryDelay
+
+// Exported facade for the compaction machinery. The gateway runs a compaction
+// turn itself so the resulting state stays portable across accounts, and both
+// the native Build path and the chat bridge need the same codec and stream
+// writer.
+
+// CompactionCodec seals and opens a compaction blob.
+type CompactionCodec = gatewayCompactionCodec
+
+// NewCompactionCodec returns a codec for the given cipher.
+func NewCompactionCodec(cipher *secureblob.Cipher) *CompactionCodec {
+	return newGatewayCompactionCodec(cipher)
+}
+
+// CompactionKind classifies a compaction turn.
+type CompactionKind = gatewayCompactionKind
+
+const (
+	CompactionNone    = responsesCompactionNone
+	CompactionTrigger = responsesCompactionTrigger
+	CompactionTUI     = responsesCompactionTUI
+)
+
+// CompactionMaxAttempts and CompactionRetryPause bound the retry loop around a
+// summary turn.
+const (
+	CompactionMaxAttempts = gatewayCompactionMaxAttempts
+	MaxCompactionSummary  = maxGatewayCompactionSummary
+)
+
+// ClassifyCompactionPayload decides whether a payload is a compaction turn.
+func ClassifyCompactionPayload(payload map[string]interface{}) CompactionKind {
+	return classifyResponsesCompactionPayload(payload)
+}
+
+// PrepareCompactionSample strips the compaction controls out of a payload.
+func PrepareCompactionSample(payload map[string]interface{}) map[string]interface{} {
+	return prepareGatewayCompactionSample(payload)
+}
+
+// ExpandCompactionHistory reopens sealed blobs in a replayed history.
+func ExpandCompactionHistory(payload map[string]interface{}, codec *CompactionCodec, session string) (int, error) {
+	return expandGatewayCompactionHistory(payload, codec, session)
+}
+
+// BuildCompactionResponse renders the compaction result object.
+func BuildCompactionResponse(response map[string]interface{}, blob, model string) map[string]interface{} {
+	return buildGatewayCompactionResponse(response, blob, model)
+}
+
+// WriteCompactionStream emits the synthetic SSE sequence a compaction client expects.
+func WriteCompactionStream(w io.Writer, response map[string]interface{}) error {
+	return writeGatewayCompactionStream(w, response)
+}
+
+// CompactionRandomHex mints the random half of a synthetic response id.
+func CompactionRandomHex(size int) string { return compactionRandomHex(size) }
+
+// ExtractCompactionSummary reads the summary text out of a completed response.
+func ExtractCompactionSummary(response map[string]interface{}) string {
+	return extractCompactionSummary(response)
+}
+
+// CompactionSummaryMessage wraps text as the summary user message.
+func CompactionSummaryMessage(text string) map[string]interface{} {
+	return gatewayCompactionSummaryMessage(text)
+}
+
+// CompactionStreamError is the typed failure of a summary turn.
+type CompactionStreamError = gatewayCompactionStreamError
+
+// NewCompactionStreamError builds a typed compaction stream failure.
+func NewCompactionStreamError(code, message string) error {
+	return newGatewayCompactionStreamError(code, message)
+}
+
+// CompactionErrorIsTransient reports whether a summary-turn failure is retryable.
+func CompactionErrorIsTransient(err error) bool { return gatewayCompactionErrorIsTransient(err) }
+
+// CompactionBlobError is the typed failure of opening a sealed blob.
+type CompactionBlobError = compactionBlobError
+
+// CompactionCleanSummary normalizes a summary the model produced.
+func CompactionCleanSummary(raw string) string { return cleanGatewayCompactionSummary(raw) }
+
+// IsDegenerateCompactionSummary reports whether a summary is unusable.
+func IsDegenerateCompactionSummary(summary string) bool {
+	return isDegenerateGatewayCompactionSummary(summary)
+}
+
+// CompactionContinuation returns the continuation prompt for a partial summary.
+func CompactionContinuation(raw string) string { return gatewayCompactionContinuation(raw) }
+
+// CompactionRetryPause is the delay between summary-turn attempts. It is a
+// variable so a test can drive the retry loop without sleeping for seconds.
+var CompactionRetryPause = gatewayCompactionRetryPause
+
+// SetCompactionRetryPause overrides the retry pause and returns the previous
+// value, for tests.
+func SetCompactionRetryPause(d time.Duration) time.Duration {
+	previous := gatewayCompactionRetryPause
+	gatewayCompactionRetryPause = d
+	return previous
+}
+
+// CompactionPrompt is the summary prompt sent for a gateway compaction turn.
+var CompactionPrompt = gatewayCompactionPrompt
+
+// NormalizeCompactionUsage rewrites the usage block of a compaction result.
+func NormalizeCompactionUsage(response map[string]interface{}) {
+	normalizeGatewayCompactionUsage(response)
+}
+
+// Available reports whether the codec can seal and open blobs.
+func (c *CompactionCodec) Available() bool { return c.available() }
+
+// Encode seals a summary into a blob this gateway can reopen.
+func (c *CompactionCodec) Encode(session, summary string) (string, error) {
+	return c.encode(session, summary)
+}
+
+// Decode opens a blob, reporting whether this gateway owns it and whether the
+// session key drifted.
+func (c *CompactionCodec) Decode(session, blob string) (summary string, owned, sessionDrifted bool, err error) {
+	return c.decode(session, blob)
+}
+
+// CompactionHTTPErrorIsTransient reports whether an HTTP failure is retryable.
+func CompactionHTTPErrorIsTransient(status int, body string) bool {
+	return compactionHTTPErrorIsTransient(status, body)
+}
+
+// ParseCompactionStream reads one SSE sample out of a summary stream.
+func ParseCompactionStream(data []byte) (gatewayCompactionSample, error) {
+	return parseGatewayCompactionStream(data)
+}
+
+// CompactionSample is one parsed summary-turn sample.
+type CompactionSample = gatewayCompactionSample
+
+// ErrCompactionDegenerate marks a summary the model could not produce.
+var ErrCompactionDegenerate = errGatewayCompactionDegenerate
+
+// NonNegativeJSONInteger reads a usage counter that must not be negative.
+func NonNegativeJSONInteger(value interface{}) int64 { return nonNegativeJSONInteger(value) }
+
+// NewCompactionBlobError builds the typed failure for an unopenable blob.
+func NewCompactionBlobError() *CompactionBlobError { return &compactionBlobError{} }
+
+// ClientCompactionPromptMarker is the distinctive line from the compaction
+// prompt that identifies a TUI-style compaction turn.
+const ClientCompactionPromptMarker = clientCompactionPromptMarker
+
+// CompactionPrefix marks a blob this gateway sealed.
+const CompactionPrefix = gatewayCompactionPrefix
+
+// MinCompactionRunes is the shortest usable summary.
+const MinCompactionRunes = minGatewayCompactionRunes

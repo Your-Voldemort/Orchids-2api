@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"orchids-api/internal/responses"
 	"strings"
 	"time"
 
@@ -89,7 +90,7 @@ func (h *Handler) HandleResponses(w http.ResponseWriter, r *http.Request) {
 	// `compaction_trigger` and the Grok TUI appends the canonical summary
 	// prompt as its last user item. The gateway answers those itself so the
 	// resulting state stays portable across accounts.
-	if h.GatewayCompactionEnabled() && classifyResponsesCompactionPayload(nativePayload) != responsesCompactionNone {
+	if h.GatewayCompactionEnabled() && responses.ClassifyCompactionPayload(nativePayload) != responses.CompactionNone {
 		h.handleGatewayCompaction(w, r, req.Model, spec, nativePayload, responsesPayloadStreaming(nativePayload, req.Stream))
 		return
 	}

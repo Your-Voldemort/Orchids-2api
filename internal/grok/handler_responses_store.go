@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"orchids-api/internal/responses"
 	"orchids-api/internal/util"
 	"strconv"
 	"strings"
@@ -43,8 +44,8 @@ func (h *Handler) handleNativeCLIResponsesAt(w http.ResponseWriter, r *http.Requ
 	// Gateway-owned compaction state is expanded before the payload is
 	// normalized, so the summary reaches the upstream as an ordinary user
 	// message and the reasoning-replay machinery never sees a sealed blob.
-	if codec := h.compactionCodecSnapshot(); codec.available() {
-		drifted, expandErr := expandGatewayCompactionHistory(payload, codec, sessionFromContext(r.Context()).Key)
+	if codec := h.compactionCodecSnapshot(); codec.Available() {
+		drifted, expandErr := responses.ExpandCompactionHistory(payload, codec, sessionFromContext(r.Context()).Key)
 		if expandErr != nil {
 			writeResponsesAPIErrorWithParam(w, http.StatusBadRequest, "invalid_compaction_blob", expandErr.Error(), compactionErrorParam(expandErr))
 			return

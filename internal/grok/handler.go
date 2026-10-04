@@ -14,6 +14,7 @@ import (
 	"orchids-api/internal/middleware"
 	"orchids-api/internal/modelpolicy"
 	"orchids-api/internal/pricing"
+	"orchids-api/internal/responses"
 	"orchids-api/internal/store"
 	"orchids-api/internal/util"
 	"strings"
@@ -45,7 +46,7 @@ type Handler struct {
 	// Nil (no credential key configured) means the gateway cannot own a summary
 	// and compaction requests stay a plain upstream forward.
 	compactionMu   sync.RWMutex
-	compactionCode *gatewayCompactionCodec
+	compactionCode *responses.CompactionCodec
 
 	quotaOnce    sync.Once
 	quotaMu      sync.Mutex
