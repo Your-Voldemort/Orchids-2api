@@ -1,25 +1,11 @@
-package util
+package httpclient
 
 import (
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
-
-	"encoding/json"
 )
-
-// WriteJSON writes the same JSON envelope for admin and inference endpoints.
-func WriteJSON(w http.ResponseWriter, body interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(body)
-}
-
-func WriteJSONStatus(w http.ResponseWriter, status int, body interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
-}
 
 // ParseRetryAfter accepts seconds or an HTTP date. A positive limit preserves
 // each provider's wait budget; zero leaves the duration uncapped.
