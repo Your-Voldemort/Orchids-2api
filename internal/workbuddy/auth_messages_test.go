@@ -31,6 +31,32 @@ func TestBuildMessages_NormalizesDeveloperRole(t *testing.T) {
 	testutil.Equal(t, messages[0].Content, "stay terse")
 }
 
+func TestBuildMessagesMergesInterleavedSystemWithoutLosingTools(t *testing.T) {
+	req := upstream.UpstreamRequest{
+		System: []prompt.SystemItem{{Type: "text", Text: "first instruction"}},
+		Messages: []prompt.Message{
+			roleMessage(t, "developer", "second instruction"),
+			userMessage(t, "question one"),
+			roleMessage(t, "system", "third instruction"),
+			{Role: "assistant", Content: prompt.MessageContent{Blocks: []prompt.ContentBlock{{Type: "tool_use", ID: "call-one", Name: "read_file", Input: map[string]interface{}{"path": "file.txt"}}}}},
+			{Role: "user", Content: prompt.MessageContent{Blocks: []prompt.ContentBlock{{Type: "tool_result", ToolUseID: "call-one", Content: "file result"}}}},
+			userMessage(t, "question two"),
+		},
+	}
+	messages := buildMessages(req)
+	if len(messages) != 5 || messages[0].Content != "first instruction\n\nsecond instruction\n\nthird instruction" {
+		t.Fatalf("instructions lost: %#v", messages)
+	}
+	for i, role := range []string{"system", "user", "assistant", "tool", "user"} {
+		if messages[i].Role != role {
+			t.Fatalf("role order: %#v", messages)
+		}
+	}
+	if messages[2].ToolCalls[0].ID != "call-one" || messages[3].ToolCallID != "call-one" || messages[3].Content != "file result" {
+		t.Fatal("tool association lost")
+	}
+}
+
 func TestBuildMessages_KeepsSystemItemsAndToolResults(t *testing.T) {
 	t.Parallel()
 

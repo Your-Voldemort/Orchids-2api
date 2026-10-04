@@ -112,10 +112,27 @@ func buildMessages(req upstream.UpstreamRequest) []ChatMessage {
 		}
 		out = append(out, ChatMessage{Role: "user", Content: prompt})
 	}
-	if !strings.EqualFold(strings.TrimSpace(out[0].Role), "system") {
+	hasSystem := false
+	for _, message := range out {
+		hasSystem = hasSystem || message.Role == "system"
+	}
+	if !hasSystem {
 		out = append([]ChatMessage{{Role: "system", Content: defaultSystem}}, out...)
 	}
-	return out
+	// WorkBuddy chat compatibility uses one leading system message. Preserve
+	// each system/developer block in encounter order, and leave the relative
+	// order and call identities of user/assistant/tool messages untouched.
+	var system []string
+	normalized := make([]ChatMessage, 1, len(out))
+	for _, message := range out {
+		if message.Role == "system" {
+			system = append(system, message.Content)
+			continue
+		}
+		normalized = append(normalized, message)
+	}
+	normalized[0] = ChatMessage{Role: "system", Content: strings.Join(system, "\n\n")}
+	return normalized
 }
 
 func reasoningForReplay(msg prompt.Message) string {
