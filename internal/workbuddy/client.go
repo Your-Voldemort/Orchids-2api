@@ -265,6 +265,8 @@ func (c *Client) buildBody(req upstream.UpstreamRequest) ([]byte, error) {
 	// leave cache selection and parallel tool scheduling to the upstream.
 	if req.MaxTokens != nil {
 		body["max_tokens"] = *req.MaxTokens
+	} else {
+		body["max_tokens"] = 8192
 	}
 	if req.Temperature != nil {
 		body["temperature"] = *req.Temperature

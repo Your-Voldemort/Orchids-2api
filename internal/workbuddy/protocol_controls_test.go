@@ -31,3 +31,17 @@ func TestProtocolControlsInWireBody(t *testing.T) {
 		t.Fatal("unsupported include accepted")
 	}
 }
+
+func TestDefaultOutputLimit(t *testing.T) {
+	raw, err := (&Client{}).buildBody(upstream.UpstreamRequest{Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(raw, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["max_tokens"] != float64(8192) {
+		t.Fatalf("default limit missing: %s", raw)
+	}
+}
