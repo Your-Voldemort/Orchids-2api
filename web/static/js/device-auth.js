@@ -174,9 +174,6 @@ globalThis.DeviceAuthLogin = (() => {
           fail(`${label} 登录会话已失效，请重新发起登录。`);
           return;
         }
-        if (response.status === 409 || response.status === 200) {
-          // fall through: 200 is the normal case, 409 is reported body-side
-        }
         if (!response.ok) return;
         const result = await response.json();
         if (active !== login) return;

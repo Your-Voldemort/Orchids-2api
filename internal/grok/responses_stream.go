@@ -21,16 +21,9 @@ type chatResponseItem struct {
 	closed    bool
 }
 
-// writeResponsesStreamFromChatReaderRequestWithHook translates chat events into
-// Responses SSE. The optional terminal hook receives the final response object
-// (the one carried by response.completed / failed / incomplete) so a caller
-// that promised to store the response can persist exactly what the client saw.
-func writeResponsesStreamFromChatReaderRequestWithHook(w http.ResponseWriter, request ResponsesCreateRequest, reader io.Reader, onComplete func(map[string]interface{})) {
-	writeResponsesStreamFromChatReaderRequest(w, request, reader, chatStreamOptions{onComplete: onComplete})
-}
-
 // chatStreamOptions configures one chat-to-Responses translation.
 type chatStreamOptions struct {
+	initialItems []map[string]interface{}
 	// onComplete receives the terminal response object after it is built.
 	onComplete func(map[string]interface{})
 	// toolAliases restores the identity of a tool the bridge flattened before it
@@ -64,6 +57,26 @@ func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request Re
 	meaningful := false
 	sequence := 0
 	emit := func(kind string, payload map[string]interface{}) {
+		if kind == "response.function_call_arguments.delta" || kind == "response.function_call_arguments.done" {
+			for _, item := range tools {
+				if item.value["id"] != payload["item_id"] {
+					continue
+				}
+				identity := aliases[interfaceString(item.value["name"])]
+				if identity.Kind == "apply_patch" {
+					return // The operation is delivered in output_item.done.
+				}
+				if identity.Kind == "custom" {
+					if kind == "response.function_call_arguments.delta" {
+						return // JSON wrapper fragments are not custom tool input.
+					}
+					input, _ := decodeCustomToolInputValue(payload["arguments"])
+					kind = "response.custom_tool_call_input.done"
+					delete(payload, "arguments")
+					payload["input"] = input
+				}
+			}
+		}
 		// sequence_number must increase by one per event: a client that
 		// reconnects with Last-Event-ID asks for everything after the last
 		// number it saw, and an event without one cannot be ordered at all.
@@ -75,6 +88,7 @@ func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request Re
 			writer.err = err
 			return
 		}
+		data = rewriteBuildToolAliasesJSON(data, aliases)
 		_, _ = fmt.Fprintf(writer, "event: %s\ndata: %s\n\n", kind, data)
 		writer.Flush()
 	}
@@ -109,6 +123,12 @@ func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request Re
 	emit("response.created", map[string]interface{}{"response": response("in_progress")})
 	if writer.err != nil {
 		return
+	}
+	for _, value := range opts.initialItems {
+		item := add(value)
+		item.closed = true
+		emit("response.web_search_call.completed", map[string]interface{}{"item_id": value["id"], "output_index": item.index})
+		emit("response.output_item.done", map[string]interface{}{"output_index": item.index, "item": value})
 	}
 	err := readResponseSSEBytes(reader, func(event string, data []byte) error {
 		if writer.err != nil {
@@ -331,6 +351,9 @@ func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request Re
 	}
 	for _, item := range items {
 		kind := streamString(item.value["type"])
+		if kind == "web_search_call" && item.closed {
+			continue
+		}
 		itemStatus := status
 		if kind == "web_search_call" && item.closed {
 			itemStatus = interfaceString(item.value["status"])
@@ -374,6 +397,7 @@ func writeResponsesStreamFromChatReaderRequest(w http.ResponseWriter, request Re
 		usage = responsesUsageFromChat(nil)
 	}
 	v := response(status)
+	restoreBridgeToolIdentity(v, aliases)
 	if details != nil {
 		v["incomplete_details"] = details
 	}

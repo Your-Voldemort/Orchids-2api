@@ -157,6 +157,9 @@ func main() {
 		slog.Debug("Admin sessions persisted", "backend", "redis")
 	}
 
+	if err := grok.SeedBrightDataConfig(cfg); err != nil {
+		slog.Error("Bright Data initial configuration unavailable", "error", err)
+	}
 	apiHandler := api.New(s, cfg.AdminUser, cfg.AdminPass, cfg)
 	diagnosticStore := debug.NewDiagnosticStore(s.RedisClient(), s.RedisPrefix())
 	apiHandler.SetDiagnosticStore(diagnosticStore)

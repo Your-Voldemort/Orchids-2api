@@ -114,7 +114,6 @@ func TestGetOrCreateAccountClient_ConfigSaveOnlyRebuildsForClientInputs(t *testi
 		name   string
 		mutate func(*config.Config)
 	}{
-		{"auto refresh token", func(c *config.Config) { c.AutoRefreshToken = true }},
 		{"debug enabled", func(c *config.Config) { c.DebugEnabled = true }},
 		{"debug SSE", func(c *config.Config) { c.DebugLogSSE = true }},
 		{"suppress thinking", func(c *config.Config) { c.SuppressThinking = true }},

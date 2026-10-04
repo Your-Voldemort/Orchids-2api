@@ -46,7 +46,10 @@ type ResponsesBridgeOptions struct {
 	// record is only visible to the replica that wrote it.
 	Store ResponsesStore
 	// TTL overrides the stored-response lifetime; zero uses the default.
-	TTL time.Duration
+	TTL                 time.Duration
+	Search              BridgeSearch
+	SearchSnapshot      func() BridgeSearch
+	PlannerBillingStore middleware.APIKeyBillingReserver
 }
 
 // memoryFallbackWarned keeps the "no shared store" warning to one line per
@@ -142,6 +145,10 @@ func ResponsesBridgeHandler(chat http.HandlerFunc, opts ResponsesBridgeOptions) 
 		// made Codex unusable on every non-Grok channel. The rewrite runs after a
 		// stored conversation was replayed so the calls it echoes back are renamed
 		// too.
+		searchItems, ok := prepareBridgeSearch(w, r, &req, chat, opts)
+		if !ok {
+			return
+		}
 		aliases, err := normalizeBridgedTools(&req)
 		if err != nil {
 			writeResponsesAPIError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -180,8 +187,9 @@ func ResponsesBridgeHandler(chat http.HandlerFunc, opts ResponsesBridgeOptions) 
 					return
 				}
 				writeResponsesStreamFromChatReaderRequest(w, req, reader, chatStreamOptions{
-					toolAliases: aliases,
-					onComplete:  bridgedResponseRecorder(r, req, opts),
+					initialItems: searchItems,
+					toolAliases:  aliases,
+					onComplete:   bridgedResponseRecorder(r, req, opts),
 				})
 			})
 			return
@@ -199,6 +207,11 @@ func ResponsesBridgeHandler(chat http.HandlerFunc, opts ResponsesBridgeOptions) 
 			return
 		}
 		response := responsesObjectFromChat(req.Model, chatBody)
+		output := make([]interface{}, 0, len(searchItems))
+		for _, item := range searchItems {
+			output = append(output, item)
+		}
+		response["output"] = append(output, interfaceSlice(response["output"])...)
 		restoreBridgeToolIdentity(response, aliases)
 		applyBridgedResponseExtras(response, req)
 		// Ownership is recorded for any successful response: the caller's `store`

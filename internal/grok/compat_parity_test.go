@@ -61,14 +61,14 @@ func TestResolveModelAcceptsCurrentBuildModels(t *testing.T) {
 func TestGrok45RoutesToBuildCLI(t *testing.T) {
 	spec, ok := ResolveModel("grok-4.5")
 	testutil.True(t, ok, "ResolveModel(grok-4.5) = false, want true")
-	testutil.False(t, !modelRoutedToCLI(spec, &config.Config{}), "grok-4.5 should route through the official Build CLI OAuth path")
+	testutil.False(t, !modelRoutedToCLI(spec), "grok-4.5 should route through the official Build CLI OAuth path")
 }
 
 func TestLegacyCLIModelListCannotRouteImplicitModel(t *testing.T) {
 	var cfg config.Config
 	testutil.NoError(t, json.Unmarshal([]byte(`{"grok_cli_model_ids":["implicit-model"]}`), &cfg))
-	testutil.False(t, modelRoutedToCLI(ModelSpec{ID: "implicit-model"}, &cfg), "legacy model list must not route models without explicit Build capability")
-	testutil.False(t, !modelRoutedToCLI(ModelSpec{ID: "dynamic-build", Upstream: UpstreamCLI}, &cfg), "dynamically discovered Build models must stay routed to CLI")
+	testutil.False(t, modelRoutedToCLI(ModelSpec{ID: "implicit-model"}), "legacy model list must not route models without explicit Build capability")
+	testutil.False(t, !modelRoutedToCLI(ModelSpec{ID: "dynamic-build", Upstream: UpstreamCLI}), "dynamically discovered Build models must stay routed to CLI")
 }
 
 // TestChatCompletionsRequestValidateLeavesSamplingToUpstream pins that Validate

@@ -477,6 +477,12 @@ func responsesInputToMessagesMode(input interface{}, strict bool) ([]ChatMessage
 					return nil, fmt.Errorf("input[%d].call_id is required", index)
 				}
 				messages = append(messages, ChatMessage{Role: "tool", ToolCallID: parseLooseStringAny(item["call_id"]), Content: bridgeToolOutput(item["output"])})
+			case "web_search_call":
+				// Search execution is already represented by the answer and source
+				// evidence. A completed hosted call is not a client function call.
+				if status := parseLooseStringAny(item["status"]); status != "completed" {
+					return nil, fmt.Errorf("input[%d]: incomplete web search call", index)
+				}
 			case "reasoning":
 				if strict && parseLooseStringAny(item["encrypted_content"]) != "" {
 					return nil, fmt.Errorf("input[%d]: encrypted reasoning requires a native Responses provider", index)

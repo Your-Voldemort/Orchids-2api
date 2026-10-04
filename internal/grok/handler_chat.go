@@ -82,7 +82,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		writeGrokError(w, http.StatusBadRequest, modelValidationMessage(req.Model, err))
 		return
 	}
-	if !modelRoutedToCLI(spec, h.configSnapshot()) {
+	if !modelRoutedToCLI(spec) {
 		writeGrokErrorCode(w, http.StatusNotFound, "model_not_found", modelNotFoundMessage(req.Model))
 		return
 	}

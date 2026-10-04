@@ -303,13 +303,10 @@ func refreshClineCatalog(ctx context.Context, cfg *config.Config, s *store.Store
 
 func startTokenRefreshLoop(ctx context.Context, configSnapshot func() *config.Config, s *store.Store, lb *loadbalancer.LoadBalancer) {
 	cfg := configSnapshot()
-	if cfg == nil || !cfg.AutoRefreshToken {
+	if cfg == nil {
 		return
 	}
-	interval := time.Duration(cfg.TokenRefreshInterval) * time.Minute
-	if interval <= 0 {
-		interval = 30 * time.Minute
-	}
+	const interval = time.Minute
 	slog.Debug("Auto refresh token enabled", "interval", interval.String())
 
 	refreshAccounts := func() {

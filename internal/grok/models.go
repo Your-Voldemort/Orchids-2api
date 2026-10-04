@@ -3,7 +3,6 @@ package grok
 import (
 	"strings"
 
-	"orchids-api/internal/config"
 	"orchids-api/internal/modelpolicy"
 )
 
@@ -128,4 +127,4 @@ func ResolveModel(modelID string) (ModelSpec, bool) {
 // modelRoutedToCLI reports whether a resolved model uses Build CLI. The
 // configured model table and dynamically discovered Build models explicitly
 // carry UpstreamCLI; legacy config model lists no longer affect routing.
-func modelRoutedToCLI(spec ModelSpec, _ *config.Config) bool { return spec.Upstream == UpstreamCLI }
+func modelRoutedToCLI(spec ModelSpec) bool { return spec.Upstream == UpstreamCLI }

@@ -14,6 +14,71 @@ import (
 	"orchids-api/internal/testutil"
 )
 
+func TestResponsesBridgeSpecialToolsRoundTrip(t *testing.T) {
+	for _, kind := range []string{"custom", "apply_patch"} {
+		for _, stream := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/stream=%v", kind, stream), func(t *testing.T) {
+				name, arguments := "patch", `{"input":"*** Begin Patch\n*** End Patch"}`
+				tool := map[string]interface{}{"type": kind, "name": name}
+				if kind == "apply_patch" {
+					name = "apply_patch"
+					arguments = `{"operation":{"type":"delete_file","path":"old.txt"}}`
+				}
+				chat := func(w http.ResponseWriter, r *http.Request) {
+					var body ChatCompletionsRequest
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Fatal(err)
+					}
+					if len(body.Tools) != 1 || body.Tools[0].Function["name"] != name {
+						t.Fatalf("tool not lowered: %#v", body.Tools)
+					}
+					call := map[string]interface{}{"index": 0, "id": "call_special", "type": "function", "function": map[string]interface{}{"name": name, "arguments": arguments}}
+					if stream {
+						w.Header().Set("Content-Type", "text/event-stream")
+						chunk, _ := json.Marshal(map[string]interface{}{"choices": []interface{}{map[string]interface{}{"index": 0, "delta": map[string]interface{}{"tool_calls": []interface{}{call}}}}})
+						fmt.Fprintf(w, "data: %s\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\ndata: [DONE]\n\n", chunk)
+					} else {
+						json.NewEncoder(w).Encode(map[string]interface{}{"choices": []interface{}{map[string]interface{}{"message": map[string]interface{}{"tool_calls": []interface{}{call}}, "finish_reason": "tool_calls"}}})
+					}
+				}
+				body, _ := json.Marshal(map[string]interface{}{"model": "test", "input": "patch", "stream": stream, "tools": []interface{}{tool}})
+				rec := httptest.NewRecorder()
+				ResponsesBridgeHandler(chat, ResponsesBridgeOptions{})(rec, httptest.NewRequest("POST", "/workbuddy/v1/responses", strings.NewReader(string(body))))
+				if rec.Code != 200 {
+					t.Fatalf("status=%d %s", rec.Code, rec.Body.String())
+				}
+				wire := rec.Body.String()
+				if !strings.Contains(wire, `"type":"`+kind+`_tool_call"`) && kind == "custom" {
+					t.Fatal(wire)
+				}
+				if kind == "apply_patch" && (!strings.Contains(wire, `"type":"apply_patch_call"`) || !strings.Contains(wire, `"operation":`)) {
+					t.Fatal(wire)
+				}
+				if stream && (strings.Contains(wire, "response.function_call_arguments.") || !strings.Contains(wire, "response.completed")) {
+					t.Fatal(wire)
+				}
+			})
+		}
+	}
+}
+
+func TestResponsesBridgeSpecialToolHistory(t *testing.T) {
+	req := ResponsesCreateRequest{Model: "test", Tools: []map[string]interface{}{{"type": "apply_patch"}}, Input: []interface{}{
+		map[string]interface{}{"type": "apply_patch_call", "call_id": "call_patch", "operation": map[string]interface{}{"type": "delete_file", "path": "old.txt"}},
+		map[string]interface{}{"type": "apply_patch_call_output", "call_id": "call_patch", "output": "deleted"},
+	}}
+	if _, err := normalizeBridgedTools(&req); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := chatRequestFromResponses(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(chat.Messages) != 2 || chat.Messages[0].ToolCalls[0].ID != "call_patch" || chat.Messages[1].ToolCallID != "call_patch" {
+		t.Fatalf("history=%#v", chat.Messages)
+	}
+}
+
 // codexNamespaceTools is the tool list Codex sends: seven flat functions
 // followed by a `namespace` grouping. The eighth entry is the one the chat
 // bridge used to reject with `tools[7]: tool type "namespace" requires a native

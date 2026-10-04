@@ -191,7 +191,7 @@ func TestWriteResponsesStreamFromChat_ConvertsToolCallChunk(t *testing.T) {
 	b.WriteString("data: [DONE]\n\n")
 
 	rec := httptest.NewRecorder()
-	writeResponsesStreamFromChatReaderRequestWithHook(rec, ResponsesCreateRequest{Model: "grok-4.20-0309"}, strings.NewReader(b.String()), nil)
+	writeResponsesStreamFromChatReaderRequest(rec, ResponsesCreateRequest{Model: "grok-4.20-0309"}, strings.NewReader(b.String()), chatStreamOptions{})
 
 	out := rec.Body.String()
 	testutil.MustContainAll(t, out, "response.output_item.added", "response.function_call_arguments.done")
@@ -207,7 +207,7 @@ func TestWriteResponsesStreamFromChatFailsEmptyAndPrematureStreams(t *testing.T)
 	} {
 		t.Run(name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			writeResponsesStreamFromChatReaderRequestWithHook(recorder, ResponsesCreateRequest{Model: "grok-4.6"}, strings.NewReader(input), nil)
+			writeResponsesStreamFromChatReaderRequest(recorder, ResponsesCreateRequest{Model: "grok-4.6"}, strings.NewReader(input), chatStreamOptions{})
 			body := recorder.Body.String()
 			testutil.Falsef(t, !strings.Contains(body, "event: response.failed") || strings.Contains(body, "event: response.completed"), "body=%s", body)
 			testutil.MustContainAll(t, body, `"model":"grok-4.6"`, "data: [DONE]")
@@ -253,7 +253,7 @@ func TestWriteResponsesStreamFromChatPreservesReasoningEvents(t *testing.T) {
 		`data: [DONE]`,
 	}, "\n\n")
 	recorder := httptest.NewRecorder()
-	writeResponsesStreamFromChatReaderRequestWithHook(recorder, ResponsesCreateRequest{Model: "grok-4.3"}, strings.NewReader(raw), nil)
+	writeResponsesStreamFromChatReaderRequest(recorder, ResponsesCreateRequest{Model: "grok-4.3"}, strings.NewReader(raw), chatStreamOptions{})
 	out := recorder.Body.String()
 	testutil.MustContainAll(t, out, `"type":"response.reasoning_summary_text.delta"`, `"delta":"plan"`)
 	testutil.MustContainAll(t, out, `"type":"response.output_text.delta"`, `"delta":"answer"`)

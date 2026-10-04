@@ -161,7 +161,8 @@ func registerRoutes(
 	if cfg != nil && cfg.ResponseStoreTTL > 0 {
 		responseStoreTTL = time.Duration(cfg.ResponseStoreTTL) * time.Hour
 	}
-	bridgeOptions := grok.ResponsesBridgeOptions{Store: s, TTL: responseStoreTTL}
+	bridgeOptions := grok.ResponsesBridgeOptions{Store: s, TTL: responseStoreTTL, PlannerBillingStore: s}
+	bridgeOptions.SearchSnapshot = func() grok.BridgeSearch { return grok.BrightDataSearchFromConfig(currentConfig()) }
 	channelResponses := grok.ResponsesBridgeHandler(h.HandleMessages, bridgeOptions)
 	channelResponsesSub := grok.ResponsesChannelSubpath(h.HandleMessages, bridgeOptions)
 	registerWithPrefixes(mux, channelPrefixes, "/responses", inferenceAuth(limiter.Limit(channelResponses)))

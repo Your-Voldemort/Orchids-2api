@@ -27,6 +27,9 @@ type Config struct {
 	AdminToken                  string         `json:"admin_token"`
 	CredentialKeyFile           string         `json:"credential_encryption_key_file,omitempty"`
 	ResponseStoreTTL            int            `json:"response_store_ttl_hours,omitempty"`
+	BrightDataEnabled           *bool          `json:"brightdata_enabled,omitempty"`
+	BrightDataZone              string         `json:"brightdata_zone,omitempty"`
+	BrightDataAPIKey            string         `json:"brightdata_api_key,omitempty"`
 	TrustedProxies              []string       `json:"trusted_proxies,omitempty"`
 	RedisAddr                   string         `json:"redis_addr"`
 	RedisPassword               string         `json:"redis_password"`
@@ -166,8 +169,6 @@ type Config struct {
 	QualityHoldOnExhausted string   `json:"quality_hold_on_exhausted,omitempty"`
 	RequestTimeout         int      `json:"request_timeout,omitempty"`
 	Retry429Interval       int      `json:"retry_429_interval,omitempty"`
-	TokenRefreshInterval   int      `json:"-"`
-	AutoRefreshToken       bool     `json:"-"`
 	LoadBalancerCacheTTL   int      `json:"-"`
 	ConcurrencyLimit       int      `json:"concurrency_limit,omitempty"`
 	ConcurrencyTimeout     int      `json:"concurrency_timeout,omitempty"`
@@ -199,6 +200,7 @@ func (c *Config) Clone() *Config {
 
 	clone := *c
 	clone.Stream = cloneBool(c.Stream)
+	clone.BrightDataEnabled = cloneBool(c.BrightDataEnabled)
 	clone.TrustedProxies = append([]string(nil), c.TrustedProxies...)
 	clone.GrokEgressNodes = append([]EgressNodeConfig(nil), c.GrokEgressNodes...)
 	clone.ProxyBypass = append([]string(nil), c.ProxyBypass...)
@@ -339,8 +341,6 @@ func ApplyHardcoded(cfg *Config) {
 	// one. The bounds still let an operator lower it.
 	cfg.RequestTimeout = boundedDefault(cfg.RequestTimeout, 7200, 86400)
 	cfg.Retry429Interval = boundedDefault(cfg.Retry429Interval, 60, 3600)
-	cfg.TokenRefreshInterval = 1
-	cfg.AutoRefreshToken = true
 	cfg.LoadBalancerCacheTTL = 5
 	if cfg.ConcurrencyLimit <= 0 {
 		cfg.ConcurrencyLimit = 100

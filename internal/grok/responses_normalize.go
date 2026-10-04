@@ -112,7 +112,7 @@ func collectBuildToolAliases(payload map[string]interface{}) map[string]buildToo
 			case "custom":
 				name := strings.TrimSpace(fmt.Sprint(tool["name"]))
 				if name != "" && name != "<nil>" {
-					aliases[buildToolAlias(namespace, name)] = buildToolAliasIdentity{Kind: "custom", Namespace: namespace, Name: name, Declaration: cloneStringInterfaceMap(tool)}
+					aliases[state.alias(namespace, name)] = buildToolAliasIdentity{Kind: "custom", Namespace: namespace, Name: name, Declaration: cloneStringInterfaceMap(tool)}
 				}
 			}
 		}
@@ -256,12 +256,18 @@ func normalizeBuildResponsesPayload(payload map[string]interface{}) error {
 	payload["tools"] = normalized
 	normalizeBuildToolChoice(payload, state)
 	for _, item := range interfaceMaps(payload["input"]) {
+		originalName := parseLooseStringAny(item["name"])
+		originalNamespace := parseLooseStringAny(item["namespace"])
 		// A client that echoes back the calls this layer emulates (custom_tool_call,
 		// apply_patch_call and their outputs) is lowered onto the emulated function
 		// shape, otherwise the upstream rejects an unknown item type.
 		switch strings.ToLower(strings.TrimSpace(parseLooseStringAny(item["type"]))) {
 		case "custom_tool_call", "apply_patch_call":
 			lowerEmulatedCallItem(item)
+			if alias := state.lookup(originalNamespace, originalName); alias != "" {
+				item["name"] = alias
+				delete(item, "namespace")
+			}
 			continue
 		case "custom_tool_call_output", "apply_patch_call_output":
 			item["type"] = "function_call_output"

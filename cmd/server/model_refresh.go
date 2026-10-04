@@ -690,7 +690,6 @@ func persistWorkBuddyCatalogSnapshot(ctx context.Context, s *store.Store, acc *s
 }
 
 type grokBuildModelDiscovery struct {
-	index   int
 	account *store.Account
 	catalog []modelcatalog.Profile
 	err     error

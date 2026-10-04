@@ -202,7 +202,7 @@ func (h *Handler) HandleResponsesCompact(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	spec, ok := h.resolveConversationModel(r.Context(), modelID)
-	if !ok || !modelRoutedToCLI(spec, h.configSnapshot()) {
+	if !ok || !modelRoutedToCLI(spec) {
 		writeResponsesAPIError(w, http.StatusBadRequest, "invalid_request_error", "responses compact requires a Grok Build model")
 		return
 	}

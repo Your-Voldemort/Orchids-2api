@@ -47,8 +47,9 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 		}
 		out := make([]map[string]interface{}, 0, len(children))
 		for index, child := range children {
-			if !strings.EqualFold(strings.TrimSpace(fmt.Sprint(child["type"])), "function") {
-				return nil, fmt.Errorf("%s.tools.%d must be a function", param, index)
+			childKind := strings.ToLower(strings.TrimSpace(fmt.Sprint(child["type"])))
+			if childKind != "function" && childKind != "custom" {
+				return nil, fmt.Errorf("%s.tools.%d must be a function or custom tool", param, index)
 			}
 			items, err := normalizeBuildTool(child, name, clientSearch, serverSearch, fmt.Sprintf("%s.tools.%d", param, index), state)
 			if err != nil {
@@ -115,7 +116,7 @@ func normalizeBuildTool(tool map[string]interface{}, namespace string, clientSea
 		}
 		description += "Provide the custom tool input in the input string field."
 		return []map[string]interface{}{{
-			"type": "function", "name": buildToolAlias(namespace, name), "description": description,
+			"type": "function", "name": state.alias(namespace, name), "description": description,
 			"parameters": map[string]interface{}{
 				"type":                 "object",
 				"properties":           map[string]interface{}{"input": map[string]interface{}{"type": "string"}},
